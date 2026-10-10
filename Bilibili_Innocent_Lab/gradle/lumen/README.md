@@ -8,6 +8,8 @@
 
 本地开发引擎时可显式传 `-PinnocentLab.lumenDevelopmentSource=<引擎目录>`，默认构建与 CI 均使用上面的正式标签和哈希。开发目录必须完成工具链对齐；正式验收不得把开发覆盖当作标签构建证据。
 
+本地 SDK 优先读取宿主 Android 工程 `local.properties` 的 `sdk.dir`，未配置时沿用 `ANDROID_HOME` / `ANDROID_SDK_ROOT`。settings 在准备锁内将解析后的绝对 SDK 路径同步到缓存源码自己的 `local.properties`；首次准备及已有缓存都检查，仅路径变化时更新，只同步 `sdk.dir`。因此只在宿主配置 SDK 即可构建正式标签，不需要为每次引擎升级手动设置环境变量，也不会复制签名或其他本地参数。生成文件留在 `.gradle/`，不提交机器路径。显式开发源码目录由其自身配置 SDK，宿主不覆盖它的配置。
+
 ## 历史：1.2.2 的公共扩展
 
 基线固定为上游 [1.2.2 发布版](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.2.2)。为保留迁移前的效果，在引擎原包名下应用小范围公共扩展；宿主适配只使用公开 API，不重新维护材质、探针或弹簧求解器。接入结构见 `app/src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/hook/hostui/README.md`。

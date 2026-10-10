@@ -2,6 +2,7 @@ import java.io.RandomAccessFile
 import java.net.URI
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.Properties
 import java.util.zip.ZipInputStream
 
 pluginManagement {
@@ -106,6 +107,28 @@ if (lumenDevelopmentSource != null) {
                 lumenSource.resolve(".prepared").writeText(lumenSourceKey)
             }
             check(lumenSource.resolve(".prepared").readText() == lumenSourceKey) { "Lumen source cache key collision." }
+
+            // Included Android builds resolve their own local.properties, not the host's.
+            // Refresh only sdk.dir, including prepared caches, without copying private settings.
+            val hostLocalProperties = Properties().apply {
+                file("local.properties").takeIf { it.isFile }?.inputStream()?.use { load(it) }
+            }
+            val hostSdkDirectory = hostLocalProperties.getProperty("sdk.dir")?.takeIf { it.isNotBlank() }
+                ?: providers.environmentVariable("ANDROID_HOME").orNull?.takeIf { it.isNotBlank() }
+                ?: providers.environmentVariable("ANDROID_SDK_ROOT").orNull?.takeIf { it.isNotBlank() }
+            if (hostSdkDirectory != null) {
+                val sdkPath = file(hostSdkDirectory).canonicalPath
+                val sdkPropertiesFile = lumenSource.resolve("local.properties")
+                val sdkProperties = Properties().apply {
+                    sdkPropertiesFile.takeIf { it.isFile }?.inputStream()?.use { load(it) }
+                }
+                if (sdkProperties.getProperty("sdk.dir") != sdkPath) {
+                    sdkProperties.setProperty("sdk.dir", sdkPath)
+                    sdkPropertiesFile.outputStream().use {
+                        sdkProperties.store(it, "SDK inherited from the host; generated, do not commit.")
+                    }
+                }
+            }
         }
     }
 }
