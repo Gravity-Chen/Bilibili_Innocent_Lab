@@ -130,8 +130,8 @@
     <string name="settings_search_section_general">常规设置</string>
     <string name="home_top_bar_settings">首页顶部栏</string>
     <string name="hide_home_game_menu">隐藏首页游戏中心</string>
-    <string name="remove_home_recommend_cm_v2">过滤主页信息流伪装广告</string>
-    <string name="remove_home_recommend_cm_v2_tip">开启后识别并移除伪装成视频小卡的主页推荐信息流广告。重启哔哩哔哩后生效。</string>
+    <string name="remove_home_recommend_cm_v2">过滤标准信息流广告</string>
+    <string name="remove_home_recommend_cm_v2_tip">过滤标准信息流广告卡。普通视频样式的推广请同时开启「首页推荐过滤」中的「过滤推荐广告」。重启哔哩哔哩后生效。</string>
     <string name="hide_home_game_menu_tip">开启后，隐藏首页顶部的游戏中心入口，搜索、扫一扫等其他入口不受影响。重启哔哩哔哩后生效。</string>
     <string name="hide_home_search_default_word">隐藏搜索推荐词</string>
     <string name="hide_home_search_default_word_tip">开启后，搜索框不再显示默认推荐词，搜索入口和搜索功能保持不变。重启哔哩哔哩后生效。</string>
@@ -171,6 +171,8 @@
     <string name="home_recommend_blocked_authors_tip">按 UP 主名称或 UID 过滤推荐，重启哔哩哔哩后生效。</string>
     <string name="home_recommend_blocked_authors_pending">在哔哩哔哩里选了 %1$s 个还没保存，已经替你填在下面了。</string>
     <string name="highlights_home_blocked_authors">按 UP 主名或 id 把某个 UP 主从推荐流里屏蔽掉，也可以直接在哔哩哔哩三点面板里选。</string>
+    <string name="highlights_home_ad_coverage">增强首页推广视频过滤，单独开启「过滤推荐广告」也能覆盖更多明确广告；修正标准信息流广告开关说明。</string>
+    <string name="highlights_related_ad_payload">相关推荐的商业推广和特殊推荐过滤已增强，无需开启强力模式；三点反馈仍只用于强力模式。</string>
     <string name="home_recommend_title_dialog_hint">例如：盘点, 搬运</string>
     <string name="remove_home_recommend_live">过滤直播推荐</string>
     <string name="remove_home_recommend_courses">过滤课堂推荐</string>
@@ -1337,6 +1339,8 @@
     <string name="agent_logs_title">执行日志</string>
     <string name="agent_logs_help">日志记录任务阶段、来源编号、耗时和执行结果，不保存目标、API Key、截图或原始响应。最多保留四个任务，长日志会明确显示省略数量。</string>
     <string name="agent_logs_empty">暂无执行记录</string>
+    <string name="agent_notification_show_status">返回状态</string>
+    <string name="agent_notification_logs_hint">最近执行记录；完整日志可在模块主页面查看。</string>
     <string name="agent_logs_next">切换任务</string>
     <string name="agent_logs_cache">命中缓存</string>
     <string name="agent_logs_persistence_failed">日志保存失败，当前内存记录仍可查看。</string>
@@ -1383,4 +1387,14 @@
     <string name="agent_waiting_host">等待返回哔哩哔哩</string>
     <string name="agent_recent_completed">%1$s完成</string>
     <string name="agent_recent_failed">%1$s未成功</string>
+    <string name="agent_tip_native">确认可读取的宿主信息</string>
+    <string name="agent_tip_ranking">读取榜单与热门视频</string>
+    <string name="agent_tip_metrics">读取视频统计</string>
+    <string name="agent_tip_feed">读取视频与动态信息</string>
+    <string name="agent_tip_live">查询直播状态</string>
+    <string name="agent_tip_comments">读取视频评论</string>
+    <string name="agent_account_read_unavailable">账号读取需要授权和有效登录；修改授权后请重启哔哩哔哩</string>
+    <string name="agent_account_changed">账号已切换，请重新开始任务</string>
+    <string name="agent_native_unavailable">当前接口不可用，需要重新观察真实界面</string>
+    <string name="agent_goal_incomplete">尚未取得能验证目标的信息</string>
 </resources>

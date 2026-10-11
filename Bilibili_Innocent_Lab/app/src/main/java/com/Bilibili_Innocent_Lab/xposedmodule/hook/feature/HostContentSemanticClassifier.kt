@@ -147,7 +147,9 @@ internal object HostContentSemanticClassifier {
         token in ADVERTISEMENT_TOKENS || token.startsWith("CM_V2") || token.startsWith("AD_")
 
     private fun isAdvertisementUri(uri: String): Boolean =
-        uri.startsWith("bilibili://ad/") || uri.contains("cm.bilibili.com/")
+        uri.startsWith("bilibili://ad/") ||
+            uri.startsWith("https://cm.bilibili.com/") ||
+            uri.startsWith("http://cm.bilibili.com/")
 
     private fun isPictureToken(token: String): Boolean =
         token in PICTURE_TOKENS || token.startsWith("PICTURE_") || token.startsWith("OPUS_")

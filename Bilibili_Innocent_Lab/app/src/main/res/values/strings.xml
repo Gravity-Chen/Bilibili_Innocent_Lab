@@ -107,8 +107,8 @@
     <string name="settings_search_section_general">General settings</string>
     <string name="home_top_bar_settings">Home top bar</string>
     <string name="hide_home_game_menu">Hide the top-bar game center entry</string>
-    <string name="remove_home_recommend_cm_v2">Filter disguised home feed ads</string>
-    <string name="remove_home_recommend_cm_v2_tip">When enabled, detects and removes home recommendation feed ads disguised as video cards. Restart Bilibili to apply.</string>
+    <string name="remove_home_recommend_cm_v2">Filter standard home feed ads</string>
+    <string name="remove_home_recommend_cm_v2_tip">Filters standard home feed ad cards. To also remove promoted video cards, enable Filter recommendation ads in Home recommendation filters. Restart Bilibili to apply.</string>
     <string name="hide_home_game_menu_tip">Only blocks the game-center menu item; search, scan, and other entries remain available. Restart Bilibili to apply.</string>
     <string name="hide_home_search_default_word">Hide the default search suggestion</string>
     <string name="hide_home_search_default_word_tip">Keeps search and its click behavior available while clearing only the suggested text. Restart Bilibili to apply.</string>
@@ -148,6 +148,8 @@
     <string name="home_recommend_blocked_authors_tip">Filter recommendations by creator name or UID. Restart Bilibili to apply.</string>
     <string name="home_recommend_blocked_authors_pending">%1$s picked in Bilibili and not saved yet; they are already filled in below.</string>
     <string name="highlights_home_blocked_authors">Block an uploader from the recommendation feed by name or id, and pick one straight from the Bilibili three-dot panel.</string>
+    <string name="highlights_home_ad_coverage">Improves promoted-video filtering on Home when recommendation-ad filtering is used on its own, and clarifies the separate standard-feed ad option.</string>
+    <string name="highlights_related_ad_payload">Improves commercial and special related-video filtering without strong mode. Feedback alone remains a strong-mode-only signal.</string>
     <string name="home_recommend_title_dialog_hint">Example: compilation, reaction</string>
     <string name="remove_home_recommend_live">Filter live recommendations</string>
     <string name="remove_home_recommend_courses">Filter course recommendations</string>
@@ -1337,6 +1339,8 @@
     <string name="agent_logs_title">Execution log</string>
     <string name="agent_logs_help">Logs keep task stages, source numbers, timing and outcomes. Goals, API keys, images and raw replies are not stored. At most four tasks are kept; long logs are trimmed with a visible count.</string>
     <string name="agent_logs_empty">No execution log yet</string>
+    <string name="agent_notification_show_status">Show status</string>
+    <string name="agent_notification_logs_hint">Recent execution records. The full log is available on the module main page.</string>
     <string name="agent_logs_next">Next task</string>
     <string name="agent_logs_cache">Cache hit</string>
     <string name="agent_logs_persistence_failed">Log persistence failed; current in-memory records are still available.</string>
@@ -1383,4 +1387,14 @@
     <string name="agent_waiting_host">Waiting for return to Bilibili</string>
     <string name="agent_recent_completed">%1$s completed</string>
     <string name="agent_recent_failed">%1$s unsuccessful</string>
+    <string name="agent_tip_native">Checking available app data</string>
+    <string name="agent_tip_ranking">Reading ranking and popular videos</string>
+    <string name="agent_tip_metrics">Reading video statistics</string>
+    <string name="agent_tip_feed">Reading videos and feed data</string>
+    <string name="agent_tip_live">Checking live status</string>
+    <string name="agent_tip_comments">Reading video comments</string>
+    <string name="agent_account_read_unavailable">Account reading requires authorization and a valid login. Restart Bilibili after changing authorization.</string>
+    <string name="agent_account_changed">Account changed. Start a new task.</string>
+    <string name="agent_native_unavailable">This app interface is unavailable. A new screen observation is required.</string>
+    <string name="agent_goal_incomplete">The requested information has not been verified.</string>
 </resources>

@@ -6,6 +6,7 @@ import android.app.KeyguardManager
 import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
+import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -17,6 +18,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import androidx.annotation.RequiresApi
+import com.Bilibili_Innocent_Lab.xposedmodule.agent.ui.AgentIslandOverlay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -58,9 +60,22 @@ class AgentAccessibilityService : AccessibilityService() {
         check(getSystemService(PowerManager::class.java)?.isInteractive == true &&
             getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == false) { "device_locked" }
     }
+    private fun hostWindow(): AccessibilityWindowInfo? {
+        val current = windows
+        val descriptors = current.map { window ->
+            // 仅核对窗口身份，不读取其它应用的正文或子树。
+            val root = if (window.isActive || window.isFocused) window.root else null
+            val packageName = try { root?.packageName?.toString() } finally { root?.let(::release) }
+            AgentForegroundWindowPolicy.Window(window.id, window.type == AccessibilityWindowInfo.TYPE_APPLICATION,
+                window.isActive, window.isFocused, packageName, window.title?.toString())
+        }
+        val id = AgentForegroundWindowPolicy.hostWindowId(descriptors, AgentWire.TARGET_PACKAGE, packageName,
+            AgentIslandOverlay.attachedWindowId()) ?: return null
+        return current.firstOrNull { it.id == id }
+    }
+
     private fun hostRoot(): AccessibilityNodeInfo {
-        val window = windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive && it.isFocused }
-            ?: throw IllegalStateException("host_not_foreground")
+        val window = hostWindow() ?: throw IllegalStateException("host_not_foreground")
         val root = window.root ?: throw IllegalStateException("ui_unavailable")
         if (root.packageName?.toString() != AgentWire.TARGET_PACKAGE) {
             release(root); throw IllegalStateException("host_not_foreground")
@@ -215,6 +230,13 @@ class AgentAccessibilityService : AccessibilityService() {
         val focused = hostRoot()
         try { check(focused.windowId == tree.window && Rect().also(focused::getBoundsInScreen) == tree.bounds) { "ui_snapshot_stale" } }
         finally { release(focused) }
+        // 窗口截图不含流体云，不能让模型的坐标手势反过来点击/滚动流体云或停止按钮。
+        @Suppress("DEPRECATION")
+        val gestureBounds = RectF().also { path.computeBounds(it, true) }.apply {
+            if (width() < 1f) right = left + 1f
+            if (height() < 1f) bottom = top + 1f
+        }
+        check(!AgentIslandOverlay.obscures(gestureBounds)) { "ui_target_obscured" }
         admit()
         val accepted = dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, duration)).build(),
             object : GestureResultCallback() {
@@ -363,6 +385,7 @@ class AgentAccessibilityService : AccessibilityService() {
             service.main.post {
                 if (result.isDone) return@post
                 val value = runCatching {
+                    if (service.hostWindow() != null) return@runCatching Foreground.HOST
                     val window = service.windows.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive && it.isFocused }
                     val root = window?.root ?: return@runCatching Foreground.OTHER
                     try { when (root.packageName?.toString()) {

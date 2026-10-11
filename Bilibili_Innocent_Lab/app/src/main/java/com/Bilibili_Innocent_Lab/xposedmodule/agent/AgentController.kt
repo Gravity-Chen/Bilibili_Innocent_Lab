@@ -14,6 +14,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelException
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelSource
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentRoutePolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelRole
+import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelToolCall
+import com.Bilibili_Innocent_Lab.xposedmodule.agent.model.AgentModelTurn
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsAuthorizationCoordinator
@@ -22,6 +24,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticSource
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import org.json.JSONObject
+import org.json.JSONArray
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CopyOnWriteArraySet
@@ -38,6 +41,11 @@ internal data class AgentTaskState(val running: Boolean = false, val phase: Stri
                                    val lastOperation: String = "", val lastOperationSucceeded: Boolean? = null,
                                    val lastOperationStep: Long = 0, val showRecentOperation: Boolean = false)
 
+/** 原生查询不依赖可选的界面观察；丢失宿主所有权或实际界面控制仍必须终止。 */
+internal fun agentHostFailureStopsTask(operation: String, error: String, nativeActive: Boolean): Boolean =
+    error in setOf("host_not_foreground", "device_locked") ||
+        error == "accessibility_not_connected" && !(nativeActive && operation == "get_ui_state")
+
 /** 所有模型请求在模块进程串行执行。状态与对话只在内存，进程回收后不会自动恢复或重放动作。 */
 internal object AgentController {
     private class Task(val context: Application, val goal: String, val sources: List<AgentModelSource>, val route: AgentRoutePolicy,
@@ -49,6 +57,10 @@ internal object AgentController {
         val cancelled = AtomicBoolean()
         val closing = AtomicBoolean()
         val accessibility = AgentAccessibilityService.connected()
+        val backend = AgentNativeRoutingPolicy()
+        val goalEvidence = AgentGoalEvidence(goal)
+        val navigation = AgentNavigationEvidence()
+        val accountReadAuthorized = context.prefs().getBoolean(FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED, false)
         var lastOperation = ""
         var lastOperationSucceeded: Boolean? = null
         var lastOperationStep = 0L
@@ -128,7 +140,7 @@ internal object AgentController {
         notifyObservers()
         runCatching { cancellations.execute {
             try {
-                if (!task.accessibility) AgentHostClient.request(task.id, task.sequence.incrementAndGet(), SystemClock.elapsedRealtime() + 3_000, "cancel")
+                if (task.backend.nativeAttempted && !task.backend.uiOnly) AgentHostClient.request(task.id, task.sequence.incrementAndGet(), SystemClock.elapsedRealtime() + 3_000, "cancel")
             } finally { completeClose(context.applicationContext, task, state.copy(running = false, phase = "cancelled", detail = reason)) }
         } }.onFailure { completeClose(context.applicationContext, task, state.copy(running = false, phase = "cancelled", detail = reason)) }
     }
@@ -144,7 +156,7 @@ internal object AgentController {
         val sourceKeys = (1..SemanticSource.MAX_SOURCES).flatMap { index ->
             val keys = FeaturePreferences.semanticSourceKeys(index)
             listOf(keys.first, keys.second, keys.third, RemoteHookConfigContract.semanticApiKey(index))
-        }.toSet() + AgentPreferences.ENABLED
+        }.toSet() + setOf(AgentPreferences.ENABLED, FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED)
         val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (active === task && key in sourceKeys) cancel(context, "configuration_changed")
         }
@@ -154,24 +166,20 @@ internal object AgentController {
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
         UserTermsAuthorizationCoordinator.addListener(termsListener)
         try {
-            val readyDeadline = task.deadline(AgentWire.IPC_TIMEOUT_MS)
-            if (task.accessibility) {
-                var ready = false
-                while (!task.stopped() && SystemClock.elapsedRealtime() < readyDeadline) {
-                    val response = AgentAccessibilityService.request(task.id, "get_ui_state", JSONObject(), task::stopped)
-                    if (response.optBoolean("ok")) { ready = true; break }
-                    Thread.sleep(150)
-                }
-                check(ready) { "accessibility_host_unavailable" }
-            } else check(AgentHostClient.awaitReady(readyDeadline, task::stopped)) { "host_unavailable_restart" }
+            val nativeReady = AgentHostClient.awaitReady(task.deadline(AgentWire.IPC_TIMEOUT_MS), task::stopped)
             val capabilities = task.sources.mapNotNull { source -> AgentPreferences.capabilities(context, source)?.let { source.fingerprint to it } }.toMap()
             val canSee = task.vision && task.sources.any { source ->
                 capabilities[source.fingerprint]?.vision == true
             }
-            if (!task.accessibility) {
-                val begin = host(task, "begin", JSONObject().put("allow_vision", canSee).put("lease_until", leaseUntil(task)))
+            if (nativeReady) {
+                task.backend.startingNative()
+                val begin = host(task, "begin", JSONObject().put("allow_vision", canSee).put("lease_until", leaseUntil(task))
+                    .put("account_read_authorized", task.accountReadAuthorized)
+                    .put("seed_video_ids", task.goalEvidence.seedVideos.joinToString(","))
+                    .put("seed_user_ids", task.goalEvidence.seedUsers.joinToString(",")))
                 check(begin.optBoolean("ok")) { begin.optString("error", "host_rejected") }
-            }
+                task.backend.began()
+            } else { check(task.accessibility) { "host_unavailable_restart" }; task.backend.noNative() }
             val history = AgentConversation(AgentToolCatalog.SYSTEM, task.goal).also { conversation = it }
             val models = AgentCooperation(task.sources, capabilities, task.route, task.goal, canSee,
                 checkpoint = { renew(task); (task.deadline(30_000) - SystemClock.elapsedRealtime()).coerceIn(1, 30_000).toInt() },
@@ -186,17 +194,59 @@ internal object AgentController {
                         AgentTaskLog.model(task.id, update, steps, observed)
                     }
                 }).also { cooperation = it }
+            fun initialRead(operation: String, arguments: JSONObject = JSONObject(), countStep: Boolean = true): JSONObject {
+                if (countStep) {
+                    check(task.limits.allowsStep(steps)) { "task_budget_exhausted" }
+                    steps++
+                    renew(task)
+                }
+                publish(task, AgentTaskState(true, operation, steps, observations = observed))
+                val call = AgentModelToolCall("initial_" + UUID.randomUUID(), operation, arguments)
+                check(history.acceptCallId(call.id)) { "duplicate_tool_call" }
+                val result = host(task, operation, arguments)
+                result.optJSONObject("data")?.let(task.navigation::recordAliases)
+                task.goalEvidence.record(operation, arguments, result)
+                if (result.optBoolean("ok") && operation != "get_capabilities") observed++
+                task.lastOperation = operation
+                task.lastOperationSucceeded = result.optBoolean("ok")
+                task.lastOperationStep = steps
+                publish(task, state, recordLog = false)
+                models.record(call, result)
+                history.append(initialTurn(call), result)
+                check(!agentHostFailureStopsTask(operation, result.optString("error"), task.backend.nativeActive) &&
+                    !(operation in AgentToolCatalog.personalReads && AgentNativeRoutingPolicy.accountFailure(result.optString("error")))) {
+                    result.optString("error")
+                }
+                check(result.optString("error") !in setOf("task_inactive", "closed_task", "task_budget_exhausted", "host_disconnected")) { "task_inactive" }
+                return result
+            }
+            val nativeCapabilities = initialRead("get_capabilities", countStep = false)
+            check(nativeCapabilities.optBoolean("ok")) { nativeCapabilities.optString("error", "native_capabilities_unavailable") }
+            task.backend.capabilities(nativeCapabilities.optJSONObject("data") ?: JSONObject())
+            if (task.goalEvidence.required.any { it in AgentToolCatalog.personalReads })
+                task.backend.accountRefusal?.let { throw IllegalStateException(it) }
             var previousOperation = ""
             var repeatedFailures = 0
             while (!task.stopped() && task.limits.allowsStep(steps)) {
                 check(context.prefs().getBoolean(AgentPreferences.ENABLED, false) && UserTermsConsentStore.readOrInitialize(context).isAuthorized) { "not_authorized" }
                 val currentSources = AgentPreferences.sources(context).associateBy { it.index }
                 check(task.sources.all { currentSources[it.index]?.fingerprint == it.fingerprint }) { "source_config_changed" }
+                // 每次模型规划前补齐真实身份已经可确定的目标首读；空页、失败和未知字段不会自动重试。
+                while (task.backend.nativeActive && !task.stopped() && task.limits.allowsStep(steps)) {
+                    val read = task.goalEvidence.nextNativeRead { task.backend.supported(it) == true } ?: break
+                    initialRead(read.first, read.second)
+                }
+                if (task.stopped() || !task.limits.allowsStep(steps)) break
                 val turn = models.next(history)
                 if (turn.toolCalls.isEmpty()) {
                     check(!verificationPending) { "ui_verification_required" }
                     check(observed > 0) { "no_observation" }
                     check(turn.text.isNotBlank()) { "empty_answer" }
+                    if (!task.goalEvidence.complete()) {
+                        check(task.goalEvidence.canReportLimitation()) { "goal_evidence_missing" }
+                        publish(task, AgentTaskState(false, "failed", steps, detail = task.goalEvidence.limitation(), observations = observed))
+                        return
+                    }
                     publish(task, AgentTaskState(false, "finished", steps, detail = turn.text.take(6_000), observations = observed))
                     return
                 }
@@ -215,15 +265,19 @@ internal object AgentController {
                 task.lastOperationSucceeded = response.optBoolean("ok")
                 task.lastOperationStep = steps
                 publish(task, state, recordLog = false)
-                if (task.accessibility && response.optString("error") in setOf("host_not_foreground", "device_locked", "accessibility_not_connected"))
+                if (agentHostFailureStopsTask(call.name, response.optString("error"), task.backend.nativeActive) ||
+                    call.name in AgentToolCatalog.personalReads && AgentNativeRoutingPolicy.accountFailure(response.optString("error")))
                     throw IllegalStateException(response.optString("error"))
                 if (response.optBoolean("ok")) {
+                    response.optJSONObject("data")?.let(task.navigation::recordAliases)
                     if (call.name in AgentToolCatalog.uiActions) verificationPending = response.optJSONObject("data")?.optBoolean("observation_after_action") != true
-                    else if (call.name == "open_video") verificationPending = true
-                    else if (call.name in setOf("get_host_state", "get_ui_state", "inspect_screen")) verificationPending = false
+                    else if (call.name == "open_video") { task.navigation.requested(call.arguments.getString("video_id")); verificationPending = true }
+                    else if (call.name == "get_host_state" && task.navigation.pending != null)
+                        verificationPending = response.optJSONObject("data")?.let(task.navigation::observe) != true
+                    else if (task.navigation.pending == null && call.name in setOf("get_host_state", "get_ui_state", "inspect_screen")) verificationPending = false
                 }
                 check(response.optString("error") !in setOf("task_inactive", "closed_task", "task_budget_exhausted", "host_disconnected")) { "task_inactive" }
-                if (response.optBoolean("ok") && (call.name !in AgentToolCatalog.uiActions && call.name != "open_video" ||
+                if (response.optBoolean("ok") && call.name != "get_capabilities" && (call.name !in AgentToolCatalog.uiActions && call.name != "open_video" ||
                     response.optJSONObject("data")?.optBoolean("observation_after_action") == true)) observed++
                 val data = response.optJSONObject("data")
                 val image = data?.optString("image_data_url").orEmpty()
@@ -241,7 +295,8 @@ internal object AgentController {
                     }
                 }
                 models.record(call, response)
-                if (call.name in setOf("search_videos", "get_video_details", "inspect_screen")) models.review(response)
+                task.goalEvidence.record(call.name, call.arguments, response)
+                if (call.name in AgentToolCatalog.nativeReads && call.name != "get_capabilities" || call.name == "inspect_screen") models.review(response)
                 history.append(turn, response, models.plannerFingerprint)
                 check(progress.observe(call, response)) { "task_stalled" }
                 val signature = call.name + call.arguments.toString()
@@ -270,7 +325,7 @@ internal object AgentController {
             if (!task.cancelled.get()) {
                 task.closing.set(true)
                 try {
-                    if (!task.accessibility) AgentHostClient.request(task.id, task.sequence.incrementAndGet(), SystemClock.elapsedRealtime() + 3_000, "finish")
+                    if (task.backend.nativeAttempted && !task.backend.uiOnly) AgentHostClient.request(task.id, task.sequence.incrementAndGet(), SystemClock.elapsedRealtime() + 3_000, "finish")
                 } finally { completeClose(context, task) }
             }
         }
@@ -285,10 +340,29 @@ internal object AgentController {
     private fun host(task: Task, operation: String, args: JSONObject = JSONObject()): JSONObject {
         check(authorized(task)) { "not_authorized" }
         val started = SystemClock.elapsedRealtime()
-        val response = if (task.accessibility) AgentAccessibilityService.request(task.id, operation, args, task::stopped)
-            else if (operation == "get_ui_state" || operation in AgentToolCatalog.uiActions) JSONObject().put("ok", false).put("error", "accessibility_not_connected")
-            else AgentHostClient.request(task.id, task.sequence.incrementAndGet(), task.deadline(AgentWire.IPC_TIMEOUT_MS), operation, args, task::stopped)
-        val visibleResponse = if (task.accessibility && response.optString("error") == "host_not_foreground" &&
+        if (task.goalEvidence.wrongSearch(operation, args)) return failure("goal_route_required", "get_ranking")
+        if (operation in AgentToolCatalog.uiActions && task.backend.nativeActive) {
+            val missing = task.goalEvidence.missingNative(task.backend)
+            if (missing != null) return failure("native_evidence_required", missing)
+            transferToUi(task)
+        }
+        val useAccessibility = operation == "get_ui_state" || operation in AgentToolCatalog.uiActions ||
+            task.backend.uiOnly && operation != "get_capabilities"
+        val response = when {
+            operation == "get_capabilities" && task.backend.uiOnly -> JSONObject().put("ok", true).put("data", JSONObject()
+                .put("native_available", false).put("backend", "accessibility").put("account_read_state", "native_unavailable")
+                .apply { AgentToolCatalog.nativeReads.forEach { put(it, false) }; put("get_ui_state", task.accessibility) })
+            operation in AgentToolCatalog.personalReads && task.backend.accountRefusal != null -> failure(checkNotNull(task.backend.accountRefusal))
+            operation in AgentToolCatalog.nativeReads && task.backend.nativeActive && task.backend.supported(operation) == false -> failure("use_ui_tools", operation)
+            useAccessibility && !task.accessibility -> failure("accessibility_not_connected")
+            useAccessibility -> AgentAccessibilityService.request(task.id, operation, args, task::stopped).also {
+                it.optJSONObject("data")?.put("native_session_active", task.backend.nativeActive)
+            }
+            else -> AgentHostClient.request(task.id, task.sequence.incrementAndGet(), task.deadline(AgentWire.IPC_TIMEOUT_MS), operation, args, task::stopped)
+        }
+        if (operation == "get_capabilities" && response.optBoolean("ok")) task.backend.capabilities(response.optJSONObject("data") ?: JSONObject())
+        if (!response.optBoolean("ok") && AgentNativeRoutingPolicy.unsupported(response.optString("error"))) task.backend.unavailable(operation)
+        val visibleResponse = if (useAccessibility && response.optString("error") == "host_not_foreground" &&
             AgentAccessibilityService.foreground() == AgentAccessibilityService.Foreground.MODULE) {
             // 用户从通知查看模块日志时等待；返回宿主后要求新的观察，不重放已计划的动作。
             AgentAccessibilityService.clear(task.id)
@@ -306,10 +380,25 @@ internal object AgentController {
         }
     }
 
+    private fun transferToUi(task: Task) {
+        check(task.accessibility && AgentAccessibilityService.connected()) { "accessibility_not_connected" }
+        check(task.navigation.pending == null) { "ui_verification_required" }
+        val finished = AgentHostClient.request(task.id, task.sequence.incrementAndGet(), task.deadline(3_000), "finish", cancelled = task::stopped)
+        check(task.backend.handoff(finished)) { "native_handoff_unconfirmed" }
+    }
+
+    private fun failure(reason: String, required: String? = null): JSONObject = JSONObject().put("ok", false).put("error", reason).apply {
+        if (required != null) put("data", JSONObject().put("required_operation", required))
+    }
+
+    private fun initialTurn(call: AgentModelToolCall): AgentModelTurn = AgentModelTurn(JSONObject().put("role", "assistant")
+        .put("content", JSONObject.NULL).put("tool_calls", JSONArray().put(JSONObject().put("id", call.id).put("type", "function")
+            .put("function", JSONObject().put("name", call.name).put("arguments", call.arguments.toString())))), listOf(call), "")
+
     private fun leaseUntil(task: Task): Long = task.deadline(AgentWire.MAX_LEASE_MS)
 
     private fun renew(task: Task) {
-        if (task.accessibility) {
+        if (task.backend.uiOnly) {
             check(authorized(task) && AgentAccessibilityService.connected()) { "accessibility_disconnected" }
             return
         }

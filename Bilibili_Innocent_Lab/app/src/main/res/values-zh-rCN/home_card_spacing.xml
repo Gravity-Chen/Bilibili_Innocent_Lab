@@ -1,0 +1,9 @@
+<resources>
+    <string name="host_home_card_spacing">首页视频卡片间距</string>
+    <string name="host_home_card_spacing_current">首页卡片间距：横向 %1$s · 纵向 %2$s</string>
+    <string name="host_home_card_horizontal">横向间距（dp）</string>
+    <string name="host_home_card_vertical">纵向间距（dp）</string>
+    <string name="host_home_card_spacing_tip">拖动滑块或输入 0–40 dp，留空则保留该方向的默认间距。横向同时调节屏幕两侧留白。可独立于卡片美化使用，仅影响首页，重启哔哩哔哩后生效。</string>
+    <string name="host_home_card_spacing_default">恢复默认间距</string>
+    <string name="host_home_card_spacing_invalid">请输入 0–40 的整数</string>
+</resources>

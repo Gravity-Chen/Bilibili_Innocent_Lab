@@ -22,7 +22,11 @@ internal class HostAgentSession(private val maximumLeaseMs: Long = 180_000L,
         var bucketStarted: Long,
         var admittedInBucket: Int = 1,
         var expectedQuery: String? = null,
-        var expectedVideo: String? = null
+        var expectedVideo: String? = null,
+        var accountReadAuthorized: Boolean = false,
+        var accountMid: Long? = null,
+        val users: LinkedHashMap<String, Unit> = LinkedHashMap(),
+        val regions: LinkedHashMap<String, Unit> = LinkedHashMap()
     )
 
     private var generation = 0L
@@ -131,6 +135,45 @@ internal class HostAgentSession(private val maximumLeaseMs: Long = 180_000L,
         isActive(lease, now) && active!!.candidates[identity] != null
 
     @Synchronized
+    fun accountAuthorization(lease: Lease, authorized: Boolean, mid: Long?, now: Long) {
+        if (!isActive(lease, now)) return
+        active?.apply { accountReadAuthorized = authorized; accountMid = mid?.takeIf { it > 0 } }
+    }
+
+    @Synchronized
+    fun accountRefusal(lease: Lease, currentMid: Long?, now: Long): String? = when {
+        !isActive(lease, now) -> "task_inactive"
+        active?.accountReadAuthorized != true -> "account_read_not_authorized"
+        active?.accountMid == null || currentMid == null -> "account_identity_unavailable"
+        active?.accountMid != currentMid -> "account_changed"
+        else -> null
+    }
+
+    @Synchronized
+    fun rememberUsers(lease: Lease, identities: List<String>, now: Long) {
+        if (!isActive(lease, now)) return
+        val users = active?.users ?: return
+        identities.filter { userId(it) == it }.forEach { users[it] = Unit }
+        while (users.size > MAX_CANDIDATES) users.remove(users.keys.first())
+    }
+
+    @Synchronized
+    fun knowsUser(lease: Lease, identity: String, now: Long): Boolean =
+        isActive(lease, now) && active?.users?.containsKey(identity) == true
+
+    @Synchronized
+    fun rememberRegions(lease: Lease, identities: List<String>, now: Long) {
+        if (!isActive(lease, now)) return
+        val regions = active?.regions ?: return
+        identities.filter { it.toIntOrNull()?.let { number -> number > 0 } == true }.take(256).forEach { regions[it] = Unit }
+        while (regions.size > MAX_CANDIDATES) regions.remove(regions.keys.first())
+    }
+
+    @Synchronized
+    fun knowsRegion(lease: Lease, identity: String, now: Long): Boolean =
+        isActive(lease, now) && (identity == "0" || active?.regions?.containsKey(identity) == true)
+
+    @Synchronized
     fun rememberCursor(lease: Lease, query: String, raw: String?, now: Long): String? {
         if (!isActive(lease, now) || raw.isNullOrBlank() || raw.length > 2048) return null
         val task = active ?: return null
@@ -178,6 +221,9 @@ internal class HostAgentSession(private val maximumLeaseMs: Long = 180_000L,
         const val MAX_CURSORS = 16
         // 限制突发收包而不是限制任务终身总操作数；取消不受此限。
         const val MAX_COMMANDS_PER_SECOND = 48
+        fun userId(raw: String?): String? = raw?.takeIf {
+            it.length in 1..19 && it.all(Char::isDigit) && it.toLongOrNull()?.let { value -> value > 0 && value.toString() == it } == true
+        }
     }
 
     private fun validCommandDeadline(deadline: Long, now: Long): Boolean =
@@ -345,6 +391,13 @@ internal class HostAgentWindowPolicy(private val navigationMs: Long = NAVIGATION
     fun isTaskPage(generation: Long): Boolean = this.generation == generation && target != null && pending == null
 
     fun tracks(generation: Long): Boolean = this.generation == generation
+
+    fun ownsWindow(generation: Long, window: Long): Boolean = this.generation == generation && this.window == window
+
+    /** 系统展示浮层只改变焦点，不授权其它 Activity；动作仍必须等原宿主窗口恢复焦点。 */
+    fun canUseWindow(generation: Long, window: Long, resumed: Boolean, shown: Boolean,
+                     focused: Boolean, readOnly: Boolean): Boolean =
+        ownsWindow(generation, window) && resumed && shown && (readOnly || focused)
 
     fun revoke(generation: Long) {
         if (this.generation != generation) return

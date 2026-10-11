@@ -587,10 +587,12 @@ class HomeRecommendPurifyFeatureInstallerTest {
         accessors: Any
     ): HomeRecommendPurifyFeatureInstaller.Signals {
         val accessorsClass = accessors.javaClass
+        val countsClass = HomeRecommendPurifyFeatureInstaller::class.java.declaredClasses
+            .single { it.simpleName == "AdvertisementCounts" }
         val method = HomeRecommendPurifyFeatureInstaller::class.java
-            .getDeclaredMethod("signals", Any::class.java, accessorsClass)
+            .getDeclaredMethod("signals", Any::class.java, accessorsClass, countsClass)
             .apply { isAccessible = true }
-        return method.invoke(installer, item, accessors) as HomeRecommendPurifyFeatureInstaller.Signals
+        return method.invoke(installer, item, accessors, null) as HomeRecommendPurifyFeatureInstaller.Signals
     }
 
     private class ProbeItem {

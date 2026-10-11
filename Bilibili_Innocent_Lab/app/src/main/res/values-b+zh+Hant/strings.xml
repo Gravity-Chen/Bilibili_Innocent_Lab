@@ -130,8 +130,8 @@
     <string name="settings_search_section_general">一般設定</string>
     <string name="home_top_bar_settings">首頁頂端列</string>
     <string name="hide_home_game_menu">隱藏首頁遊戲中心</string>
-    <string name="remove_home_recommend_cm_v2">過濾主頁資訊流偽裝廣告</string>
-    <string name="remove_home_recommend_cm_v2_tip">開啟後識別並移除偽裝成影片小卡的主頁推薦資訊流廣告。重新啟動 Bilibili 後生效。</string>
+    <string name="remove_home_recommend_cm_v2">過濾標準資訊流廣告</string>
+    <string name="remove_home_recommend_cm_v2_tip">過濾標準資訊流廣告卡。一般影片樣式的推廣請同時開啟「首頁推薦過濾」中的「過濾推薦廣告」。重新啟動 Bilibili 後生效。</string>
     <string name="hide_home_game_menu_tip">啟用後，隱藏首頁頂端的遊戲中心入口；搜尋、掃一掃等其他入口不受影響。重新啟動 Bilibili 後生效。</string>
     <string name="hide_home_search_default_word">隱藏搜尋推薦詞</string>
     <string name="hide_home_search_default_word_tip">啟用後，搜尋框不再顯示預設推薦詞，搜尋入口與功能維持不變。重新啟動 Bilibili 後生效。</string>
@@ -171,6 +171,8 @@
     <string name="home_recommend_blocked_authors_tip">按 UP 主名稱或 UID 過濾推薦，重新啟動嗶哩嗶哩後生效。</string>
     <string name="home_recommend_blocked_authors_pending">在哔哩哔哩中選了 %1$s 個尚未儲存，已替你填在下方。</string>
     <string name="highlights_home_blocked_authors">依 UP 主名稱或 id 將某個 UP 主從推薦流中封鎖，也可以直接在哔哩哔哩三點面板中選取。</string>
+    <string name="highlights_home_ad_coverage">增強首頁推廣影片過濾，單獨開啟「過濾推薦廣告」也能涵蓋更多明確廣告；修正標準資訊流廣告開關說明。</string>
+    <string name="highlights_related_ad_payload">相關影片的商業推廣與特殊推薦過濾已增強，無需開啟強力模式；三點回饋仍只用於強力模式。</string>
     <string name="home_recommend_title_dialog_hint">例如：盤點, 搬運</string>
     <string name="remove_home_recommend_live">過濾直播推薦</string>
     <string name="remove_home_recommend_courses">過濾課程推薦</string>
@@ -1337,6 +1339,8 @@
     <string name="agent_logs_title">執行日誌</string>
     <string name="agent_logs_help">日誌記錄任務階段、來源編號、耗時和執行結果，不儲存目標、API Key、截圖或原始回應。最多保留四個任務，長日誌會明確顯示省略數量。</string>
     <string name="agent_logs_empty">暫無執行記錄</string>
+    <string name="agent_notification_show_status">返回狀態</string>
+    <string name="agent_notification_logs_hint">最近執行記錄；完整日誌可在模組主頁面查看。</string>
     <string name="agent_logs_next">切換任務</string>
     <string name="agent_logs_cache">命中快取</string>
     <string name="agent_logs_persistence_failed">日誌儲存失敗，目前記憶體記錄仍可查看。</string>
@@ -1383,4 +1387,14 @@
     <string name="agent_waiting_host">等待返回嗶哩嗶哩</string>
     <string name="agent_recent_completed">%1$s完成</string>
     <string name="agent_recent_failed">%1$s未成功</string>
+    <string name="agent_tip_native">確認可讀取的宿主資訊</string>
+    <string name="agent_tip_ranking">讀取榜單與熱門影片</string>
+    <string name="agent_tip_metrics">讀取影片統計</string>
+    <string name="agent_tip_feed">讀取影片與動態資訊</string>
+    <string name="agent_tip_live">查詢直播狀態</string>
+    <string name="agent_tip_comments">讀取影片留言</string>
+    <string name="agent_account_read_unavailable">帳號讀取需要授權和有效登入；修改授權後請重啟嗶哩嗶哩</string>
+    <string name="agent_account_changed">帳號已切換，請重新開始任務</string>
+    <string name="agent_native_unavailable">目前介面不可用，需要重新觀察實際畫面</string>
+    <string name="agent_goal_incomplete">尚未取得能驗證目標的資訊</string>
 </resources>

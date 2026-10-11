@@ -29,16 +29,16 @@ internal object HostAgentRuntime {
     @Volatile private var runtime: Runtime? = null
 
     @Synchronized
-    fun initialize(context: Context, classLoader: ClassLoader) {
+    fun initialize(context: Context, classLoader: ClassLoader, accountReadAuthorized: Boolean = false) {
         if (runtime != null) return
         val application = (context.applicationContext ?: context) as? Application ?: return
         if (application.packageName != AgentWire.TARGET_PACKAGE) return
-        runtime = Runtime(application, classLoader)
+        runtime = Runtime(application, classLoader, accountReadAuthorized)
     }
 
     fun endpoint(): IBinder? = runtime?.endpoint
 
-    private class Runtime(private val app: Application, private val loader: ClassLoader) {
+    private class Runtime(private val app: Application, private val loader: ClassLoader, private val accountReadAuthorized: Boolean) {
         private val main = Handler(Looper.getMainLooper())
         private val session = HostAgentSession(AgentWire.MAX_LEASE_MS, AgentWire.IPC_TIMEOUT_MS)
         private val admissionLock = Any()
@@ -46,6 +46,13 @@ internal object HostAgentRuntime {
         private val responses = executor("BIL-AgentReply", 16)
         private val windows = HostAgentWindow(app, main, session, ::stop)
         private val rpc = HostAgentRpc(loader)
+        private val discovery = HostAgentDiscoveryRpc(loader)
+        private val content = HostAgentContentRpc(loader)
+        private val dynamic = HostAgentDynamicRpc(loader)
+        private val account by lazy { HostAgentAccountAccess.resolve(loader) }
+        private val hostVersion by lazy {
+            runCatching { app.packageManager.getPackageInfo(AgentWire.TARGET_PACKAGE, 0) }.getOrNull()
+        }
         private val router by lazy { HostAgentRouter.resolve(loader) }
         @Volatile private var moduleUid = -1
         private var binding: Binding? = null // 主线程所有
@@ -95,8 +102,15 @@ internal object HostAgentRuntime {
                             deliver(request, failure(admission.error ?: "task_inactive"))
                         } else if (closing) {
                             // 即使 RPC 正在阻塞，取消也在收包线程立刻使租约失效。
-                            main.post { release(lease) }
-                            deliver(request, success(JSONObject().put("status", if (operation == "cancel") "cancelled" else "finished")))
+                            main.post {
+                                try {
+                                    val handoff = operation == "finish" && session.current(now()) == null && windows.canHandoff(lease)
+                                    val released = release(lease)
+                                    deliver(request, if (now() >= request.deadline || operation == "finish" && (!handoff || !released)) failure("native_handoff_unconfirmed")
+                                    else success(JSONObject().put("status", if (operation == "cancel") "cancelled" else "finished")
+                                        .put("native_window_released", handoff && released)))
+                                } catch (_: Throwable) { deliver(request, failure("native_handoff_unconfirmed")) }
+                            }
                         } else {
                             try {
                                 operations.execute { execute(request, arguments, lease) }
@@ -122,6 +136,11 @@ internal object HostAgentRuntime {
                             scheduleExpiry(lease)
                         }
                         synchronized(cacheLock) { cacheGeneration = lease.generation; detailCache.clear() }
+                        session.remember(lease, args.optString("seed_video_ids").split(',').filter(String::isNotBlank), now())
+                        session.rememberUsers(lease, args.optString("seed_user_ids").split(',').filter(String::isNotBlank), now())
+                        val authorized = accountReadAuthorized && args.optBoolean("account_read_authorized", false)
+                        val identity = if (authorized) account?.state(app)?.takeIf { it.code == "ready" }?.mid else null
+                        session.accountAuthorization(lease, authorized, identity, now())
                         JSONObject().put("status", "started").put("deadline_elapsed", session.current(now())?.deadline)
                     }
                     "renew" -> {
@@ -130,14 +149,45 @@ internal object HostAgentRuntime {
                         onMain(lease) { scheduleExpiry(lease) }
                         JSONObject().put("status", "renewed").put("deadline_elapsed", session.current(now())?.deadline)
                     }
-                    "capabilities" -> JSONObject().put("search_videos", rpc.search != null && router != null)
+                    "capabilities", "get_capabilities" -> JSONObject().put("search_videos", rpc.search != null && router != null)
                         .put("pagination", rpc.search?.canPaginate == true)
                         .put("get_video_details", rpc.details != null).put("owner_verification", rpc.details?.canVerifyOwner == true)
                         .put("open_video", router != null).put("get_host_state", true)
                         .put("inspect_screen", session.allowVision(lease, now()))
                         .put("screen_requires_task_page", true).put("account_write_actions", false)
-                    "get_host_state" -> onMain(lease) { windows.state(lease) }
+                        .put("get_ranking", discovery.rankingAvailable).put("get_popular", discovery.popularAvailable)
+                        .put("get_regions", discovery.regionsAvailable).put("get_video_metrics", rpc.details?.canReadStatistics == true)
+                        .put("get_user_videos", content.userVideosAvailable)
+                        .put("get_video_comments", content.commentsAvailable)
+                        .put("get_history", content.historyAvailable && accountRefusal(lease) == null)
+                        .put("get_following_feed", dynamic.followingAvailable && accountRefusal(lease) == null)
+                        .put("get_live_status", dynamic.liveStatusAvailable && accountRefusal(lease) == null)
+                        .put("account_read_state", accountRefusal(lease) ?: "ready")
+                        .put("unsupported_native", JSONArray(listOf("related_recommendations", "favorites", "social_write", "download", "payment")))
+                    "get_host_state" -> onMain(lease) { windows.state(lease) }.also { state ->
+                        stamp(state)
+                        if ((state.optBoolean("foreground") || state.optBoolean("native_read_context")) && state.optBoolean("interaction_guard"))
+                            HostAgentNavigationPolicy.videoId(state.optString("video_id"))?.let { session.remember(lease, listOf(it), now()) }
+                    }
                     "search_videos" -> search(lease, args)
+                    "get_ranking", "get_popular", "get_user_videos", "get_history", "get_following_feed", "get_video_comments" -> readPage(lease, request.operation, args)
+                    "get_regions" -> {
+                        onMain(lease) { windows.requireTaskContext(lease) }
+                        discovery.regions(timeout(lease)).also { data -> rememberFacts(lease, data); stamp(data) }
+                    }
+                    "get_live_status" -> {
+                        val user = knownUser(lease, args)
+                        requireAccount(lease)
+                        onMain(lease) { windows.requireTaskContext(lease) }
+                        dynamic.liveStatus(user, timeout(lease)).also { requireAccount(lease); stamp(it); rememberFacts(lease, it) }
+                    }
+                    "get_video_metrics" -> {
+                        val id = knownId(lease, args)
+                        onMain(lease) { windows.requireTaskContext(lease) }
+                        val detail = rpc.details?.takeIf { it.canReadStatistics } ?: throw HostAgentFailure("video_metrics_unavailable")
+                        // 播放量等随时变化，强制新查询，不复用详情 TTL 缓存。
+                        detail.query(id, timeout(lease)).also { stamp(it); rememberFacts(lease, it); it.put("cache_hit", false) }
+                    }
                     "get_video_details" -> {
                         val id = knownId(lease, args)
                         onMain(lease) { windows.requireTaskContext(lease) }
@@ -150,6 +200,8 @@ internal object HostAgentRuntime {
                             .query(id, (lease.deadline - now()).coerceAtLeast(1)).also { value ->
                                 val observedAt = now()
                                 value.put("cache_hit", false).put("observed_at_elapsed", observedAt)
+                                stamp(value)
+                                rememberFacts(lease, value)
                                 if (!session.isActive(lease, now())) throw HostAgentFailure("task_inactive")
                                 synchronized(cacheLock) {
                                     if (cacheGeneration != lease.generation) throw HostAgentFailure("task_inactive")
@@ -196,6 +248,93 @@ internal object HostAgentRuntime {
                 .put("truncated_by_task_budget", result.videos.any { it.id !in permitted })
                 .put("candidate_window", HostAgentSession.MAX_CANDIDATES).put("cursor_window", HostAgentSession.MAX_CURSORS)
                 .put("visible_results_verified", false).put("next_cursor", next ?: JSONObject.NULL)
+                .also { stamp(it); rememberFacts(lease, it) }
+        }
+
+        private fun readPage(lease: HostAgentSession.Lease, operation: String, args: JSONObject): JSONObject {
+            onMain(lease) { windows.requireTaskContext(lease) }
+            val personal = operation == "get_history" || operation == "get_following_feed"
+            if (personal) requireAccount(lease)
+            val identity = when (operation) {
+                "get_user_videos" -> knownUser(lease, args)
+                "get_video_comments" -> knownId(lease, args)
+                "get_ranking" -> args.optString("region_id", "0").ifBlank { "0" }.also {
+                    if (!session.knowsRegion(lease, it, now())) throw HostAgentFailure("region_not_in_task")
+                }
+                else -> ""
+            }
+            val scope = "$operation:$identity"
+            val token = args.optString("cursor").takeIf { !args.isNull("cursor") && it.isNotBlank() }
+            val cursor = token?.let { session.cursor(lease, scope, it, now()) ?: throw HostAgentFailure("invalid_cursor") }
+            val page = when (operation) {
+                "get_ranking" -> discovery.ranking(identity, cursor, timeout(lease))
+                "get_popular" -> discovery.popular(cursor, timeout(lease))
+                "get_user_videos" -> content.userVideos(identity, cursor, timeout(lease))
+                "get_history" -> content.history(cursor, timeout(lease))
+                "get_following_feed" -> dynamic.following(cursor, timeout(lease))
+                "get_video_comments" -> content.comments(identity, cursor, timeout(lease))
+                else -> throw HostAgentFailure("unsupported_operation")
+            }
+            if (personal) requireAccount(lease)
+            if (!session.isActive(lease, now())) throw HostAgentFailure("task_inactive")
+            val retained = session.remember(lease, page.videos.map { it.id }, now()).toSet()
+            if (page.videos.any { it.id !in retained }) throw HostAgentFailure("candidate_limit_reached")
+            rememberFacts(lease, page.data)
+            val next = session.rememberCursor(lease, scope, page.next, now())
+            return page.data.put("next_cursor", next ?: JSONObject.NULL).put("visible_results_verified", false).also { stamp(it) }
+        }
+
+        private fun stamp(data: JSONObject) {
+            data.put("source", "host_rpc").put("observed_at_elapsed", now()).put("observed_at_unix_ms", System.currentTimeMillis())
+                .put("freshness", "query_time_snapshot")
+                .put("host_version", hostVersion?.versionName ?: JSONObject.NULL)
+        }
+
+        private fun timeout(lease: HostAgentSession.Lease) = (lease.deadline - now()).coerceIn(1L, 12_000L)
+
+        private fun accountRefusal(lease: HostAgentSession.Lease): String? {
+            if (!accountReadAuthorized) return "account_read_not_authorized"
+            // 先核验任务授权，避免关闭选项时读取账号/令牌状态。
+            session.accountRefusal(lease, null, now())?.takeIf { it == "account_read_not_authorized" || it == "task_inactive" }?.let { return it }
+            val state = account?.state(app) ?: return "account_identity_unavailable"
+            if (state.code != "ready") return state.code
+            return session.accountRefusal(lease, state.mid, now())
+        }
+
+        private fun requireAccount(lease: HostAgentSession.Lease) {
+            accountRefusal(lease)?.let {
+                if (it == "account_changed") stop(lease)
+                throw HostAgentFailure(it)
+            }
+        }
+
+        private fun knownUser(lease: HostAgentSession.Lease, args: JSONObject): String {
+            val id = HostAgentSession.userId(args.optString("user_id")) ?: throw HostAgentFailure("invalid_user_id")
+            if (!session.knowsUser(lease, id, now())) throw HostAgentFailure("user_not_in_task")
+            return id
+        }
+
+        /** 只记录 DTO 已投影出的数字身份，不递归遍历任意宿主返回树。 */
+        private fun rememberFacts(lease: HostAgentSession.Lease, data: JSONObject) {
+            val aliases = data.optJSONArray("video_aliases")
+            if (aliases != null) session.remember(lease, (0 until minOf(aliases.length(), 2)).mapNotNull {
+                HostAgentNavigationPolicy.videoId(aliases.optString(it))
+            }, now())
+            val users = mutableListOf<String>()
+            HostAgentSession.userId(data.optString("author_uid"))?.let(users::add)
+            for (name in listOf("videos", "items", "users", "posts")) {
+                val values = data.optJSONArray(name) ?: continue
+                for (i in 0 until minOf(values.length(), 100)) {
+                    val value = values.optJSONObject(i) ?: continue
+                    HostAgentSession.userId(value.optString(if (name == "users") "user_id" else "author_uid"))?.let(users::add)
+                }
+            }
+            session.rememberUsers(lease, users, now())
+            val regions = data.optJSONArray("regions")
+            if (regions != null) session.rememberRegions(lease, (0 until minOf(regions.length(), 256)).mapNotNull {
+                regions.optJSONObject(it)?.takeIf { value -> value.optString("region_type") == "ugc" || value.optInt("region_type", -1) == 2 }
+                    ?.optString("region_id")
+            }, now())
         }
 
         private fun knownId(lease: HostAgentSession.Lease, args: JSONObject): String {
@@ -290,7 +429,7 @@ internal object HostAgentRuntime {
             return accepted
         }
 
-        private fun release(lease: HostAgentSession.Lease) {
+        private fun release(lease: HostAgentSession.Lease): Boolean {
             expiry?.takeIf { it.generation == lease.generation }?.let {
                 main.removeCallbacks(it.callback)
                 expiry = null
@@ -301,7 +440,7 @@ internal object HostAgentRuntime {
                 runCatching { app.unbindService(current.connection) }
             }
             // 窗口层也按 generation 回收，旧任务迟到的 TTL/Service 回调不能覆盖新任务 callback。
-            windows.releaseTask(lease)
+            val released = windows.releaseTask(lease)
             val taskClosed = !session.isTaskActive(lease, now())
             synchronized(cacheLock) {
                 // 缓存只有 JSON 文本；清理本身是短锁，不等待 operations 中的网络查询。
@@ -310,6 +449,7 @@ internal object HostAgentRuntime {
                     cacheGeneration = null
                 }
             }
+            return released
         }
 
         private fun deliver(request: Request, value: JSONObject, lease: HostAgentSession.Lease? = null) {
@@ -318,6 +458,7 @@ internal object HostAgentRuntime {
                     // 取消后绝不交付成功结果（尤其截图）；已收敛的失败原因仍可用于解释禁用边界。
                     val activeValue = if (lease != null && value.optBoolean("ok")) {
                         if (!session.isActive(lease, now())) failure("task_inactive") else try {
+                            if (request.operation in PERSONAL_READS) requireAccount(lease)
                             value
                         } catch (caught: HostAgentFailure) { failure(caught.reason) }
                     } else value
@@ -334,6 +475,16 @@ internal object HostAgentRuntime {
                             data.recycle(); data = Parcel.obtain()
                             write(data, failure("response_too_large"))
                         }
+                        // 序列化/排队结束后再挡一次取消与账号切换；不交付成功的旧账号载荷。
+                        if (lease != null && activeValue.optBoolean("ok")) {
+                            val refusal = if (!session.isActive(lease, now())) "task_inactive"
+                                else if (request.operation in PERSONAL_READS) accountRefusal(lease) else null
+                            if (refusal != null) {
+                                if (refusal == "account_changed") stop(lease)
+                                data.recycle(); data = Parcel.obtain()
+                                write(data, failure(refusal))
+                            }
+                        }
                         request.callback.transact(AgentWire.RESPONSE, data, null, IBinder.FLAG_ONEWAY)
                     } catch (_: Throwable) { /* 模块回收/取消时不重试，避免执行或回传重复结果。 */ }
                     finally { data.recycle() }
@@ -348,26 +499,48 @@ internal object HostAgentRuntime {
 
     private fun validArguments(operation: String, args: JSONObject): Boolean {
         val permitted = when (operation) {
-            "begin" -> setOf("allow_vision", "lease_until")
+            "begin" -> setOf("allow_vision", "lease_until", "account_read_authorized", "seed_video_ids", "seed_user_ids")
             "renew" -> setOf("lease_until")
-            "capabilities", "get_host_state", "inspect_screen", "cancel", "finish" -> emptySet()
+            "capabilities", "get_capabilities", "get_regions", "get_host_state", "inspect_screen", "cancel", "finish" -> emptySet()
             "search_videos" -> setOf("query", "cursor")
-            "get_video_details", "open_video" -> setOf("video_id")
+            "get_video_details", "get_video_metrics", "open_video" -> setOf("video_id")
+            "get_ranking" -> setOf("region_id", "cursor")
+            "get_popular", "get_history", "get_following_feed" -> setOf("cursor")
+            "get_user_videos" -> setOf("user_id", "cursor")
+            "get_live_status" -> setOf("user_id")
+            "get_video_comments" -> setOf("video_id", "cursor")
             else -> return false
         }
         if (args.keys().asSequence().any { it !in permitted }) return false
         return when (operation) {
             "begin" -> (args.opt("lease_until") is Long || args.opt("lease_until") is Int) &&
-                (!args.has("allow_vision") || args.opt("allow_vision") is Boolean)
+                (!args.has("allow_vision") || args.opt("allow_vision") is Boolean) &&
+                (!args.has("account_read_authorized") || args.opt("account_read_authorized") is Boolean) &&
+                validSeeds(args, "seed_video_ids", HostAgentNavigationPolicy::videoId) && validSeeds(args, "seed_user_ids", HostAgentSession::userId)
             "renew" -> args.opt("lease_until") is Long || args.opt("lease_until") is Int
             "search_videos" -> args.opt("query") is String && HostAgentNavigationPolicy.searchQuery(args.getString("query")) != null &&
                 (!args.has("cursor") || args.isNull("cursor") || (args.opt("cursor") is String && args.getString("cursor").length <= 32))
-            "get_video_details", "open_video" -> args.opt("video_id") is String && HostAgentNavigationPolicy.videoId(args.getString("video_id")) != null
+            "get_video_details", "get_video_metrics", "open_video" -> args.opt("video_id") is String && HostAgentNavigationPolicy.videoId(args.getString("video_id")) != null
+            "get_user_videos", "get_live_status" -> args.opt("user_id") is String && HostAgentSession.userId(args.getString("user_id")) != null && validCursor(args)
+            "get_ranking" -> (!args.has("region_id") || args.opt("region_id") is String && args.getString("region_id").toIntOrNull()?.let { it >= 0 } == true) && validCursor(args)
+            "get_popular", "get_history", "get_following_feed" -> validCursor(args)
+            "get_video_comments" -> args.opt("video_id") is String && HostAgentNavigationPolicy.videoId(args.getString("video_id")) != null && validCursor(args)
             else -> true
         }
     }
 
+    private fun validCursor(args: JSONObject): Boolean = !args.has("cursor") || args.isNull("cursor") ||
+        args.opt("cursor") is String && args.getString("cursor").length <= 32
+
+    private fun validSeeds(args: JSONObject, name: String, normalize: (String?) -> String?): Boolean {
+        if (!args.has(name)) return true
+        val value = args.opt(name) as? String ?: return false
+        if (value.isEmpty()) return true
+        return value.length <= 200 && value.split(',').let { it.size <= 8 && it.all { id -> normalize(id) == id } }
+    }
+
     private fun now() = SystemClock.elapsedRealtime()
+    private val PERSONAL_READS = setOf("get_history", "get_following_feed", "get_live_status")
     private fun success(data: JSONObject) = JSONObject().put("ok", true).put("data", data)
     private fun failure(reason: String) = JSONObject().put("ok", false).put("error", reason)
     private fun executor(name: String, capacity: Int) = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS,

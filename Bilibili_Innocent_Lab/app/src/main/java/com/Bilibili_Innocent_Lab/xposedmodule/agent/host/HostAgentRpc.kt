@@ -8,6 +8,7 @@ import java.lang.reflect.Constructor
 import java.lang.reflect.Method
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
+import org.json.JSONArray
 
 /** 所有调用由 Runtime 的单个后台工作线程发起；只保存 Class/Member，不缓存宿主响应对象。 */
 internal class HostAgentRpc(private val loader: ClassLoader) {
@@ -180,6 +181,8 @@ internal class HostAgentDetailQuery private constructor(
     private val description: Description?
 ) {
     val canVerifyOwner: Boolean get() = hasVerify != null && getVerifyType != null && getVerifyDesc != null
+    private val statistics = HostAgentVideoStatistics.resolve(getArc.returnType)
+    val canReadStatistics: Boolean get() = statistics != null
 
     fun query(id: String, timeoutMs: Long): JSONObject {
         val builder = checkNotNull(newBuilder.invoke(null))
@@ -200,12 +203,15 @@ internal class HostAgentDetailQuery private constructor(
             .put("description", hostText(hostRead(getVerifyDesc, verify), 300) ?: JSONObject.NULL)
         else JSONObject().put("status", "unknown")
         return JSONObject().put("video_id", id).put("source", "host_rpc")
+            .put("canonical_video_id", actualAid ?: actualBvid ?: JSONObject.NULL)
+            .put("video_aliases", JSONArray(listOfNotNull(actualAid, actualBvid).distinct()))
             .put("title", hostText(hostRead(getTitle, arc), 300) ?: JSONObject.NULL)
             .put("description", description?.read(reply) ?: JSONObject.NULL)
             .put("duration_seconds", (hostRead(getDuration, arc) as? Number)?.toLong()?.takeIf { it >= 0 } ?: JSONObject.NULL)
             .put("author_uid", (hostRead(getOwnerMid, owner) as? Number)?.toLong()?.takeIf { it > 0 }?.toString() ?: JSONObject.NULL)
             .put("author", hostText(hostRead(getOwnerName, owner), 100) ?: JSONObject.NULL)
             .put("verification", verification).put("official_source", "unknown")
+            .put("statistics", statistics?.read(arc) ?: HostAgentVideoStatistics.unknown())
     }
 
     private class Description(
@@ -282,22 +288,96 @@ internal class HostAgentDetailQuery private constructor(
     }
 }
 
-private fun hostGetter(owner: Class<*>, name: String, type: Class<*>? = null): Method? =
+/** 只有 hasStat 的显式载荷才算统计证据；缺字段、负值和默认实例均保持 unknown。 */
+internal class HostAgentVideoStatistics private constructor(
+    private val has: Method,
+    private val stat: Method,
+    private val defaultInstance: Method,
+    private val fields: Map<String, NumericField>
+) {
+    fun read(arc: Any): JSONObject {
+        if (hostRead(has, arc) != true) return unknown()
+        val value = hostRead(stat, arc) ?: return unknown()
+        if (isDefault(value, defaultInstance)) return unknown()
+        val result = JSONObject().put("status", "reported")
+        NAMES.keys.forEach { key ->
+            result.put(key, fields[key]?.read(value) ?: JSONObject.NULL)
+        }
+        if (NAMES.keys.none { !result.isNull(it) }) result.put("status", "unknown")
+        return result
+    }
+
+    private class NumericField(private val getter: Method, private val presence: Method? = null,
+                               private val defaultInstance: Method? = null, private val valueGetter: Method? = null) {
+        fun read(stat: Any): Long? {
+            if (presence != null && hostRead(presence, stat) != true) return null
+            val raw = hostRead(getter, stat) ?: return null
+            val number = if (valueGetter == null) raw else {
+                if (defaultInstance == null || isDefault(raw, defaultInstance)) return null
+                hostRead(valueGetter, raw)
+            }
+            return (number as? Number)?.toLong()?.takeIf { it >= 0 }
+        }
+    }
+
+    companion object {
+        private val NAMES = linkedMapOf("view_count" to "getView", "like_count" to "getLike", "coin_count" to "getCoin",
+            "favorite_count" to "getFav", "share_count" to "getShare", "comment_count" to "getReply", "danmaku_count" to "getDanmaku")
+        fun unknown(): JSONObject = JSONObject().put("status", "unknown").also { data -> NAMES.keys.forEach { data.put(it, JSONObject.NULL) } }
+        fun resolve(arc: Class<*>): HostAgentVideoStatistics? {
+            val has = hostGetter(arc, "hasStat", classOf<Boolean>()) ?: return null
+            val stat = hostGetter(arc, "getStat") ?: return null
+            val defaultInstance = defaultMethod(stat.returnType) ?: return null
+            val fields = if (hostGetter(stat.returnType, "getView", classOf<Int>()) != null) {
+                // Archive Stat：七项原始 Int；不把另一布局的展示文本当成数值。
+                NAMES.mapNotNull { (key, method) -> hostGetter(stat.returnType, method, classOf<Int>())?.let { key to NumericField(it) } }.toMap()
+            } else {
+                // ViewUnite common.Stat：五项 Long，Vt/Danmaku 必须读有载荷的 StatInfo.value。
+                NAMES.mapNotNull { (key, method) ->
+                    val field = when (key) {
+                        "view_count" -> nestedField(stat.returnType, "getVt", "hasVt")
+                        "danmaku_count" -> nestedField(stat.returnType, "getDanmaku", "hasDanmaku")
+                        else -> hostGetter(stat.returnType, method, classOf<Long>())?.let { NumericField(it) }
+                    }
+                    field?.let { key to it }
+                }.toMap()
+            }
+            if ("view_count" !in fields) return null
+            return HostAgentVideoStatistics(has, stat, defaultInstance, fields)
+        }
+        private fun nestedField(stat: Class<*>, getterName: String, presenceName: String): NumericField? {
+            val presence = hostGetter(stat, presenceName, classOf<Boolean>()) ?: return null
+            val getter = hostGetter(stat, getterName)?.takeIf { !it.returnType.isPrimitive } ?: return null
+            val value = hostGetter(getter.returnType, "getValue", classOf<Long>()) ?: return null
+            val defaultInstance = defaultMethod(getter.returnType) ?: return null
+            return NumericField(getter, presence, defaultInstance, value)
+        }
+        private fun defaultMethod(type: Class<*>): Method? = KavaMemberLookup.methodOrNull(type, "getDefaultInstance")?.takeIf {
+            it.isStatic && it.parameterCount == 0 && it.returnType == type
+        }
+        private fun isDefault(value: Any, method: Method): Boolean = runCatching {
+            val default = method.invoke(null) ?: return@runCatching true
+            value === default
+        }.getOrDefault(true)
+    }
+}
+
+internal fun hostGetter(owner: Class<*>, name: String, type: Class<*>? = null): Method? =
     KavaMemberLookup.methodOrNull(owner, name)?.takeIf {
         !it.isStatic && it.parameterCount == 0 && (type == null || it.returnType == type)
     }
 
-private fun hostBuilder(owner: Class<*>): Method? = KavaMemberLookup.methodOrNull(owner, "newBuilder")?.takeIf {
+internal fun hostBuilder(owner: Class<*>): Method? = KavaMemberLookup.methodOrNull(owner, "newBuilder")?.takeIf {
     it.isStatic && it.parameterCount == 0 && !it.returnType.isPrimitive
 }
 
-private fun hostBuild(owner: Class<*>): Method? = KavaMemberLookup.inheritedMethodOrNull(owner, "build")?.takeIf {
+internal fun hostBuild(owner: Class<*>): Method? = KavaMemberLookup.inheritedMethodOrNull(owner, "build")?.takeIf {
     !it.isStatic && it.parameterCount == 0 && !it.returnType.isPrimitive
 }
 
-private fun hostRead(method: Method?, target: Any?): Any? =
+internal fun hostRead(method: Method?, target: Any?): Any? =
     if (method == null || target == null || !method.declaringClass.isInstance(target)) null
     else runCatching { method.invoke(target) }.getOrNull()
 
-private fun hostText(raw: Any?, limit: Int): String? = (raw as? String)?.take(limit.coerceAtLeast(0))
+internal fun hostText(raw: Any?, limit: Int): String? = (raw as? String)?.take(limit.coerceAtLeast(0))
     ?.replace(Regex("</?em>"), "")?.filterNot { it.isISOControl() && it != '\n' }?.takeIf { it.isNotBlank() }

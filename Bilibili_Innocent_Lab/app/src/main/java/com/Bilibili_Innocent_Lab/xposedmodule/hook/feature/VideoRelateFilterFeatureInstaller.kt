@@ -74,11 +74,12 @@ internal class VideoRelateFilterFeatureInstaller(
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         val normalizedHidden = hiddenTypes.mapTo(linkedSetOf(), ::normalizeType)
             .filterTo(linkedSetOf()) { it.isNotBlank() }
-        val promotionReasonEnhancementActive = matchingEnhancementEnabled &&
-            normalizedHidden.any { hidden ->
-                HostContentSemanticClassifier.hiddenKind(hidden) in REASON_ENHANCEMENT_KINDS
-            }
+        val promotionTypeFilteringActive = normalizedHidden.any { hidden ->
+            HostContentSemanticClassifier.hiddenKind(hidden) in REASON_ENHANCEMENT_KINDS
+        }
+        val promotionReasonEnhancementActive = matchingEnhancementEnabled && promotionTypeFilteringActive
         val strongModeActive = matchingEnhancementEnabled && strongModeEnabled
+        val commercialEvidenceActive = promotionTypeFilteringActive || strongModeActive
         val reasonFilteringActive = promotionReasonEnhancementActive ||
             customReasonKeywords.isNotEmpty() || strongModeActive
         val typeObservationActive = normalizedHidden.isNotEmpty() || strongModeActive
@@ -189,11 +190,24 @@ internal class VideoRelateFilterFeatureInstaller(
         val commercialEvidencePaths = resolveCommercialEvidencePaths(
             environment,
             adapted,
-            strongModeActive
+            commercialEvidenceActive,
+            includeFeedback = strongModeActive
         )
         val partialReasons = mutableListOf<String>()
+        val missingCommercialPayload = promotionTypeFilteringActive &&
+            commercialEvidencePaths.count { path ->
+                path.methods.size == 1 && path.methods.single().name in setOf("hasCm", "hasCmStock")
+            } < adapted.commercialEvidenceChains.count(::isCommercialPayloadChain)
+        if (missingCommercialPayload) {
+            partialReasons += "missing-commercial-payload-accessor"
+            environment.logError(
+                "video_relate_commercial_missing",
+                "[BIL] 相关推荐广告载体读取适配不完整，类型与其他过滤继续"
+            )
+        }
         if (typeObservationActive && !hasTypeEvidence) {
-            if (!strongModeActive && durationPaths.isEmpty() && reasonPaths.isEmpty()) {
+            if (!strongModeActive && durationPaths.isEmpty() && reasonPaths.isEmpty() &&
+                commercialEvidencePaths.isEmpty()) {
                 return missing(environment, "missing-type-getter")
             }
             partialReasons += "missing-type-getter"
@@ -314,7 +328,7 @@ internal class VideoRelateFilterFeatureInstaller(
             if (playCountRange.shouldRemove(
                     VideoPlayCountReader.fromMethods(item, playCountPaths)
                 )) return@filter true
-            if (strongModeActive && VideoRelateBooleanEvidenceReader
+            if (commercialEvidenceActive && VideoRelateBooleanEvidenceReader
                     .hasPositiveEvidence(item, commercialEvidencePaths)
             ) return@filter true
             if (strongModeActive && (
@@ -429,6 +443,7 @@ internal class VideoRelateFilterFeatureInstaller(
                                 relateTypeValueMethods = relateTypeValueEvidence,
                                 reasonPaths = reasonPaths,
                                 commercialEvidencePaths = commercialEvidencePaths,
+                                commercialEvidenceActive = commercialEvidenceActive,
                                 promotionReasonEnhancementActive = promotionReasonEnhancementActive,
                                 strongModeActive = strongModeActive
                             )
@@ -465,13 +480,18 @@ internal class VideoRelateFilterFeatureInstaller(
                 "video_related_author_block" -> authorPaths.isNotEmpty()
                 "video_related_tag_block" -> tagPaths.isNotEmpty()
                 CAPABILITY_SEMANTIC -> true // 标题按运行期结构定位；读不到的卡片按规则放行
+                "video_related_commercial_removed", "video_related_special_removed" ->
+                    hasTypeEvidence || commercialEvidencePaths.isNotEmpty()
                 else -> hasTypeEvidence
             }
             // Strong mode's fallbacks are intentional, but missing readable inputs are still partial coverage.
             val incompleteStrongInputs = capability == "video_related_strong_mode_enabled" &&
                 (!hasTypeEvidence || reasonPaths.isEmpty())
+            val incompleteCommercialPayload = missingCommercialPayload && capability in setOf(
+                "video_related_commercial_removed", "video_related_special_removed"
+            )
             environment.reportCapabilityCoverage(capability, usable, installed,
-                sharedExpected + if (incompleteStrongInputs) 1 else 0)
+                sharedExpected + if (incompleteStrongInputs || incompleteCommercialPayload) 1 else 0)
         }
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(
@@ -556,6 +576,7 @@ internal class VideoRelateFilterFeatureInstaller(
         relateTypeValueMethods: List<Method>,
         reasonPaths: List<VideoRelateReasonMethodPath>,
         commercialEvidencePaths: List<VideoRelateBooleanMethodPath>,
+        commercialEvidenceActive: Boolean,
         promotionReasonEnhancementActive: Boolean,
         strongModeActive: Boolean
     ): Boolean {
@@ -592,7 +613,7 @@ internal class VideoRelateFilterFeatureInstaller(
                 normalizedHidden
             )
         ) return true
-        if (strongModeActive && VideoRelateBooleanEvidenceReader.hasPositiveEvidence(
+        if (commercialEvidenceActive && VideoRelateBooleanEvidenceReader.hasPositiveEvidence(
                 item,
                 commercialEvidencePaths
             )
@@ -726,10 +747,14 @@ internal class VideoRelateFilterFeatureInstaller(
     private fun resolveCommercialEvidencePaths(
         environment: HookEnvironment,
         points: VersionAdapter.VideoRelatePoints,
-        enabled: Boolean
+        enabled: Boolean,
+        includeFeedback: Boolean
     ): List<VideoRelateBooleanMethodPath> {
         if (!enabled) return emptyList()
-        val chains = points.commercialEvidenceChains.mapIndexedNotNull { chainIndex, chain ->
+        // hasCm/hasCmStock 是明确广告载体；三点反馈只在用户显式选择强力模式时充当证据。
+        val chains = points.commercialEvidenceChains.filter { chain ->
+            includeFeedback || isCommercialPayloadChain(chain)
+        }.mapIndexedNotNull { chainIndex, chain ->
             val methods = chain.steps.mapIndexed { stepIndex, point ->
                 resolve(environment, "commercial.$chainIndex.$stepIndex", point)
             }
@@ -738,6 +763,9 @@ internal class VideoRelateFilterFeatureInstaller(
         }
         return VideoRelateBooleanEvidenceReader.buildMethodPaths(chains)
     }
+
+    private fun isCommercialPayloadChain(chain: VersionAdapter.BooleanMethodChain): Boolean =
+        chain.steps.size == 1 && chain.steps.single().methodName in setOf("hasCm", "hasCmStock")
 
     private fun extractEvidence(
         item: Any,

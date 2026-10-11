@@ -209,7 +209,12 @@ internal object HostTopBarFxController {
             }
             fusion?.refreshMaterial(current)
         }
-        val materialPreDraw = ViewTreeObserver.OnPreDrawListener { refreshTheme(); true }
+        val artifacts = HostTopBarArtifactBinding(topBarDock)
+        val materialPreDraw = ViewTreeObserver.OnPreDrawListener {
+            artifacts.clear()
+            refreshTheme()
+            true
+        }
         var materialObserver: ViewTreeObserver? = null
         fun observeMaterial() {
             val observer = topBarDock.viewTreeObserver
@@ -314,9 +319,6 @@ internal object HostTopBarFxController {
                 view.foreground = null
             }
             (view as? FrameLayout)?.foreground = null
-            if (view.isPressed) {
-                view.isPressed = false
-            }
         }
 
         val id = view.id

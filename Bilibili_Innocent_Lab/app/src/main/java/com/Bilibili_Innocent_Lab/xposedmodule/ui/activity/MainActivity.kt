@@ -258,6 +258,17 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
+    internal var hostBackgroundEditor: HostBackgroundEditor? = null
+    internal val hostBackgroundPicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            // 系统选择器期间 Activity 可能重建，回到新的编辑器继续导入。
+            val editor = hostBackgroundEditor ?: HostBackgroundEditor(this, window.decorView) {
+                recreate()
+            }.also { hostBackgroundEditor = it; it.show() }
+            editor.importImage(uri)
+        }
+    }
+
     internal val liquidBackgroundPicker = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -453,6 +464,8 @@ class MainActivity : SkinnedActivity() {
     internal var hostBottomBarTouchGlow = false
     internal var hostVideoCards = false
     internal var hostVideoCardRadiusDp = -1
+    internal var hostHomeCardHorizontalDp = -1
+    internal var hostHomeCardVerticalDp = -1
     internal var hostBottomBarCompact = false
     internal var hostBottomBarIconOnly = false
     internal var hostTopBarLiquidGlass = false
@@ -4131,6 +4144,8 @@ class MainActivity : SkinnedActivity() {
         // Activity 销毁时主动关闭弹窗，避免 WindowLeaked（Activity has leaked window）
         activeConfirmDialog?.dismiss()
         activeConfirmDialog = null
+        hostBackgroundEditor?.close()
+        hostBackgroundEditor = null
         liquidBackgroundDialog?.dismiss()
         liquidBackgroundDialog = null
         liquidBackgroundDialogContainer = null
@@ -4470,6 +4485,10 @@ class MainActivity : SkinnedActivity() {
             bottom = true, enabled = hostBottomBarLiquidGlass)
         hostBottomBarTouchGlow = uiSettings.bool(FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW)
         hostVideoCards = uiSettings.bool(FeaturePreferences.HOST_VIDEO_CARDS)
+        hostHomeCardHorizontalDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec.normalize(
+            uiSettings.int(FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP))
+        hostHomeCardVerticalDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec.normalize(
+            uiSettings.int(FeaturePreferences.HOST_HOME_CARD_VERTICAL_DP))
         hostVideoCardRadiusDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyleSpec.normalizeRadius(
             uiSettings.int(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP))
         hostBottomBarCompact = uiSettings.bool(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT)
@@ -5578,6 +5597,7 @@ class MainActivity : SkinnedActivity() {
             hostBottomBarAppearanceRows(this)
             hostAppearanceHeading(R.string.host_appearance_video_cards)
             hostVideoCardAppearanceRows(this)
+            hostBackgroundAppearanceRows(this)
             hostAppearanceHeading(R.string.host_appearance_player)
             MaterialSwitch(
                 lparams = LayoutParams(widthMatchParent = true) {

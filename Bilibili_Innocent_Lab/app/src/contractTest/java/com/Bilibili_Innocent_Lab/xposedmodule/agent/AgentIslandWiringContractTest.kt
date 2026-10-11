@@ -24,7 +24,7 @@ class AgentIslandWiringContractTest {
 
     @Test fun overlayUsesOneBoundedUnfocusedSecureWindowWithoutLaunchingAnotherActivity() {
         val overlay = SourceContract.read("agent/ui/AgentIslandOverlay.kt")
-        val layout = overlay.after("val layout = WindowManager.LayoutParams(").before("wm.addView(view, layout)")
+        val layout = overlay.after("val layout = WindowManager.LayoutParams(").before("container.addView(view,")
         assertTrue(layout.contains("bounds.width, bounds.height, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY"))
         assertTrue(layout.contains("WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE"))
         assertTrue(layout.contains("WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL"))
@@ -35,6 +35,24 @@ class AgentIslandWiringContractTest {
         assertFalse(overlay.contains("TYPE_STATUS_BAR"))
         assertFalse(overlay.contains("FLAG_NOT_TOUCHABLE"))
         assertTrue(overlay.contains("AgentIslandGeometry.panel(currentInput, anchor"))
+    }
+
+    @Test fun neutralDisplayChangesReuseTheAttachedWindowAndKeepStopExplicit() {
+        val overlay = SourceContract.read("agent/ui/AgentIslandOverlay.kt")
+        val rebuild = overlay.after("private fun rebuild()").before("private fun safeRebuild()")
+        assertTrue(rebuild.contains("val container = window as? FrameLayout ?: FrameLayout(context)"))
+        assertTrue(rebuild.contains("container.removeAllViews()"))
+        assertTrue(rebuild.contains("wm.updateViewLayout(container, layout)"))
+        assertTrue(rebuild.contains("if (window == null) wm.addView(container, layout)"))
+        for (mode in 0..2) assertTrue(rebuild.contains("mode = $mode; safeRebuild()"))
+        assertEquals(1, Regex("AgentController\\.cancel\\(").findAll(overlay).count())
+        assertTrue(rebuild.contains("button(R.string.agent_stop) { AgentController.cancel(service) }"))
+        val attached = overlay.after("internal fun attachedWindowId()").before("internal fun obscures(")
+        assertTrue(attached.contains("it.isAttachedToWindow && it.isShown"))
+        assertTrue(attached.contains("view.createAccessibilityNodeInfo()"))
+        assertTrue(attached.contains("node.windowId.takeIf { it >= 0 }"))
+        val remove = overlay.after("private fun remove()").before("override fun onConfigurationChanged")
+        assertTrue(remove.contains("if (visibleWindow.get() === window) visibleWindow.clear()"))
     }
 
     @Test fun displayIsRemovedWhenTaskPermissionScreenOrOwnershipIsUnavailable() {

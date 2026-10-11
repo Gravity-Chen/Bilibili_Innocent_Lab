@@ -8,6 +8,19 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.RestorePolicy
 
 class AgentToolCatalogTest {
+    @Test fun nativeReadToolsHaveClosedSchemasAndDoNotAcceptCredentialOrGuessedIdentityParameters() {
+        val tools = AgentToolCatalog.tools(false).toString()
+        for (name in listOf("get_capabilities", "get_ranking", "get_popular", "get_regions", "get_video_metrics", "get_user_videos",
+            "get_history", "get_following_feed", "get_live_status", "get_video_comments")) assertTrue(name, tools.contains(name))
+        assertTrue(AgentToolCatalog.valid("get_ranking", JSONObject().put("region_id", "0"), false))
+        assertFalse(AgentToolCatalog.valid("get_ranking", JSONObject().put("region_id", "01"), false))
+        assertFalse(AgentToolCatalog.valid("get_history", JSONObject().put("access_key", "never_allowed"), false))
+        assertFalse(AgentToolCatalog.valid("get_live_status", JSONObject().put("user_id", "0"), false))
+        assertFalse(AgentToolCatalog.valid("get_user_videos", JSONObject().put("user_id", 1), false))
+        assertFalse(AgentToolCatalog.valid("get_video_comments", JSONObject().put("video_id", "BV0000000001"), false))
+        assertTrue(AgentToolCatalog.valid("get_video_comments", JSONObject().put("video_id", "av42").put("cursor", "opaque"), false))
+        assertFalse(AgentToolCatalog.valid("get_popular", JSONObject().put("cursor", "x".repeat(33)), false))
+    }
     @Test fun nativeIntegerSlotsAreNormalizedWithoutGuessingIdentityOrMutatingInput() {
         val original = JSONObject().put("offset", 0)
         val normalized = AgentToolCatalog.normalizeArguments("get_ui_state", original)

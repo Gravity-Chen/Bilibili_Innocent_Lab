@@ -3133,10 +3133,21 @@ class HookEntry : XposedModule() {
                             enabled = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, false)
                         )
                     ),
-                    HostVideoCardStyleFeatureInstaller(
+                    *HostVideoCardStyleFeatureInstaller.shared(
                         enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
-                        radiusDp = prefs.getInt(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP, -1)
-                    ),
+                        radiusDp = prefs.getInt(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP, -1),
+                        homeSpacing = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec(
+                            prefs.getInt(FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP, -1),
+                            prefs.getInt(FeaturePreferences.HOST_HOME_CARD_VERTICAL_DP, -1)).normalized(),
+                        backgroundConfig = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig(
+                            preset = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset.read(
+                                prefs.getString(FeaturePreferences.HOST_BACKGROUND_PRESET, "off")),
+                            blur = prefs.getInt(FeaturePreferences.HOST_BACKGROUND_BLUR, 16),
+                            saturation = prefs.getInt(FeaturePreferences.HOST_BACKGROUND_SATURATION, 85),
+                            veil = prefs.getInt(FeaturePreferences.HOST_BACKGROUND_VEIL, 35),
+                            asset = prefs.getString(FeaturePreferences.HOST_BACKGROUND_ASSET, "")
+                        ).normalized()
+                    ).toTypedArray(),
                     FollowFeedFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false)
                     )
@@ -4877,7 +4888,8 @@ class HookEntry : XposedModule() {
                     authorizedHooksInstalled.set(true)
                     if (processName == TARGET_PACKAGE && config.values[com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED] == true) {
                         runCatching {
-                            com.Bilibili_Innocent_Lab.xposedmodule.agent.host.HostAgentRuntime.initialize(appContext, biliClassLoader)
+                            com.Bilibili_Innocent_Lab.xposedmodule.agent.host.HostAgentRuntime.initialize(appContext, biliClassLoader,
+                                config.values[FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED] == true)
                         }.onFailure { frameworkLog("[BIL] Agent 工具桥初始化失败，保持不可用") }
                     }
                     if (processName == TARGET_PACKAGE) {
@@ -5053,7 +5065,8 @@ class HookEntry : XposedModule() {
                             activeHookConfig.get()?.getBoolean(com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED, false) == true) {
                             (args.firstOrNull() as? android.app.Application)?.let { application ->
                                 runCatching {
-                                    com.Bilibili_Innocent_Lab.xposedmodule.agent.host.HostAgentRuntime.initialize(application, biliClassLoader)
+                                    com.Bilibili_Innocent_Lab.xposedmodule.agent.host.HostAgentRuntime.initialize(application, biliClassLoader,
+                                        activeHookConfig.get()?.getBoolean(FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED, false) == true)
                                 }.onFailure { frameworkLog("[BIL] Agent 工具桥初始化失败，保持不可用") }
                             }
                         }

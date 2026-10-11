@@ -9,6 +9,8 @@ __pycache__/
 
 # Local tooling state
 .zcode/
+.commandcode/
+/tools/
 
 # Local agent instructions (machine-specific)
 /AGENTS.md
