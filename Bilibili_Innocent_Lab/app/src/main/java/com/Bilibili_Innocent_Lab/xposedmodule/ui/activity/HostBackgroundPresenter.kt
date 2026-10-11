@@ -95,6 +95,7 @@ internal class HostBackgroundEditor(private val activity: MainActivity, private 
     private var generation = 0
     private var active = true
     private var importing = false
+    private var rendering = false
     private var saved = false
     private var importedAsset: String? = null
     private val night get() = activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
@@ -241,6 +242,7 @@ internal class HostBackgroundEditor(private val activity: MainActivity, private 
     private fun renderImage() {
         if (!active || draft.preset != HostBackgroundPreset.CUSTOM) return
         val ticket = ++generation
+        rendering = true
         val config = draft.normalized()
         val app = activity.applicationContext
         selected.text = activity.getString(R.string.liquid_background_processing)
@@ -248,6 +250,7 @@ internal class HostBackgroundEditor(private val activity: MainActivity, private 
             val image = HostBackgroundImages.load(app, config)
             activity.runOnUiThread {
                 if (!active || ticket != generation) { image?.recycle(); return@runOnUiThread }
+                rendering = false
                 val previous = rendered
                 rendered = image
                 refresh()
@@ -258,24 +261,25 @@ internal class HostBackgroundEditor(private val activity: MainActivity, private 
     }
 
     private fun save() {
-        if (importing || !active) return
+        if (importing || rendering || !active) return
         val config = draft.normalized()
         if (config.preset == HostBackgroundPreset.CUSTOM && rendered == null) {
             Toast.makeText(activity, R.string.host_background_missing, Toast.LENGTH_LONG).show(); return
         }
         runCatching {
             HostBackgroundImages.grant(activity, config.asset)
-            check(activity.prefs().edit().putString(FeaturePreferences.HOST_BACKGROUND_PRESET, config.preset.value)
-                .putInt(FeaturePreferences.HOST_BACKGROUND_BLUR, config.blur)
-                .putInt(FeaturePreferences.HOST_BACKGROUND_SATURATION, config.saturation)
-                .putInt(FeaturePreferences.HOST_BACKGROUND_VEIL, config.veil)
-                .putString(FeaturePreferences.HOST_BACKGROUND_ASSET, config.asset).commit())
+            check(HostBackgroundSettingsStore.save(activity.prefs(), config))
         }.onSuccess {
             saved = true
-            HostBackgroundImages.cleanup(activity, config.asset)
-            onSaved()
-            Toast.makeText(activity, R.string.host_background_saved, Toast.LENGTH_LONG).show()
-            close()
+            // 已提交的文件不再属于导入草稿；收尾失败也不能让后续取消删除它。
+            importedAsset = null
+            try {
+                runCatching {
+                    HostBackgroundImages.cleanup(activity, config.asset)
+                    onSaved()
+                    Toast.makeText(activity, R.string.host_background_saved, Toast.LENGTH_LONG).show()
+                }.onFailure { android.util.Log.w("BilibiliInnocentLab", "host background finalization failed", it) }
+            } finally { close() }
         }.onFailure { Toast.makeText(activity, R.string.host_background_save_failed, Toast.LENGTH_LONG).show() }
     }
 

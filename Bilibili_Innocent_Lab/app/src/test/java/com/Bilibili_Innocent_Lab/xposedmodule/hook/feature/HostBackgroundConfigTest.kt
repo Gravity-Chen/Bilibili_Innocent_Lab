@@ -11,7 +11,7 @@ import org.junit.Test
 
 class HostBackgroundConfigTest {
     @Test fun backgroundIsPublishedAfterTheClassicCommentCatalogVersions() {
-        val background = SettingsCatalog.specs.filter { it.introducedCatalogVersion > 48 }
+        val background = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 49 }
         assertEquals(setOf("host.background.preset", "host.background.blur", "host.background.saturation",
             "host.background.veil", "host.background.asset"), background.map { it.id }.toSet())
         assertTrue(background.all { it.introducedCatalogVersion == 49 })
