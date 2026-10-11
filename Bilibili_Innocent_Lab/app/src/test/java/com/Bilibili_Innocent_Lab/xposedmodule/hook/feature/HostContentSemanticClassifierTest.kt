@@ -6,6 +6,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HostContentSemanticClassifierTest {
+    @Test fun advertisementRouteRequiresItsOwnAuthorityInsteadOfAnEmbeddedLink() {
+        for (uri in listOf("bilibili://ad/1", "https://cm.bilibili.com/a", "HTTP://CM.BILIBILI.COM/a")) {
+            assertTrue(uri, HostContentKind.ADVERTISEMENT in HostContentSemanticClassifier.classify(HostContentSignals(uri = uri)))
+        }
+        for (uri in listOf(
+            "bilibili://video/1?target=https://cm.bilibili.com/a",
+            "https://notcm.bilibili.com/a",
+            "https://cm.bilibili.com.evil.example/a",
+            "https://example.com/cm.bilibili.com/a"
+        )) {
+            assertFalse(uri, HostContentKind.ADVERTISEMENT in HostContentSemanticClassifier.classify(HostContentSignals(uri = uri)))
+        }
+    }
+
     @Test
     fun `accumulation preserves independent evidence order and existing destination kinds`() {
         val kinds = linkedSetOf(HostContentKind.PICTURE)
