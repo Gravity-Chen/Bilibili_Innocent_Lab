@@ -32,7 +32,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRende
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 49
+    const val CATALOG_VERSION = 50
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -654,6 +654,10 @@ internal object SettingsCatalog {
             range = -1..40,
             introducedCatalogVersion = 43
         ),
+        integer("host.home_cards.horizontal_dp", FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP,
+            R.string.host_home_card_horizontal, default = -1, range = -1..40, introducedCatalogVersion = 50),
+        integer("host.home_cards.vertical_dp", FeaturePreferences.HOST_HOME_CARD_VERTICAL_DP,
+            R.string.host_home_card_vertical, default = -1, range = -1..40, introducedCatalogVersion = 50),
         bool(
             "host.bottom_bar.compact.enabled",
             FeaturePreferences.HOST_BOTTOM_BAR_COMPACT,
@@ -960,7 +964,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 225) { "Expected 225 catalog settings, found ${specs.size}" }
+        check(specs.size == 227) { "Expected 227 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

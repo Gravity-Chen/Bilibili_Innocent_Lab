@@ -184,6 +184,8 @@ internal object FeaturePreferences {
     const val HOST_BOTTOM_BAR_TOUCH_GLOW = "host_bottom_bar_touch_glow"
     const val HOST_VIDEO_CARDS = "host_video_cards"
     const val HOST_VIDEO_CARD_RADIUS_DP = "host_video_card_radius_dp"
+    const val HOST_HOME_CARD_HORIZONTAL_DP = "host_home_card_horizontal_dp"
+    const val HOST_HOME_CARD_VERTICAL_DP = "host_home_card_vertical_dp"
     const val HOST_BACKGROUND_PRESET = "host_background_preset"
     const val HOST_BACKGROUND_BLUR = "host_background_blur"
     const val HOST_BACKGROUND_SATURATION = "host_background_saturation"

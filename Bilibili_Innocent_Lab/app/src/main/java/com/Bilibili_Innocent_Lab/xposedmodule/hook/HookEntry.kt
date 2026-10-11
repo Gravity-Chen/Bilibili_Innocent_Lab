@@ -3136,6 +3136,9 @@ class HookEntry : XposedModule() {
                     *HostVideoCardStyleFeatureInstaller.shared(
                         enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
                         radiusDp = prefs.getInt(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP, -1),
+                        homeSpacing = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec(
+                            prefs.getInt(FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP, -1),
+                            prefs.getInt(FeaturePreferences.HOST_HOME_CARD_VERTICAL_DP, -1)).normalized(),
                         backgroundConfig = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig(
                             preset = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset.read(
                                 prefs.getString(FeaturePreferences.HOST_BACKGROUND_PRESET, "off")),

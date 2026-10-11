@@ -4,6 +4,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardGri
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHostAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyleSpec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundTheme
@@ -20,13 +21,14 @@ internal class HostVideoCardStyleFeatureInstaller(
     private val enabled: Boolean,
     private val radiusDp: Int = HostVideoCardStyleSpec.DEFAULT_RADIUS,
     private val backgroundConfig: HostBackgroundConfig = HostBackgroundConfig(),
-    override val id: String = ID
+    override val id: String = ID,
+    private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec()
 ) : FeatureInstaller {
     private var backgroundEnvironment: HookEnvironment? = null
     private var pageHookCount = 0
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
-        if (!enabled && !backgroundConfig.enabled) return FeatureInstallResult.Skipped("disabled")
+        if (!enabled && !backgroundConfig.enabled && !homeSpacing.enabled) return FeatureInstallResult.Skipped("disabled")
         if (environment.processName != "tv.danmaku.bili") return FeatureInstallResult.Skipped("non-main-process")
         val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-classloader")
         val adapter = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$Adapter")
@@ -37,7 +39,7 @@ internal class HostVideoCardStyleFeatureInstaller(
             ?: return FeatureInstallResult.Skipped("missing-item-view")
         val firstHit = AtomicBoolean(false)
         val firstError = AtomicBoolean(false)
-        val grid = if (enabled) HostVideoCardGridAccess.resolve(loader) else null
+        val grid = if (enabled || homeSpacing.enabled) HostVideoCardGridAccess.resolve(loader) else null
         val styleHost = HostVideoCardHostAccess(loader)
         val background = HostBackgroundController(backgroundConfig.normalized(), onError = {
             (backgroundEnvironment ?: environment).logError("host_background_unavailable", "[BIL] 宿主背景加载失败，使用柔光预设: $it")
@@ -49,11 +51,13 @@ internal class HostVideoCardStyleFeatureInstaller(
         val pages = HostBackgroundPages(background, styleHost) {
             if (firstError.compareAndSet(false, true)) environment.logError("host_background_page_error", "[BIL] 宿主页面背景失败: $it")
         }
-        val style = HostVideoCardStyle(grid = grid, host = styleHost, decorateCards = enabled, background = background,
+        val style = HostVideoCardStyle(grid = grid, host = styleHost, decorateCards = enabled,
+            background = background.takeIf { backgroundConfig.enabled },
+            homeSpacing = homeSpacing.normalized(),
             radiusDp = HostVideoCardStyleSpec.normalizeRadius(radiusDp), onApplied = {
-            if (enabled && firstHit.compareAndSet(false, true)) {
+            if ((enabled || homeSpacing.enabled) && firstHit.compareAndSet(false, true)) {
                 environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
-                environment.logInfo("${id}_applied", if (enabled) "[BIL] 视频卡片大圆角、柔影和留白已生效" else "[BIL] 视频列表背景已生效")
+                environment.logInfo("${id}_applied", if (enabled) "[BIL] 视频卡片大圆角、柔影和留白已生效" else "[BIL] 首页视频卡片自定义间距已生效")
             }
         }, onError = {
             if (firstError.compareAndSet(false, true)) {
@@ -61,6 +65,7 @@ internal class HostVideoCardStyleFeatureInstaller(
             }
         })
         return runCatching {
+            val spacingHooks = if (homeSpacing.enabled) HostHomeCardSpacingHooks.install(environment, style::markHome) else 0
             if (backgroundConfig.enabled) pageHookCount = HostBackgroundPageHooks.install(backgroundEnvironment ?: environment, pages)
             val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators) else 0
             var scrollHooks = 0
@@ -109,7 +114,8 @@ internal class HostVideoCardStyleFeatureInstaller(
                 }
             }
             environment.logInfo("${id}_installed", "[BIL] 视频列表美化安装成功（测量前留白=${grid != null}）")
-            FeatureInstallResult.Installed((if (grid != null) 3 else 1) + scrollHooks + dividerHooks + pageHookCount, complete = !enabled || grid != null)
+            FeatureInstallResult.Installed((if (grid != null) 3 else 1) + scrollHooks + dividerHooks + pageHookCount + spacingHooks,
+                complete = (!(enabled || homeSpacing.enabled) || grid != null) && (!homeSpacing.enabled || spacingHooks > 0))
         }.getOrElse {
             environment.logError("${id}_error", "[BIL] 视频列表美化安装失败: $it")
             FeatureInstallResult.Skipped("registration-failed")
@@ -121,14 +127,15 @@ internal class HostVideoCardStyleFeatureInstaller(
         const val BACKGROUND_ID = "host_background"
 
         /** 两项诊断仍独立，实际 bind Hook、卡片识别、主题读取和列表监听只安装一套。 */
-        fun shared(enabled: Boolean, radiusDp: Int, backgroundConfig: HostBackgroundConfig): List<FeatureInstaller> {
+        fun shared(enabled: Boolean, radiusDp: Int, backgroundConfig: HostBackgroundConfig,
+            homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec()): List<FeatureInstaller> {
             val delegate = HostVideoCardStyleFeatureInstaller(enabled, radiusDp, backgroundConfig,
-                id = if (enabled) ID else BACKGROUND_ID)
+                id = if (enabled || homeSpacing.enabled) ID else BACKGROUND_ID, homeSpacing = homeSpacing.normalized())
             var result: FeatureInstallResult? = null
             fun install(environment: HookEnvironment): FeatureInstallResult = result ?: delegate.install(environment).also { result = it }
             return listOf(
                 FunctionalFeatureInstaller(ID) { environment ->
-                    if (enabled) install(environment) else FeatureInstallResult.Skipped("disabled")
+                    if (enabled || homeSpacing.enabled) install(environment) else FeatureInstallResult.Skipped("disabled")
                 },
                 FunctionalFeatureInstaller(BACKGROUND_ID) { environment ->
                     delegate.backgroundEnvironment = environment
@@ -141,7 +148,7 @@ internal class HostVideoCardStyleFeatureInstaller(
                             is FeatureInstallResult.Installed -> FeatureInstallResult.Installed(
                                 (if (backgroundConfig.preset == HostBackgroundPreset.CUSTOM) 1 else 2) + themeHooks + delegate.pageHookCount,
                                 complete = themeReady)
-                            is FeatureInstallResult.Skipped -> if (enabled && shared.reason == "registration-failed") {
+                            is FeatureInstallResult.Skipped -> if ((enabled || homeSpacing.enabled) && shared.reason == "registration-failed") {
                                 // 卡片测量点失败时，背景仍可独立使用 bind；保持原有故障隔离。
                                 when (val fallback = HostVideoCardStyleFeatureInstaller(false, radiusDp, backgroundConfig, BACKGROUND_ID).install(environment)) {
                                     is FeatureInstallResult.Installed -> fallback.copy(hookCount = fallback.hookCount + themeHooks, complete = themeReady)

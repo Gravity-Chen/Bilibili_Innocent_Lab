@@ -464,6 +464,8 @@ class MainActivity : SkinnedActivity() {
     internal var hostBottomBarTouchGlow = false
     internal var hostVideoCards = false
     internal var hostVideoCardRadiusDp = -1
+    internal var hostHomeCardHorizontalDp = -1
+    internal var hostHomeCardVerticalDp = -1
     internal var hostBottomBarCompact = false
     internal var hostBottomBarIconOnly = false
     internal var hostTopBarLiquidGlass = false
@@ -4480,6 +4482,10 @@ class MainActivity : SkinnedActivity() {
             bottom = true, enabled = hostBottomBarLiquidGlass)
         hostBottomBarTouchGlow = uiSettings.bool(FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW)
         hostVideoCards = uiSettings.bool(FeaturePreferences.HOST_VIDEO_CARDS)
+        hostHomeCardHorizontalDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec.normalize(
+            uiSettings.int(FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP))
+        hostHomeCardVerticalDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec.normalize(
+            uiSettings.int(FeaturePreferences.HOST_HOME_CARD_VERTICAL_DP))
         hostVideoCardRadiusDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyleSpec.normalizeRadius(
             uiSettings.int(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP))
         hostBottomBarCompact = uiSettings.bool(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT)

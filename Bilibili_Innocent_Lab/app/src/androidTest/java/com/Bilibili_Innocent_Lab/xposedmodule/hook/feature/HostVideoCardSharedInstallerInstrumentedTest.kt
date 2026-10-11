@@ -7,6 +7,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.HookExceptionPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernMemberHookCreator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,12 +26,13 @@ class HostVideoCardSharedInstallerInstrumentedTest {
         override fun adapted(id: String, point: VersionAdapter.HookPoint, exceptionPolicy: HookExceptionPolicy, block: ModernMemberHookCreator.() -> Unit) = error("Unexpected adapted")
         override fun constructor(id: String, constructor: Constructor<*>, block: ModernMemberHookCreator.() -> Unit) = error("Unexpected constructor")
     }
-    private fun install(cards: Boolean, background: Boolean, recorder: Recorder): List<FeatureInstallRecord> {
+    private fun install(cards: Boolean, background: Boolean, recorder: Recorder,
+        spacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec()): List<FeatureInstallRecord> {
         val loader = javaClass.classLoader!!
         val environment = HookEnvironment("tv.danmaku.bili", loader, HookPointRegistry(loader), recorder,
             logInfo = { _, _ -> }, logError = { _, _ -> }, reportStatus = { _, _ -> })
         return FeatureInstallCoordinator(environment).installAll(HostVideoCardStyleFeatureInstaller.shared(cards, -1,
-            HostBackgroundConfig(if (background) HostBackgroundPreset.AURORA else HostBackgroundPreset.OFF)))
+            HostBackgroundConfig(if (background) HostBackgroundPreset.AURORA else HostBackgroundPreset.OFF), spacing))
     }
 
     @Test fun cardsAndBackgroundShareOneBindingHookWithIndependentCoverage() {
@@ -40,15 +42,16 @@ class HostVideoCardSharedInstallerInstrumentedTest {
         assertEquals(1, recorder.ids.count { it.endsWith(".measure") })
         assertEquals(1, recorder.ids.count { it.endsWith(".linear_measure") })
         assertEquals(listOf("host_video_cards.androidx.divider"), recorder.ids.filter { it.endsWith(".divider") })
-        assertEquals(FeatureInstallResult.Installed(5), records[0].result)
-        assertEquals(FeatureInstallResult.Installed(2), records[1].result)
+        assertEquals(FeatureInstallResult.Installed(8), records[0].result)
+        assertEquals(FeatureInstallResult.Installed(5), records[1].result)
     }
     @Test fun backgroundAloneDoesNotInstallCardMeasurements() {
         val recorder = Recorder()
         val records = install(false, true, recorder)
-        assertEquals(listOf("host_background.background_scroll", "host_background.bind"), recorder.ids)
+        assertEquals(listOf("host_background.native_page", "host_background.page", "host_background.list_attached",
+            "host_background.background_scroll", "host_background.bind"), recorder.ids)
         assertEquals(FeatureInstallResult.Skipped("disabled"), records[0].result)
-        assertEquals(FeatureInstallResult.Installed(2), records[1].result)
+        assertEquals(FeatureInstallResult.Installed(5), records[1].result)
     }
     @Test fun disabledBackgroundKeepsItsIndependentDiagnosticState() {
         val recorder = Recorder()
@@ -63,7 +66,24 @@ class HostVideoCardSharedInstallerInstrumentedTest {
         val recorder = Recorder(failMeasurement = true)
         val records = install(true, true, recorder)
         assertEquals(FeatureInstallResult.Skipped("registration-failed"), records[0].result)
-        assertEquals(FeatureInstallResult.Installed(2), records[1].result)
+        assertEquals(FeatureInstallResult.Installed(5), records[1].result)
+        assertEquals(1, recorder.ids.count { it.endsWith(".bind") })
+    }
+
+    @Test fun spacingAloneInstallsMeasurementsAndHomeScopeWithoutDecoration() {
+        val recorder = Recorder()
+        val records = install(false, false, recorder, HostHomeCardSpacingSpec(0, 40))
+        assertEquals(setOf("host_video_cards.home_spacing", "host_video_cards.measure",
+            "host_video_cards.linear_measure", "host_video_cards.bind"), recorder.ids.toSet())
+        assertEquals(FeatureInstallResult.Installed(4), records[0].result)
+        assertEquals(FeatureInstallResult.Skipped("disabled"), records[1].result)
+    }
+
+    @Test fun failedSpacingMeasurementDoesNotDisableIndependentBackground() {
+        val recorder = Recorder(failMeasurement = true)
+        val records = install(false, true, recorder, HostHomeCardSpacingSpec(8, 12))
+        assertEquals(FeatureInstallResult.Skipped("registration-failed"), records[0].result)
+        assertEquals(FeatureInstallResult.Installed(5), records[1].result)
         assertEquals(1, recorder.ids.count { it.endsWith(".bind") })
     }
 }

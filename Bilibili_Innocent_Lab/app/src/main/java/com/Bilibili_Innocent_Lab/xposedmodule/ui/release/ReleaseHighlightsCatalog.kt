@@ -277,6 +277,9 @@ internal object ReleaseHighlightsCatalog {
         ReleaseHighlight("host-background", HighlightKind.NEW, R.string.host_background_tip,
             HighlightDestination("host.background.preset", alsoCovers = setOf(
                 "host.background.blur", "host.background.saturation", "host.background.veil", "host.background.asset")))
+    )), ReleaseHighlightsBatch(14, listOf(
+        ReleaseHighlight("home-card-spacing", HighlightKind.NEW, R.string.host_home_card_spacing_tip,
+            HighlightDestination("host.home_cards.horizontal_dp", alsoCovers = setOf("host.home_cards.vertical_dp")))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

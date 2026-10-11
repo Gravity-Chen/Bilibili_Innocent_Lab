@@ -21,7 +21,8 @@ internal class HostVideoCardStyle(
     private val onApplied: () -> Unit,
     private val onError: (Throwable) -> Unit,
     private val decorateCards: Boolean = true,
-    private val background: com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController? = null
+    private val background: com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController? = null,
+    private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec()
 ) {
     private class Cover(view: View) {
         val view = WeakReference(view)
@@ -55,6 +56,18 @@ internal class HostVideoCardStyle(
 
     // 值只弱引用子 View，避免 WeakHashMap 的值经 child.parent 反向持有 key。
     private val states = WeakHashMap<View, State>()
+    private val homeRoots = WeakHashMap<View, Boolean>()
+
+    fun markHome(root: View) { homeRoots[root] = true }
+
+    private fun isInHome(root: View): Boolean {
+        var current: View? = root
+        while (current != null) {
+            if (homeRoots.containsKey(current)) return true
+            current = current.parent as? View
+        }
+        return false
+    }
     private val excluded = WeakHashMap<View, Int>()
     private val listWatchers = WeakHashMap<ViewGroup, ListWatcher>()
     private val resourceKinds = SparseIntArray()
@@ -148,7 +161,7 @@ internal class HostVideoCardStyle(
                 excluded[root] = root.childCount
                 return
             }
-            if (state == null) {
+            if (state == null && (decorateCards || background != null)) {
                 root.addOnLayoutChangeListener(layoutListener)
                 root.addOnAttachStateChangeListener(attachListener)
             }
@@ -186,18 +199,28 @@ internal class HostVideoCardStyle(
 
     /** GridLayoutManager 已分配 span、尚未测量子项时调用；不发送 requestLayout。 */
     fun prepareMeasurement(manager: Any, root: View) {
-        if (!decorateCards) return
+        if (!decorateCards && !homeSpacing.enabled) return
         val state = states[root] ?: return
         if (isInPlayer(root)) return
         val params = root.layoutParams as? ViewGroup.MarginLayoutParams ?: return
         val span = grid?.spacingSpan(manager, params) ?: -1
         val spacing = state.spacing
+        val custom = homeSpacing.enabled && isInHome(root)
         // 直接更新已被宿主持有的参数，原测量流程一次得到正确尺寸。
         val parent = root.parent as? View
         rowDecorations.setEmpty()
-        if (span == 2) grid?.decorations(manager, root, rowDecorations)
-        params.setMargins(spacing.left(span, (parent?.paddingLeft ?: 0) + rowDecorations.left), spacing.top(span),
-            spacing.right(span, (parent?.paddingRight ?: 0) + rowDecorations.right), spacing.bottom(span))
+        if (span == 2 || custom) grid?.decorations(manager, root, rowDecorations)
+        val density = root.resources.displayMetrics.density
+        val left = spacing.left(if (decorateCards) span else -1, (parent?.paddingLeft ?: 0) + rowDecorations.left)
+        val right = spacing.right(if (decorateCards) span else -1, (parent?.paddingRight ?: 0) + rowDecorations.right)
+        val top = spacing.top(if (decorateCards) span else -1)
+        val bottom = spacing.bottom(if (decorateCards) span else -1)
+        params.setMargins(
+            if (custom) homeSpacing.horizontalMargin(span, true, parent?.paddingLeft ?: 0, rowDecorations.left, density) ?: left else left,
+            if (custom) homeSpacing.verticalMargin(span, true, rowDecorations.top, density) ?: top else top,
+            if (custom) homeSpacing.horizontalMargin(span, false, parent?.paddingRight ?: 0, rowDecorations.right, density) ?: right else right,
+            if (custom) homeSpacing.verticalMargin(span, false, rowDecorations.bottom, density) ?: bottom else bottom)
+        if (custom && span in 0..2) onApplied()
     }
 
     private fun discover(root: ViewGroup, previousSpacing: HostVideoCardSpacing?, feedback: Boolean): State? {
@@ -264,6 +287,7 @@ internal class HostVideoCardStyle(
     }
 
     private fun safelyApply(view: View, night: Boolean? = null) {
+        if (!decorateCards && background == null) return
         val root = view as? ViewGroup ?: return
         val state = states[root] ?: return
         runCatching { apply(root, state, night) }.onFailure(onError)
@@ -276,7 +300,7 @@ internal class HostVideoCardStyle(
         val night = nightOverride ?: host.isNight(root.context)
         background?.apply(parent, night)
         watch(parent)
-        if (!decorateCards) { onApplied(); return }
+        if (!decorateCards) return
         var count = 0
         var single: View? = null
         for (cached in state.covers) {
