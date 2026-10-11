@@ -1,10 +1,14 @@
 import unittest
 from unittest.mock import patch
 
-from telegram_delivery_state import previous_commit, record_delivery, github, REPOSITORY
+from telegram_delivery_state import previous_commit, record_delivery, github, REPOSITORY, SEND_STEP
 
 
 class TelegramDeliveryStateTest(unittest.TestCase):
+    def step_log(self, output, step=SEND_STEP):
+        return "\n".join(f"Verify selected Canary and send its APK\t{step}\t2026-10-11T21:16:15.6773972Z {line}"
+                         for line in output.splitlines())
+
     def receipt(self, commit="a" * 40):
         return {"source_commit": commit, "delivery_complete": True,
                 "channel": "@Bilibili_Innocent_LabRelease", "document_message_id": 39,
@@ -31,7 +35,7 @@ class TelegramDeliveryStateTest(unittest.TestCase):
                "head_branch": "main", "event": "workflow_dispatch"}
         log = "SOURCE_COMMIT: " + "b" * 40 + "\nTELEGRAM_CHAT_ID: @Bilibili_Innocent_LabRelease\nTelegram delivered Canary APK, message ID 49\n"
         with patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": [run]},
-                   {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, log]):
+                   {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, self.step_log(log)]):
             self.assertEqual("b" * 40, previous_commit("@Bilibili_Innocent_LabRelease"))
 
     def test_checkpoint_does_not_require_the_old_send_logs_to_remain_available(self):
@@ -47,8 +51,8 @@ class TelegramDeliveryStateTest(unittest.TestCase):
         environment = "SOURCE_COMMIT: " + "a" * 40 + "\nTELEGRAM_CHAT_ID: @Bilibili_Innocent_LabRelease\n"
         job = {"total_count": 1, "jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}
         with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": runs}, job,
-                   environment + "Validated Telegram payload; dry-run only", job,
-                   environment + "Telegram delivered Canary APK, message ID 39"]):
+                   self.step_log(environment + "Validated Telegram payload; dry-run only"), job,
+                   self.step_log(environment + "Telegram delivered Canary APK, message ID 39")]):
             self.assertEqual("a" * 40, previous_commit("@Bilibili_Innocent_LabRelease"))
 
     def test_delivery_from_failed_workflow_can_still_be_confirmed_by_its_send_result(self):
@@ -56,8 +60,39 @@ class TelegramDeliveryStateTest(unittest.TestCase):
                "path": ".github/workflows/canary-telegram.yml"}
         log = "SOURCE_COMMIT: " + "a" * 40 + "\nTELEGRAM_CHAT_ID: @Bilibili_Innocent_LabRelease\nTelegram delivered Canary APK, message ID 39\n"
         with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [run]},
-                   {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, log]):
+                   {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, self.step_log(log)]):
             self.assertEqual("a" * 40, previous_commit("@Bilibili_Innocent_LabRelease"))
+
+    def test_failed_run_with_mock_delivery_output_keeps_the_confirmed_checkpoint(self):
+        checkpoint = {"id": 1, "sha": "a" * 40, "environment": "canary-telegram", "task": "canary-telegram",
+                      "payload": dict(self.receipt(), schema=1, channel="@bilibili_innocent_labrelease")}
+        runs = [{"id": 10, "path": ".github/workflows/canary-telegram.yml",
+                 "head_branch": "main", "event": "workflow_dispatch"}, {"id": 9}]
+        log = self.step_log("Telegram delivered Canary APK, message ID 7", "Validate selection and delivery tooling")
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": runs},
+                   {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, log]) as api:
+            self.assertEqual("a" * 40, previous_commit("@Bilibili_Innocent_LabRelease"))
+        self.assertEqual({"raw": True, "run_id": 10}, api.call_args.kwargs)
+
+    def test_other_step_sources_do_not_change_the_real_delivery_source(self):
+        run = {"id": 1, "path": ".github/workflows/canary-telegram.yml",
+               "head_branch": "main", "event": "workflow_dispatch"}
+        other = self.step_log("SOURCE_COMMIT: " + "b" * 40 + "\nTELEGRAM_CHAT_ID: @other_channel",
+                              "Generate complete notes since the last Telegram delivery")
+        send = self.step_log("SOURCE_COMMIT: " + "a" * 40 + "\nTELEGRAM_CHAT_ID: @Bilibili_Innocent_LabRelease\n"
+                             "Telegram delivered Canary APK, message ID 39")
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [run]},
+                   {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, other + "\n" + send]):
+            self.assertEqual("a" * 40, previous_commit("@Bilibili_Innocent_LabRelease"))
+
+    def test_real_delivery_with_missing_source_still_fails(self):
+        run = {"id": 1, "path": ".github/workflows/canary-telegram.yml",
+               "head_branch": "main", "event": "workflow_dispatch"}
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [run]},
+                   {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]},
+                   self.step_log("Telegram delivered Canary APK, message ID 39")]):
+            with self.assertRaisesRegex(ValueError, "Cannot identify the source"):
+                previous_commit("@Bilibili_Innocent_LabRelease")
 
     def test_no_deliveries_and_unreadable_history_are_distinct(self):
         with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": []}]):
@@ -94,8 +129,8 @@ class TelegramDeliveryStateTest(unittest.TestCase):
         import subprocess
         result = subprocess.CompletedProcess([], 0, stdout=b"2026-01-01\nlog\n", stderr=b"")
         with patch("telegram_delivery_state.subprocess.run", return_value=result) as process:
-            self.assertIn("log", github("actions/jobs/7/logs", raw=True))
-        self.assertEqual(["gh", "run", "view", "--repo", REPOSITORY, "--job", "7", "--log"],
+            self.assertIn("log", github("actions/jobs/7/logs", raw=True, run_id=9))
+        self.assertEqual(["gh", "run", "view", "9", "--repo", REPOSITORY, "--job", "7", "--log"],
                          process.call_args.args[0])
 
     def test_workflow_generates_delivery_range_and_only_records_after_real_send(self):

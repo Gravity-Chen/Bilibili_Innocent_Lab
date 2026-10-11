@@ -11,18 +11,20 @@ from pathlib import Path
 REPOSITORY = "jichuo1/Bilibili_Innocent_Lab"
 ENVIRONMENT = "canary-telegram"
 TASK = "canary-telegram"
+SEND_STEP = "Send the selected Canary APK to Telegram"
 SHA = re.compile(r"[0-9a-f]{40}")
 MAX_PAGES = 20
 
 
-def github(path: str, payload: dict | None = None, *, raw: bool = False):
+def github(path: str, payload: dict | None = None, *, raw: bool = False, run_id: int = 0):
     command = ["gh", "api", f"repos/{REPOSITORY}/{path}"]
     if raw:
         match = re.fullmatch(r"actions/jobs/([1-9]\d*)/logs", path)
-        if match is None or payload is not None:
+        if match is None or payload is not None or type(run_id) is not int or run_id <= 0:
             raise ValueError("Unexpected Telegram job log request")
         # gh api 会拒绝输出日志里的 ANSI 控制字符；run view 专门处理 Actions 日志。
-        command = ["gh", "run", "view", "--repo", REPOSITORY, "--job", match[1], "--log"]
+        # 显式提供 run ID 才能保留步骤名称；仅 --job 会把步骤标为 UNKNOWN STEP。
+        command = ["gh", "run", "view", str(run_id), "--repo", REPOSITORY, "--job", match[1], "--log"]
     if payload is not None:
         command += ["--method", "POST", "--input", "-"]
     result = subprocess.run(command, input=json.dumps(payload).encode() if payload is not None else None,
@@ -98,7 +100,10 @@ def legacy_previous_commit(channel: str, checkpoint_run: int = 0, fallback: str 
             for job in jobs["jobs"]:
                 if job.get("name") != "Verify selected Canary and send its APK":
                     continue
-                log = github(f"actions/jobs/{job['id']}/logs", raw=True)
+                job_log = github(f"actions/jobs/{job['id']}/logs", raw=True, run_id=run["id"])
+                # 单测也会打印模拟发送结果，来源与回执必须来自同一个真实发送步骤。
+                log = "\n".join(parts[2] for line in job_log.splitlines()
+                                if len(parts := line.split("\t", 2)) == 3 and parts[1] == SEND_STEP)
                 if not re.search(r"Telegram delivered Canary APK, message ID [1-9]\d*", log):
                     continue
                 commits = set(re.findall(r"\bSOURCE_COMMIT: ([0-9a-f]{40})\s*$", log, re.MULTILINE))
