@@ -286,6 +286,9 @@ internal object ReleaseHighlightsCatalog {
         ReleaseHighlight("related-ad-payload", HighlightKind.FIXED, R.string.highlights_related_ad_payload,
             HighlightDestination("video.related.commercial.removed",
                 alsoCovers = setOf("video.related.special.removed")))
+    )), ReleaseHighlightsBatch(16, listOf(
+        ReleaseHighlight("panel-viewport-and-rebound", HighlightKind.FIXED, R.string.highlights_panel_viewport_rebound,
+            standaloneTitleRes = R.string.highlights_glow_engine_title)
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

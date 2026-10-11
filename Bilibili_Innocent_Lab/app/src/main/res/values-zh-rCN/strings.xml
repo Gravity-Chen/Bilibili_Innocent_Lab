@@ -966,6 +966,7 @@
     <string name="highlights_recommendation_auto_confirm">在哔哩哔哩反馈面板里点过的标签和 UP 主可以自动进入屏蔽名单，不必再去「管理推荐屏蔽」逐条确认。</string>
     <string name="highlights_recommend_play_count">按播放量过滤首页推荐和视频详情页底部推荐。读不到播放量、直播或解析失败的卡片一律保留。</string>
     <string name="highlights_glow_engine_title">凝光视效</string>
+    <string name="highlights_panel_viewport_rebound">内嵌页面和滚动区域的边角跟随面板圆角；快速滑动到顶端或底端时，按剩余速度衔接回弹，弹窗回弹避免重绘背后页面。</string>
     <string name="highlights_glow_engine">柔光与高级材质共用一套视觉引擎：悬浮栏实时透出下方内容，随明暗自动调节浓淡，文字始终清晰；状态栏同样通透，画面静止时引擎不再额外耗电。</string>
     <string name="highlights_settings_home_title">全新设置界面</string>
     <string name="highlights_settings_home">设置分为常用、净化、增强、模块四页，搭配悬浮底栏与顶栏；常用开关可收藏、拖动排序，搜索可跨页直达任意设置。</string>
