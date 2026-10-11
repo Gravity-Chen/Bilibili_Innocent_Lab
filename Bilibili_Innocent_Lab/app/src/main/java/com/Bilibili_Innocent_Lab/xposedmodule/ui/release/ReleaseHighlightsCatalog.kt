@@ -289,7 +289,12 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(16, listOf(
         ReleaseHighlight("panel-viewport-and-rebound", HighlightKind.FIXED, R.string.highlights_panel_viewport_rebound,
             standaloneTitleRes = R.string.highlights_glow_engine_title)
-    )))
+    )), ReleaseHighlightsBatch(17, listOf(
+        ReleaseHighlight("player-buffer-strategy", HighlightKind.NEW, R.string.player_buffer_tip,
+            HighlightDestination("player.buffer.mode", alsoCovers = setOf(
+                "player.buffer.seconds", "player.buffer.memory_mb", "player.buffer.disk_mb",
+                "player.buffer.wifi_only")))
+    ), automatic = false))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }
         .mapNotNull { it.destination }.distinctBy { it.settingId }

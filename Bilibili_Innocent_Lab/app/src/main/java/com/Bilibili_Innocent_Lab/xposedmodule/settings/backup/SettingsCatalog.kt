@@ -7,6 +7,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticJudge
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SemanticPresets
@@ -32,7 +33,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRende
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 50
+    const val CATALOG_VERSION = 51
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -760,6 +761,34 @@ internal object SettingsCatalog {
             range = 0..2,
             introducedCatalogVersion = 24
         ),
+        integer(
+            "player.buffer.mode", FeaturePreferences.PLAYER_BUFFER_MODE,
+            R.string.player_buffer_strategy, default = 0,
+            allowed = PlayerBufferConfig.supportedModes, introducedCatalogVersion = 51
+        ),
+        integer(
+            "player.buffer.seconds", FeaturePreferences.PLAYER_BUFFER_SECONDS,
+            R.string.player_buffer_seconds, default = PlayerBufferConfig.DEFAULT_SECONDS,
+            range = PlayerBufferConfig.MIN_SECONDS..PlayerBufferConfig.MAX_SECONDS,
+            introducedCatalogVersion = 51
+        ),
+        integer(
+            "player.buffer.memory_mb", FeaturePreferences.PLAYER_BUFFER_MEMORY_MB,
+            R.string.player_buffer_memory_mb, default = PlayerBufferConfig.DEFAULT_MEMORY_MB,
+            range = PlayerBufferConfig.MIN_MEMORY_MB..PlayerBufferConfig.MAX_MEMORY_MB,
+            introducedCatalogVersion = 51
+        ),
+        integer(
+            "player.buffer.disk_mb", FeaturePreferences.PLAYER_BUFFER_DISK_MB,
+            R.string.player_buffer_disk_mb, default = PlayerBufferConfig.DEFAULT_DISK_MB,
+            range = PlayerBufferConfig.MIN_DISK_MB..PlayerBufferConfig.MAX_DISK_MB,
+            introducedCatalogVersion = 51
+        ),
+        bool(
+            "player.buffer.wifi_only", FeaturePreferences.PLAYER_BUFFER_WIFI_ONLY,
+            R.string.player_buffer_wifi_only, default = PlayerBufferConfig.DEFAULT_WIFI_ONLY,
+            introducedCatalogVersion = 51
+        ),
         bool(
             "client.component_library.download.blocked",
             FeaturePreferences.BLOCK_COMPONENT_LIBRARY_DOWNLOAD,
@@ -964,7 +993,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 227) { "Expected 227 catalog settings, found ${specs.size}" }
+        check(specs.size == 232) { "Expected 232 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

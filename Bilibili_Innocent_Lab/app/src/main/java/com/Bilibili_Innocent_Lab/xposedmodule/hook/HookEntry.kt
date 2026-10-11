@@ -122,6 +122,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BrandSplashCustomFeat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SystemMediaNotificationFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCodecForceFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityOptions
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedFeatureInstaller
@@ -3409,6 +3411,13 @@ class HookEntry : XposedModule() {
 
             featureInstallCoordinator.installAll(
                 listOf(
+                    PlayerBufferFeatureInstaller(
+                        mode = prefs.getInt(FeaturePreferences.PLAYER_BUFFER_MODE, 0),
+                        seconds = prefs.getInt(FeaturePreferences.PLAYER_BUFFER_SECONDS, PlayerBufferConfig.DEFAULT_SECONDS),
+                        memoryMb = prefs.getInt(FeaturePreferences.PLAYER_BUFFER_MEMORY_MB, PlayerBufferConfig.DEFAULT_MEMORY_MB),
+                        diskMb = prefs.getInt(FeaturePreferences.PLAYER_BUFFER_DISK_MB, PlayerBufferConfig.DEFAULT_DISK_MB),
+                        wifiOnly = prefs.getBoolean(FeaturePreferences.PLAYER_BUFFER_WIFI_ONLY, PlayerBufferConfig.DEFAULT_WIFI_ONLY)
+                    ),
                     PlayerCodecForceFeatureInstaller(
                         codecPreferenceValue = prefs.getInt(
                             FeaturePreferences.PLAYER_CODEC_PREFERENCE,

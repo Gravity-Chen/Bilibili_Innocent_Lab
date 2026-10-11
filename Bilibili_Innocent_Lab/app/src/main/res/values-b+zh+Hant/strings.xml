@@ -1398,4 +1398,27 @@
     <string name="agent_account_changed">帳號已切換，請重新開始任務</string>
     <string name="agent_native_unavailable">目前介面不可用，需要重新觀察實際畫面</string>
     <string name="agent_goal_incomplete">尚未取得能驗證目標的資訊</string>
+    <string name="player_buffer_strategy">影片緩衝策略（實驗）</string>
+    <string name="player_buffer_tip">實驗性預讀設定與受支援通道的有界整段預取。預設跟隨宿主；修改後重新啟動嗶哩嗶哩，不支援的播放路徑保留宿主策略。</string>
+    <string name="player_buffer_follow_host">跟隨宿主</string>
+    <string name="player_buffer_low">最小緩衝</string>
+    <string name="player_buffer_custom">自訂前向緩衝</string>
+    <string name="player_buffer_whole">整段預取（實驗）</string>
+    <string name="player_buffer_follow_tip">使用宿主原有緩衝與快取策略。</string>
+    <string name="player_buffer_low_tip">盡量減少預讀，仍保留短時解碼緩衝。網路較慢或不穩定時可能更易卡頓，不等同於零緩衝。</string>
+    <string name="player_buffer_custom_tip">嘗試調整按影片時間軸計算的預讀目標。正常播放可能另有緩衝策略，不保證全程維持指定時長；達到記憶體預算後可能提前停止預讀。</string>
+    <string name="player_buffer_whole_tip">僅嘗試預取已經開始播放的普通單流、單分段影片。DASH、HLS、DRM、未知大小、預算不足或快取提前建立而無法調整時，繼續使用有限快取。僅預取目前位置之後；拖曳跳過的前段不補齊，不保證離線播放。</string>
+    <string name="player_buffer_seconds">前向目標（秒，僅自訂）</string>
+    <string name="player_buffer_memory_mb">壓縮影音佇列總預算（MiB）</string>
+    <string name="player_buffer_disk_mb">磁碟預取預算（MiB，僅整段）</string>
+    <string name="player_buffer_wifi_only">僅 Wi-Fi 時啟動整段預取</string>
+    <string name="player_buffer_range">範圍：%1$d–%2$d</string>
+    <string name="player_buffer_invalid">請輸入 %1$d 至 %2$d 的整數</string>
+    <string name="player_buffer_current">目前：%1$s</string>
+    <string name="player_buffer_custom_current">目標 %1$d 秒，壓縮佇列預算 %2$d MiB</string>
+    <string name="player_buffer_save_failed">策略儲存失敗，請在目前面板重試。</string>
+    <string name="player_buffer_restart_tip">已儲存，重新啟動嗶哩嗶哩後套用策略。</string>
+    <string name="player_buffer_mode">緩衝模式</string>
+    <string name="player_buffer_memory_tip">預讀佇列與播放消費佇列各分一半預算。解碼影格與其他原生記憶體另計，這不是宿主總記憶體占用上限。</string>
+    <string name="player_buffer_wifi_tip">啟動預取後的中途切網由宿主處理，此選項不會單獨中止已有預取工作。</string>
 </resources>

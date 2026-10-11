@@ -1398,4 +1398,27 @@
     <string name="agent_account_changed">账号已切换，请重新开始任务</string>
     <string name="agent_native_unavailable">当前接口不可用，需要重新观察真实界面</string>
     <string name="agent_goal_incomplete">尚未取得能验证目标的信息</string>
+    <string name="player_buffer_strategy">视频缓冲策略（实验）</string>
+    <string name="player_buffer_tip">实验性预读设置与受支持通道的有界整段预取。默认跟随宿主；修改后重启哔哩哔哩，不支持的播放路径保留宿主策略。</string>
+    <string name="player_buffer_follow_host">跟随宿主</string>
+    <string name="player_buffer_low">最小缓冲</string>
+    <string name="player_buffer_custom">自定义前向缓冲</string>
+    <string name="player_buffer_whole">整段预取（实验）</string>
+    <string name="player_buffer_follow_tip">使用宿主原有缓冲与缓存策略。</string>
+    <string name="player_buffer_low_tip">尽量减少预读，仍保留短时解码缓冲。网络较慢或不稳定时可能更易卡顿，不等同于零缓冲。</string>
+    <string name="player_buffer_custom_tip">尝试调整按视频时间轴计算的预读目标。正常播放可能另有缓冲策略，不保证全过程维持指定时长；达到内存预算后可能提前停止预读。</string>
+    <string name="player_buffer_whole_tip">仅尝试预取已经开始播放的普通单流、单分段视频。DASH、HLS、DRM、未知大小、预算不足或缓存提前创建而无法调整时，继续使用有限缓存。仅预取当前位置之后；拖动跳过的前段不补齐，不保证离线播放。</string>
+    <string name="player_buffer_seconds">前向目标（秒，仅自定义）</string>
+    <string name="player_buffer_memory_mb">压缩音视频队列总预算（MiB）</string>
+    <string name="player_buffer_disk_mb">磁盘预取预算（MiB，仅整段）</string>
+    <string name="player_buffer_wifi_only">仅 Wi-Fi 时启动整段预取</string>
+    <string name="player_buffer_range">范围：%1$d–%2$d</string>
+    <string name="player_buffer_invalid">请输入 %1$d 至 %2$d 的整数</string>
+    <string name="player_buffer_current">当前：%1$s</string>
+    <string name="player_buffer_custom_current">目标 %1$d 秒，压缩队列预算 %2$d MiB</string>
+    <string name="player_buffer_save_failed">策略保存失败，请在当前面板重试。</string>
+    <string name="player_buffer_restart_tip">已保存，重启哔哩哔哩后应用策略。</string>
+    <string name="player_buffer_mode">缓冲模式</string>
+    <string name="player_buffer_memory_tip">预读队列与播放消费队列各分一半预算。解码帧和其他原生内存另计，这不是宿主总内存占用上限。</string>
+    <string name="player_buffer_wifi_tip">启动预取后的中途切网由宿主处理，此选项不会单独中止已有预取任务。</string>
 </resources>

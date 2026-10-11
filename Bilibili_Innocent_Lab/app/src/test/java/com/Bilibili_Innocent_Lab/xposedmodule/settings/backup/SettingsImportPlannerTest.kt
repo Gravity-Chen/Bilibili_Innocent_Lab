@@ -6,6 +6,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsImportPlannerTest {
+    @Test fun `older backups retain an existing experimental buffer strategy`() {
+        val specs = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 51 }
+        val current = snapshot(*specs.map { spec ->
+            spec to StoredSetting(true, when (spec.id) {
+                "player.buffer.mode" -> SettingValue.IntValue(2)
+                "player.buffer.seconds" -> SettingValue.IntValue(90)
+                "player.buffer.memory_mb" -> SettingValue.IntValue(128)
+                "player.buffer.disk_mb" -> SettingValue.IntValue(2048)
+                else -> SettingValue.Bool(false)
+            })
+        }.toTypedArray())
+        for (version in 1..50) {
+            val plan = SettingsImportPlanner(specs, 51).plan(document(version, emptyList()), current)
+            assertEquals(5, plan.entries.size)
+            assertTrue(plan.entries.all { it.status == ImportStatus.NEW_IN_CURRENT })
+            assertTrue(plan.writes.isEmpty())
+        }
+    }
+
     @Test fun `next v46 classic comment intent survives merged catalog v48`() {
         val spec = SettingsCatalog.byId.getValue("comments.classic_style.enabled")
         val current = snapshot(spec to StoredSetting(false, SettingValue.Bool(false)))
