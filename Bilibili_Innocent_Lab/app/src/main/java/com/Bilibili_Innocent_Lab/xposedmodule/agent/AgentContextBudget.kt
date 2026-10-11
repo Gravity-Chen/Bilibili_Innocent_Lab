@@ -17,9 +17,16 @@ internal object AgentContextBudget {
         "cache_hit", "navigation", "observed", "foreground", "task_page", "navigation_pending", "interaction_guard",
         "identity_source", "rendered_content_verified", "visible_results_verified", "truncated_by_task_budget",
         "visual_assessment", "visual_assessment_status", "visual_status", "decision_review", "decision_review_status",
-        "decision_review_is_unverified", "status", "truncated"
+        "decision_review_is_unverified", "status", "truncated",
+        "dataset", "coverage", "scope", "statistics", "fields", "ranking_position", "position_basis", "source_position",
+        "region_id", "region_type", "requested_user_id", "user_id", "name", "live_status", "live_room_id", "live_status_source",
+        "posts", "posts_state", "users", "users_scope", "users_truncated", "items", "comments", "comment_id", "message", "text",
+        "pagination_status", "has_more_reported", "canonical_video_id", "video_aliases", "account_read_state", "native_available",
+        "get_ranking", "get_popular", "get_regions", "get_video_metrics", "get_user_videos", "get_history", "get_following_feed",
+        "get_live_status", "get_video_comments", "native_session_active", "unsupported_native", "required_operation"
     )
-    private val identity = listOf("video_id", "title", "author", "author_uid", "duration", "duration_seconds", "verification", "official_source")
+    private val identity = listOf("video_id", "title", "author", "author_uid", "duration", "duration_seconds", "verification", "official_source",
+        "ranking_position", "position_basis", "source_position", "canonical_video_id", "video_aliases")
     private val volatile = setOf("observed_at_elapsed", "capture_elapsed", "cache_hit")
 
     /** 保留缺失、null、false 和 unknown 的区别；未识别的正文不能默认为成功或官方。 */
@@ -40,7 +47,7 @@ internal object AgentContextBudget {
         val data = projected.optJSONObject("data")
         val arguments = JSONObject(call.arguments.toString())
         // 参数在同一条结果中已逐字保留时才省略重复值；游标不同或结果缺失时仍保留原参数。
-        listOf("query", "video_id", "cursor").forEach { key ->
+        listOf("query", "video_id", "user_id", "region_id", "cursor").forEach { key ->
             if (arguments.has(key) && data?.has(key) == true && arguments.opt(key) == data.opt(key)) arguments.remove(key)
         }
         return JSONObject().put("tool", call.name).put("result", projected).put("historical", true).put("compacted", true).apply {
@@ -102,13 +109,14 @@ internal object AgentContextBudget {
         private fun text(value: String, key: String, parent: String): String {
             if (value.contains("data:image/", true)) return "[image omitted]".also { truncated = true }
             val limit = when (key) {
-                "video_id", "author_uid" -> 128
+                "video_id", "author_uid", "user_id", "canonical_video_id" -> 128
                 "title" -> 300
                 "author" -> 100
                 "query" -> 200
                 "next_cursor", "cursor", "activity" -> 256
                 "duration" -> 40
                 "description" -> when (parent) { "verification" -> 300; "visual_assessment" -> 4_000; else -> 2_000 }
+                "text", "message" -> 1_000
                 else -> 256
             }
             var selected = value.take(limit)

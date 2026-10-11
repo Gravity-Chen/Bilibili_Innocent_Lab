@@ -8,6 +8,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentDecisionActionsTest {
+    @Test fun closedNativeMenusReplenishUnreadTargetsAcrossAllEightExplicitUserSeeds() {
+        val ids = (1..8).map(Int::toString)
+        val goals = ids.joinToString(" 和 ") { "UID $it" }
+        for ((goal, operation, dataset) in listOf(Triple("查看 $goals 的投稿", "get_user_videos", "user_videos"),
+            Triple("查看 $goals 是否正在直播", "get_live_status", "up_live_status"))) {
+            val actions = AgentDecisionActions(goal)
+            for (id in ids) {
+                val menu = actions.menu(false)
+                assertTrue(menu.size <= AgentDecisionClient.MAX_OPTIONS)
+                assertTrue("Unread explicit UID must eventually be offered: $id",
+                    menu.values.any { it.first == operation && it.second.optString("user_id") == id && !it.second.has("cursor") })
+                val data = JSONObject().put("source", "host_rpc").put("dataset", dataset)
+                if (operation == "get_user_videos") data.put("requested_user_id", id).put("items", JSONArray().put(video(id.toInt())))
+                else data.put("user_id", id).put("live_status", "offline")
+                actions.record(call(operation, JSONObject().put("user_id", id)), JSONObject().put("ok", true).put("data", data))
+            }
+            assertTrue(actions.state().getBoolean("goal_evidence_complete"))
+        }
+    }
+    @Test fun commentCountsAndBodiesKeepDistinctNativeGoalsWhileAnExplicitCombinedGoalKeepsBoth() {
+        for (goal in listOf("查看评论数", "查看评论数量", "看看评论量", "读取评论数", "查看评论的数量")) {
+            val target = AgentGoalEvidence(goal)
+            assertFalse(goal, target.comments)
+            assertEquals(goal, setOf("get_video_metrics"), target.required)
+        }
+        assertEquals(setOf("get_video_comments"), AgentGoalEvidence("查看评论内容").required)
+        assertEquals(setOf("get_video_metrics", "get_video_comments"), AgentGoalEvidence("查看评论并查询评论数").required)
+    }
     @Test fun observedPostActionUiRefreshesMenusWithoutAnExtraModelReadRound() {
         val actions = AgentDecisionActions("搜索")
         val data = JSONObject().put("backend", "accessibility").put("snapshot_id", "12345678-1234-1234-1234-123456789abc")

@@ -9,6 +9,12 @@ internal object AgentStatusText {
         "connecting" -> R.string.agent_tip_connect; "thinking" -> R.string.agent_tip_planning
         "waiting_response" -> R.string.agent_tip_waiting; "waiting_host" -> R.string.agent_waiting_host
         "search_videos" -> R.string.agent_tip_search
+        "get_capabilities", "get_regions" -> R.string.agent_tip_native
+        "get_ranking", "get_popular" -> R.string.agent_tip_ranking
+        "get_video_metrics" -> R.string.agent_tip_metrics
+        "get_user_videos", "get_history", "get_following_feed" -> R.string.agent_tip_feed
+        "get_live_status" -> R.string.agent_tip_live
+        "get_video_comments" -> R.string.agent_tip_comments
         "get_video_details" -> R.string.agent_tip_details; "open_video" -> R.string.agent_tip_open
         "inspect_screen", "analyzing_image" -> R.string.agent_tip_inspect; "get_host_state", "get_ui_state" -> R.string.agent_tip_state
         "click_ui", "tap_ui" -> R.string.agent_tip_click; "swipe_ui" -> R.string.agent_tip_swipe
@@ -40,6 +46,10 @@ internal object AgentStatusText {
         AgentLogTool.OPEN -> "open_video"; AgentLogTool.SCREEN -> "inspect_screen"; AgentLogTool.RENEW -> "connecting"; AgentLogTool.NONE -> "idle"
         AgentLogTool.UI_STATE -> "get_ui_state"; AgentLogTool.CLICK -> "click_ui"; AgentLogTool.SWIPE -> "swipe_ui"
         AgentLogTool.INPUT -> "input_ui_text"; AgentLogTool.BACK -> "press_back"
+        AgentLogTool.CAPABILITIES -> "get_capabilities"; AgentLogTool.REGIONS -> "get_regions"
+        AgentLogTool.RANKING -> "get_ranking"; AgentLogTool.POPULAR -> "get_popular"; AgentLogTool.METRICS -> "get_video_metrics"
+        AgentLogTool.USER_VIDEOS -> "get_user_videos"; AgentLogTool.HISTORY -> "get_history"; AgentLogTool.FOLLOWING -> "get_following_feed"
+        AgentLogTool.LIVE_STATUS -> "get_live_status"; AgentLogTool.COMMENTS -> "get_video_comments"
     }))
     fun reason(context: Context, value: AgentLogReason): String = if (value == AgentLogReason.NONE) "" else context.getString(when (value) {
         AgentLogReason.NETWORK -> R.string.agent_log_network; AgentLogReason.AUTH -> R.string.agent_log_auth
@@ -51,6 +61,10 @@ internal object AgentStatusText {
         AgentLogReason.STALLED -> R.string.agent_log_stalled; AgentLogReason.CANCELLED -> R.string.agent_cancelled
         AgentLogReason.ACCESSIBILITY_REQUIRED -> R.string.agent_accessibility_required
         AgentLogReason.PROTECTED_ACTION -> R.string.agent_sensitive_blocked; AgentLogReason.STALE_UI -> R.string.agent_ui_stale
+        AgentLogReason.ACCOUNT_AUTH -> R.string.agent_account_read_unavailable
+        AgentLogReason.ACCOUNT_CHANGED -> R.string.agent_account_changed
+        AgentLogReason.NATIVE_UNAVAILABLE -> R.string.agent_native_unavailable
+        AgentLogReason.INCOMPLETE -> R.string.agent_goal_incomplete
         else -> R.string.agent_log_unknown
     })
 }

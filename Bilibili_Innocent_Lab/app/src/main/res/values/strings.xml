@@ -1383,4 +1383,14 @@
     <string name="agent_waiting_host">Waiting for return to Bilibili</string>
     <string name="agent_recent_completed">%1$s completed</string>
     <string name="agent_recent_failed">%1$s unsuccessful</string>
+    <string name="agent_tip_native">Checking available app data</string>
+    <string name="agent_tip_ranking">Reading ranking and popular videos</string>
+    <string name="agent_tip_metrics">Reading video statistics</string>
+    <string name="agent_tip_feed">Reading videos and feed data</string>
+    <string name="agent_tip_live">Checking live status</string>
+    <string name="agent_tip_comments">Reading video comments</string>
+    <string name="agent_account_read_unavailable">Account reading requires authorization and a valid login. Restart Bilibili after changing authorization.</string>
+    <string name="agent_account_changed">Account changed. Start a new task.</string>
+    <string name="agent_native_unavailable">This app interface is unavailable. A new screen observation is required.</string>
+    <string name="agent_goal_incomplete">The requested information has not been verified.</string>
 </resources>

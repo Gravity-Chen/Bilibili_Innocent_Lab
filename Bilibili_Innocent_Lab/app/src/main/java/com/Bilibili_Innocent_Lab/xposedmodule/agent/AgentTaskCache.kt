@@ -21,7 +21,7 @@ internal class AgentTaskCache(private val capacity: Int, private val ttlMs: Long
 
     @Synchronized fun put(key: String, value: JSONObject, observedAt: Long) {
         require(observedAt >= 0)
-        if (key.isBlank() || key.length > 512 || containsImage(value)) return
+        if (key.isBlank() || key.length > 512 || containsImage(value) || volatileOrPersonal(value)) return
         val text = value.toString()
         if (text.length > MAX_ENTRY_CHARS) return
         entries[key] = Entry(text, observedAt)
@@ -36,6 +36,13 @@ internal class AgentTaskCache(private val capacity: Int, private val ttlMs: Long
         is org.json.JSONArray -> (0 until value.length()).any { containsImage(value.opt(it)) }
         is String -> value.contains("data:image/", ignoreCase = true)
         else -> false
+    }
+
+    /** 当前账号、直播与统计都要重新查询；只读不等于可以跨时刻复用。 */
+    private fun volatileOrPersonal(value: JSONObject): Boolean {
+        val data = value.optJSONObject("data") ?: value
+        return data.optString("dataset") in setOf("history", "following_feed", "up_live_status", "video_metrics") ||
+            data.optString("scope") == "current_account_feed_up_list"
     }
 
     companion object {

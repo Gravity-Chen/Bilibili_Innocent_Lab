@@ -11,7 +11,8 @@ internal object AgentTaskLog {
         "thinking" -> AgentLogPhase.PLANNING
         "waiting_response", "waiting_host" -> AgentLogPhase.WAITING
         "search_videos" -> AgentLogPhase.SEARCHING
-        "get_video_details" -> AgentLogPhase.READING
+        "get_video_details", "get_capabilities", "get_ranking", "get_popular", "get_regions", "get_video_metrics",
+        "get_user_videos", "get_history", "get_following_feed", "get_live_status", "get_video_comments" -> AgentLogPhase.READING
         "open_video" -> AgentLogPhase.OPENING
         "inspect_screen", "analyzing_image", "get_host_state", "get_ui_state" -> AgentLogPhase.OBSERVING
         "click_ui", "tap_ui" -> AgentLogPhase.CLICKING
@@ -28,6 +29,10 @@ internal object AgentTaskLog {
         "inspect_screen" -> AgentLogTool.SCREEN; "renew" -> AgentLogTool.RENEW
         "get_ui_state" -> AgentLogTool.UI_STATE; "click_ui", "tap_ui" -> AgentLogTool.CLICK
         "swipe_ui" -> AgentLogTool.SWIPE; "input_ui_text" -> AgentLogTool.INPUT; "press_back" -> AgentLogTool.BACK
+        "get_capabilities" -> AgentLogTool.CAPABILITIES; "get_ranking" -> AgentLogTool.RANKING; "get_popular" -> AgentLogTool.POPULAR
+        "get_regions" -> AgentLogTool.REGIONS; "get_video_metrics" -> AgentLogTool.METRICS; "get_user_videos" -> AgentLogTool.USER_VIDEOS
+        "get_history" -> AgentLogTool.HISTORY; "get_following_feed" -> AgentLogTool.FOLLOWING; "get_live_status" -> AgentLogTool.LIVE_STATUS
+        "get_video_comments" -> AgentLogTool.COMMENTS
         else -> AgentLogTool.NONE
     }
     fun role(value: AgentModelRole?) = when (value) {
@@ -47,6 +52,10 @@ internal object AgentTaskLog {
         "host_unavailable", "host_unavailable_restart", "host_disconnected", "host_launch_failed", "service_stopped" -> AgentLogReason.HOST_UNAVAILABLE
         "host_response_timeout" -> AgentLogReason.TIMEOUT
         "invalid_tool_arguments", "parallel_tools_rejected", "duplicate_tool_call" -> AgentLogReason.INVALID_ARGUMENT
+        "account_read_not_authorized", "account_identity_unavailable", "expired", "not_logged_in" -> AgentLogReason.ACCOUNT_AUTH
+        "account_changed" -> AgentLogReason.ACCOUNT_CHANGED
+        "use_ui_tools", "unsupported_operation", "native_handoff_unconfirmed", "native_capabilities_unavailable" -> AgentLogReason.NATIVE_UNAVAILABLE
+        "goal_incomplete", "native_evidence_required", "goal_route_required" -> AgentLogReason.INCOMPLETE
         else -> AgentModelException.Reason.entries.firstOrNull { it.description == code }?.let(::modelReason) ?: AgentLogReason.UNKNOWN
     }
     private fun modelReason(value: AgentModelException.Reason) = when (value) {

@@ -16,7 +16,12 @@ internal class AgentProgressGuard(private val maximumStagnant: Int = 8) {
         if (!response.optBoolean("ok") || call.name == "open_video" ||
             call.name in AgentToolCatalog.uiActions && response.optJSONObject("data")?.optBoolean("observation_after_action") != true) return stagnate()
         val data = response.optJSONObject("data") ?: return stagnate()
-        val facts = if (call.name == "search_videos") searchFacts(data) ?: return stagnate() else {
+        val facts = if (call.name in setOf("search_videos", "get_ranking", "get_popular", "get_user_videos", "get_history"))
+            searchFacts(data, call.name == "get_ranking") ?: return stagnate() else if (call.name == "get_following_feed" || call.name == "get_video_comments") {
+            val key = if (call.name == "get_following_feed") "posts" else "comments"
+            val entries = data.optJSONArray(key)?.takeIf { it.length() > 0 } ?: return stagnate()
+            JSONObject().put(key, entries)
+        } else {
             if (data.length() == 0) return stagnate()
             data
         }
@@ -35,21 +40,24 @@ internal class AgentProgressGuard(private val maximumStagnant: Int = 8) {
         return stagnant < maximumStagnant
     }
 
-    private fun searchFacts(data: JSONObject): JSONObject? {
-        val videos = data.optJSONArray("videos") ?: return null
+    private fun searchFacts(data: JSONObject, ranked: Boolean = false): JSONObject? {
+        val videos = data.optJSONArray("videos") ?: data.optJSONArray("items") ?: return null
         val facts = linkedMapOf<String, JSONObject>()
         for (index in 0 until minOf(videos.length(), 256)) {
             val video = videos.optJSONObject(index) ?: continue
             val id = (video.opt("video_id") as? String ?: video.opt("id") as? String)
                 ?.takeIf { it.isNotBlank() && it.length <= 128 } ?: continue
             facts[id] = JSONObject().put("video_id", id).apply {
-                for (key in listOf("title", "author", "author_uid", "duration", "duration_seconds", "official_source", "verification")) {
+                for (key in listOf("title", "author", "author_uid", "duration", "duration_seconds", "official_source", "verification") +
+                    if (ranked) listOf("ranking_position", "position_basis") else emptyList()) {
                     if (video.has(key)) put(key, video.opt(key))
                 }
             }
         }
         if (facts.isEmpty()) return null
-        return JSONObject().put("videos", JSONArray(facts.toSortedMap().values.toList()))
+        return JSONObject().put("videos", JSONArray(facts.toSortedMap().values.toList())).apply {
+            if (ranked) { put("region_id", data.opt("region_id") ?: JSONObject.NULL); put("dataset", data.opt("dataset") ?: JSONObject.NULL) }
+        }
     }
 
     fun clear() { evidence.clear(); stagnant = 0 }

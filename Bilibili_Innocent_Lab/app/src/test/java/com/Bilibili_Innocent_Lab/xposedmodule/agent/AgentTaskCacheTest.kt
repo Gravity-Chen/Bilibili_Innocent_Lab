@@ -5,6 +5,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentTaskCacheTest {
+    @Test fun accountFeedHistoryLiveAndFreshMetricDatasetsAreNeverRetainedAsReusableFacts() {
+        val cache = AgentTaskCache(8, 100)
+        for (dataset in listOf("history", "following_feed", "up_live_status", "video_metrics"))
+            cache.put(dataset, JSONObject().put("data", JSONObject().put("dataset", dataset).put("source", "host_rpc")), 100)
+        assertEquals(0, cache.size())
+        cache.put("public_detail", JSONObject().put("source", "host_rpc").put("video_id", "av1"), 100)
+        assertEquals(1, cache.size())
+    }
     @Test fun `cache hit is copied and preserves original observation time`() {
         val cache = AgentTaskCache(2, 100)
         val input = JSONObject().put("title", "original")

@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -22,12 +23,15 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentController
+import com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentForegroundWindowPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentTaskState
+import java.lang.ref.WeakReference
 
 /** 模块自己的不可聚焦小窗口，不改宿主 Window，也不向其它页面扩展任务控制权。 */
 internal class AgentIslandOverlay(private val service: Context) : android.content.ComponentCallbacks {
@@ -118,12 +122,18 @@ internal class AgentIslandOverlay(private val service: Context) : android.conten
     }
 
     private fun rebuild() {
-        remove()
         if (closed) return
         val currentInput = geometry()
-        val anchor = AgentIslandGeometry.collapsed(currentInput) ?: return
+        val anchor = AgentIslandGeometry.collapsed(currentInput) ?: run { remove(); return }
         val bounds = if (mode == 0) anchor.bounds else AgentIslandGeometry.panel(currentInput, anchor, if (mode == 2) 440 else 156) ?: anchor.bounds
         val actualMode = if (bounds == anchor.bounds) 0 else mode
+        // 展开、收起和查看日志只换内容，不拆掉公开悬浮窗，避免触摸中途更换窗口身份。
+        val container = window as? FrameLayout ?: FrameLayout(context).apply {
+            isFocusable = false
+            isClickable = true
+        }
+        island?.close(); logs?.close(); island = null; logs = null; tip = null
+        container.removeAllViews()
         val view: View = if (actualMode == 0) AgentIslandView(context).also {
             island = it; it.update(state, anchor)
             it.setOnClickListener { mode = 1; safeRebuild() }
@@ -162,11 +172,13 @@ internal class AgentIslandOverlay(private val service: Context) : android.conten
                 flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 setFitInsetsTypes(0); layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             }
-            title = "Agent task status"
+            title = AgentForegroundWindowPolicy.ISLAND_WINDOW_TITLE
         }
+        container.addView(view, FrameLayout.LayoutParams(-1, -1))
         try {
-            wm.addView(view, layout)
-            window = view; params = layout; placement = anchor; input = currentInput
+            if (window == null) wm.addView(container, layout) else wm.updateViewLayout(container, layout)
+            window = container; visibleWindow = WeakReference(container)
+            params = layout; placement = anchor; input = currentInput
             island?.setAnimating(true)
         } catch (_: RuntimeException) {
             island?.close(); logs?.close(); island = null; logs = null; tip = null
@@ -184,6 +196,7 @@ internal class AgentIslandOverlay(private val service: Context) : android.conten
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
     private fun remove() {
         island?.close(); logs?.close()
+        if (visibleWindow.get() === window) visibleWindow.clear()
         window?.let { runCatching { wm.removeViewImmediate(it) } }
         window = null; island = null; logs = null; tip = null; params = null; placement = null; input = null
     }
@@ -198,5 +211,23 @@ internal class AgentIslandOverlay(private val service: Context) : android.conten
         if (callbacksRegistered) runCatching { if (Build.VERSION.SDK_INT >= 31) context.unregisterComponentCallbacks(this) else service.unregisterComponentCallbacks(this) }
         if (opsRegistered) runCatching { appOps.stopWatchingMode(opListener) }
         remove()
+    }
+
+    companion object {
+        // 只报告本进程确实挂载的展示窗口；不能用权限开关或短暂时间豁免代替窗口证据。
+        private var visibleWindow = WeakReference<View>(null)
+        @Suppress("DEPRECATION")
+        internal fun attachedWindowId(): Int? {
+            val view = visibleWindow.get()?.takeIf { it.isAttachedToWindow && it.isShown } ?: return null
+            val node = view.createAccessibilityNodeInfo() ?: return null
+            return try { node.windowId.takeIf { it >= 0 } } finally { if (Build.VERSION.SDK_INT < 33) node.recycle() }
+        }
+        internal fun obscures(bounds: RectF): Boolean {
+            val view = visibleWindow.get()?.takeIf { it.isAttachedToWindow && it.isShown } ?: return false
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            return RectF.intersects(bounds, RectF(location[0].toFloat(), location[1].toFloat(),
+                (location[0] + view.width).toFloat(), (location[1] + view.height).toFloat()))
+        }
     }
 }

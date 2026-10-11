@@ -45,6 +45,23 @@ class AgentAccessibilityWiringContractTest {
         assertTrue(service.contains("check(now.enabled && !now.protected)"))
         assertFalse(service.contains("ACTION_ACCESSIBILITY_SETTINGS"))
     }
+    @Test fun aNeutralIslandAllowsOnlyTheStillFocusedHostAndCannotBeHitByModelCoordinates() {
+        val service = SourceContract.read("agent/AgentAccessibilityService.kt")
+        val selection = service.after("private fun hostWindow()").before("private fun hostRoot()")
+        assertTrue(selection.contains("AgentForegroundWindowPolicy.hostWindowId("))
+        assertTrue(selection.contains("AgentIslandOverlay.attachedWindowId()"))
+        assertTrue(selection.contains("root?.let(::release)"))
+        val host = service.after("private fun hostRoot()").before("private fun scan()")
+        assertTrue(host.contains("hostWindow() ?: throw IllegalStateException(\"host_not_foreground\")"))
+        assertTrue(host.contains("root.packageName?.toString() != AgentWire.TARGET_PACKAGE"))
+        val foreground = service.after("internal fun foreground()").before("internal fun clear(")
+        assertTrue(foreground.contains("if (service.hostWindow() != null) return@runCatching Foreground.HOST"))
+        val gesture = service.after("private fun gesture(").before("private fun execute(")
+        assertTrue(gesture.indexOf("AgentIslandOverlay.obscures(gestureBounds)") < gesture.indexOf("dispatchGesture("))
+        assertTrue(gesture.contains("\"ui_target_obscured\""))
+        assertFalse(selection.contains("canDrawOverlays"))
+        assertFalse(selection.contains("AgentPreferences.islandAllowed"))
+    }
     @Test fun oldAndroidDoesNotEnterNewApiOrOverlayOnModernAndroid() {
         val service = SourceContract.read("agent/AgentSessionService.kt")
         assertTrue(service.contains("if (!AgentUiPolicy.systemNotification(Build.VERSION.SDK_INT))"))

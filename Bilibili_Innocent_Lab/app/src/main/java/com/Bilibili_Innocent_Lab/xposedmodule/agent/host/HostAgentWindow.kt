@@ -161,13 +161,19 @@ internal class HostAgentWindow(
         } finally { main.removeCallbacks(poll) }
     }
 
-    fun releaseTask(lease: HostAgentSession.Lease) {
-        if (ownershipGeneration != lease.generation) return
+    /** 即使 Binder 已关闭租约，回收排队期间也不能丢失真实用户接管。仅主线程调用。 */
+    fun canHandoff(lease: HostAgentSession.Lease): Boolean = ownershipGeneration == lease.generation &&
+        control.ownsWindow(lease.generation, windowSerial) && !control.awaitingNavigation(lease.generation, now()) &&
+        activity() != null && ownedCallback.get()?.let { ownedWindow.get()?.callback === it } == true
+
+    fun releaseTask(lease: HostAgentSession.Lease): Boolean {
+        if (ownershipGeneration != lease.generation) return false
         ownershipGeneration = null
         control.revoke(lease.generation)
-        detachCallback()
+        val released = detachCallback()
         removeNavigationObserver()
         removeStop()
+        return released
     }
 
     /** 必须在 BLRouter.open 之前调用；仅租借一次短导航窗口，不允许模型从任意前台页重新接管。 */
@@ -251,13 +257,16 @@ internal class HostAgentWindow(
         ownedCallback = WeakReference(callback)
     }
 
-    private fun detachCallback() {
+    private fun detachCallback(): Boolean {
         val callback = ownedCallback.get()
         val window = ownedWindow.get()
         // 宿主后续装入的包装器不属于我们，绝不用旧 callback 覆盖它。
-        if (callback != null && window?.callback === callback) runCatching { window.callback = callback.original }
+        val released = if (callback == null || window == null) true
+            else if (window.callback !== callback) false
+            else runCatching { window.callback = callback.original; window.callback !== callback }.getOrDefault(false)
         ownedCallback.clear()
         ownedWindow.clear()
+        return released
     }
 
     private fun stopTask(lease: HostAgentSession.Lease) {
@@ -269,7 +278,7 @@ internal class HostAgentWindow(
     /** 只覆盖用户接管入口，其余所有方法由 Kotlin 委托原样传给宿主 callback。 */
     private inner class TaskCallback(val original: Window.Callback, val lease: HostAgentSession.Lease) : Window.Callback by original {
         private fun takeOver() {
-            if (ownedCallback.get() === this && session.isTaskActive(lease, now())) runCatching { stopTask(lease) }
+            if (ownedCallback.get() === this && ownershipGeneration == lease.generation) runCatching { stopTask(lease) }
         }
         override fun dispatchTouchEvent(event: MotionEvent): Boolean {
             if (event.actionMasked == MotionEvent.ACTION_DOWN) takeOver()

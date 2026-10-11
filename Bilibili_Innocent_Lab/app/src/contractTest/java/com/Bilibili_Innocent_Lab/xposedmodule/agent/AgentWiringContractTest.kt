@@ -24,7 +24,8 @@ class AgentWiringContractTest {
         val fallback = hook.after("\"callApplicationOnCreate\"").before("callApplicationOnCreate 授权 bootstrap 注册失败")
         assertTrue(fallback.contains("authorizedHooksInstalled.get()"))
         assertTrue(fallback.contains("AgentPreferences.ENABLED, false"))
-        assertTrue(fallback.contains("HostAgentRuntime.initialize(application, biliClassLoader)"))
+        assertTrue(fallback.contains("HostAgentRuntime.initialize(application, biliClassLoader,"))
+        assertTrue(fallback.contains("FeaturePreferences.BILI_ACCESS_KEY_AUTHORIZED"))
     }
     @Test fun commandsUseDedicatedBinderWhileReceiptsKeepTheirExistingQueryAllowlist() {
         val receipts = SourceContract.read("runtime/HostReceiptHost.kt")
@@ -117,5 +118,31 @@ class AgentWiringContractTest {
         val close = runner.after("private fun completeClose(").before("private fun publish(")
         assertTrue(close.contains("if (task.cancelled.get()) AgentTaskState(phase = \"cancelled\""))
         assertTrue(close.contains(".copy(running = false, maximumSteps = task.limits.maximumSteps)"))
+    }
+    @Test fun nativeCapabilityPreflightAndConfirmedHandoffPreserveOneWayControl() {
+        val runner = SourceContract.read("agent/AgentController.kt")
+        assertTrue(runner.contains("AgentHostClient.awaitReady(task.deadline(AgentWire.IPC_TIMEOUT_MS)"))
+        assertTrue(runner.contains("task.backend.startingNative()"))
+        assertTrue(runner.contains("\"account_read_authorized\", task.accountReadAuthorized"))
+        assertTrue(runner.contains("task.goalEvidence.seedVideos.joinToString(\",\")"))
+        assertTrue(runner.contains("task.goalEvidence.seedUsers.joinToString(\",\")"))
+        assertTrue(runner.contains("initialRead(\"get_capabilities\", countStep = false)"))
+        assertTrue(runner.contains("history.append(initialTurn(call), result)"))
+        val handoff = runner.after("private fun transferToUi(").before("private fun failure(")
+        assertTrue(handoff.contains("task.navigation.pending == null"))
+        assertTrue(handoff.contains("task.backend.handoff(finished)"))
+        assertTrue(handoff.contains("\"native_handoff_unconfirmed\""))
+        assertTrue(runner.contains("task.backend.nativeAttempted && !task.backend.uiOnly"))
+        assertTrue(runner.contains("task.goalEvidence.canReportLimitation()"))
+        assertTrue(runner.contains("detail = task.goalEvidence.limitation()"))
+    }
+    @Test fun requestedNavigationCannotBeConfirmedByAnUnrelatedObservation() {
+        val runner = SourceContract.read("agent/AgentController.kt")
+        assertTrue(runner.contains("task.navigation.requested(call.arguments.getString(\"video_id\"))"))
+        assertTrue(runner.contains("response.optJSONObject(\"data\")?.let(task.navigation::observe) != true"))
+        assertTrue(runner.contains("task.navigation.pending == null && call.name in"))
+        val catalog = SourceContract.read("agent/AgentToolCatalog.kt")
+        assertTrue(catalog.contains("打开详情页不证明正在播放"))
+        assertTrue(catalog.contains("不能把任务全文" ) || catalog.contains("不把完整任务直接当搜索词"))
     }
 }

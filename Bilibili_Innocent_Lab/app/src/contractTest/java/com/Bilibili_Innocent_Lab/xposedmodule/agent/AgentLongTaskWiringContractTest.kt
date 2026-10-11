@@ -11,7 +11,9 @@ class AgentLongTaskWiringContractTest {
     @Test fun persistentInputAndAccessibilityListenersUseRenewableTaskOwnership() {
         val window = SourceContract.read("agent/host/HostAgentWindow.kt")
         val input = window.after("private inner class TaskCallback").before("// 此 View 注入宿主窗口")
-        assertTrue(input.contains("session.isTaskActive(lease, now())"))
+        assertTrue(input.contains("ownedCallback.get() === this"))
+        assertTrue(input.contains("ownershipGeneration == lease.generation"))
+        assertFalse(input.contains("session.isTaskActive(lease, now())"))
         assertFalse(input.contains("session.isActive(lease, now())"))
         assertFalse(window.contains("AccessibilityStateChangeListener"))
         val service = SourceContract.read("agent/AgentAccessibilityService.kt")

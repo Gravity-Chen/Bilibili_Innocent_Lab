@@ -1383,4 +1383,14 @@
     <string name="agent_waiting_host">等待返回哔哩哔哩</string>
     <string name="agent_recent_completed">%1$s完成</string>
     <string name="agent_recent_failed">%1$s未成功</string>
+    <string name="agent_tip_native">确认可读取的宿主信息</string>
+    <string name="agent_tip_ranking">读取榜单与热门视频</string>
+    <string name="agent_tip_metrics">读取视频统计</string>
+    <string name="agent_tip_feed">读取视频与动态信息</string>
+    <string name="agent_tip_live">查询直播状态</string>
+    <string name="agent_tip_comments">读取视频评论</string>
+    <string name="agent_account_read_unavailable">账号读取需要授权和有效登录；修改授权后请重启哔哩哔哩</string>
+    <string name="agent_account_changed">账号已切换，请重新开始任务</string>
+    <string name="agent_native_unavailable">当前接口不可用，需要重新观察真实界面</string>
+    <string name="agent_goal_incomplete">尚未取得能验证目标的信息</string>
 </resources>

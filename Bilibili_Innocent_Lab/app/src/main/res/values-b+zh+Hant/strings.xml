@@ -1383,4 +1383,14 @@
     <string name="agent_waiting_host">等待返回嗶哩嗶哩</string>
     <string name="agent_recent_completed">%1$s完成</string>
     <string name="agent_recent_failed">%1$s未成功</string>
+    <string name="agent_tip_native">確認可讀取的宿主資訊</string>
+    <string name="agent_tip_ranking">讀取榜單與熱門影片</string>
+    <string name="agent_tip_metrics">讀取影片統計</string>
+    <string name="agent_tip_feed">讀取影片與動態資訊</string>
+    <string name="agent_tip_live">查詢直播狀態</string>
+    <string name="agent_tip_comments">讀取影片留言</string>
+    <string name="agent_account_read_unavailable">帳號讀取需要授權和有效登入；修改授權後請重啟嗶哩嗶哩</string>
+    <string name="agent_account_changed">帳號已切換，請重新開始任務</string>
+    <string name="agent_native_unavailable">目前介面不可用，需要重新觀察實際畫面</string>
+    <string name="agent_goal_incomplete">尚未取得能驗證目標的資訊</string>
 </resources>

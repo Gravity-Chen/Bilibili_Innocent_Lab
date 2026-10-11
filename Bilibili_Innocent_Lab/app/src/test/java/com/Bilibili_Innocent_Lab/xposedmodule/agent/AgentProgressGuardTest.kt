@@ -7,6 +7,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AgentProgressGuardTest {
+    @Test fun nativeEmptyPagesAndNewOpaqueCursorsCannotFakeProgressAndRankChangesRemainFacts() {
+        val guard = AgentProgressGuard(2)
+        fun ranked(position: Int, cursor: String) = JSONObject().put("ok", true).put("data", JSONObject().put("source", "host_rpc")
+            .put("dataset", "ranking").put("region_id", "0").put("next_cursor", cursor).put("videos", JSONArray()
+                .put(JSONObject().put("video_id", "av1").put("ranking_position", position))))
+        assertTrue(guard.observe(call("get_ranking"), ranked(1, "cursor1")))
+        assertTrue(guard.observe(call("get_ranking"), ranked(1, "cursor2")))
+        assertFalse(guard.observe(call("get_ranking"), ranked(1, "cursor3")))
+        assertTrue(guard.observe(call("get_ranking"), ranked(2, "cursor4")))
+        val empty = JSONObject().put("ok", true).put("data", JSONObject().put("dataset", "following_feed").put("posts", JSONArray()))
+        assertTrue(guard.observe(call("get_following_feed"), empty))
+        assertFalse(guard.observe(call("get_following_feed"), empty.apply { getJSONObject("data").put("next_cursor", "new") }))
+    }
     @Test fun postActionSnapshotUsesRealUiFactsWithoutInventingProgressFromDispatch() {
         fun ui(label: String, after: Boolean) = JSONObject().put("ok", true).put("data", JSONObject().put("backend", "accessibility")
             .put("snapshot_id", "fresh").put("nodes", JSONArray().put(JSONObject().put("label", label)))
