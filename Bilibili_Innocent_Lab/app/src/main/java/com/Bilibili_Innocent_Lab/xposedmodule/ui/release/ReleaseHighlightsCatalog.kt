@@ -280,6 +280,12 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(14, listOf(
         ReleaseHighlight("home-card-spacing", HighlightKind.NEW, R.string.host_home_card_spacing_tip,
             HighlightDestination("host.home_cards.horizontal_dp", alsoCovers = setOf("host.home_cards.vertical_dp")))
+    )), ReleaseHighlightsBatch(15, listOf(
+        ReleaseHighlight("home-ad-coverage", HighlightKind.FIXED, R.string.highlights_home_ad_coverage,
+            HighlightDestination("home.recommend.ads.removed", homeFilterOption = true)),
+        ReleaseHighlight("related-ad-payload", HighlightKind.FIXED, R.string.highlights_related_ad_payload,
+            HighlightDestination("video.related.commercial.removed",
+                alsoCovers = setOf("video.related.special.removed")))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

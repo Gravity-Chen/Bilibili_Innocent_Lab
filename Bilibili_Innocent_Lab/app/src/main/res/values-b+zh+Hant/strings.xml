@@ -171,6 +171,8 @@
     <string name="home_recommend_blocked_authors_tip">按 UP 主名稱或 UID 過濾推薦，重新啟動嗶哩嗶哩後生效。</string>
     <string name="home_recommend_blocked_authors_pending">在哔哩哔哩中選了 %1$s 個尚未儲存，已替你填在下方。</string>
     <string name="highlights_home_blocked_authors">依 UP 主名稱或 id 將某個 UP 主從推薦流中封鎖，也可以直接在哔哩哔哩三點面板中選取。</string>
+    <string name="highlights_home_ad_coverage">增強首頁推廣影片過濾，單獨開啟「過濾推薦廣告」也能涵蓋更多明確廣告；修正標準資訊流廣告開關說明。</string>
+    <string name="highlights_related_ad_payload">相關影片的商業推廣與特殊推薦過濾已增強，無需開啟強力模式；三點回饋仍只用於強力模式。</string>
     <string name="home_recommend_title_dialog_hint">例如：盤點, 搬運</string>
     <string name="remove_home_recommend_live">過濾直播推薦</string>
     <string name="remove_home_recommend_courses">過濾課程推薦</string>

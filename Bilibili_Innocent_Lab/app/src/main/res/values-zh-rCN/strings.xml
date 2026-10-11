@@ -171,6 +171,8 @@
     <string name="home_recommend_blocked_authors_tip">按 UP 主名称或 UID 过滤推荐，重启哔哩哔哩后生效。</string>
     <string name="home_recommend_blocked_authors_pending">在哔哩哔哩里选了 %1$s 个还没保存，已经替你填在下面了。</string>
     <string name="highlights_home_blocked_authors">按 UP 主名或 id 把某个 UP 主从推荐流里屏蔽掉，也可以直接在哔哩哔哩三点面板里选。</string>
+    <string name="highlights_home_ad_coverage">增强首页推广视频过滤，单独开启「过滤推荐广告」也能覆盖更多明确广告；修正标准信息流广告开关说明。</string>
+    <string name="highlights_related_ad_payload">相关推荐的商业推广和特殊推荐过滤已增强，无需开启强力模式；三点反馈仍只用于强力模式。</string>
     <string name="home_recommend_title_dialog_hint">例如：盘点, 搬运</string>
     <string name="remove_home_recommend_live">过滤直播推荐</string>
     <string name="remove_home_recommend_courses">过滤课堂推荐</string>

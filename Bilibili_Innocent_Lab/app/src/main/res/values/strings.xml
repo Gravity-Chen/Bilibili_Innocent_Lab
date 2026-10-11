@@ -148,6 +148,8 @@
     <string name="home_recommend_blocked_authors_tip">Filter recommendations by creator name or UID. Restart Bilibili to apply.</string>
     <string name="home_recommend_blocked_authors_pending">%1$s picked in Bilibili and not saved yet; they are already filled in below.</string>
     <string name="highlights_home_blocked_authors">Block an uploader from the recommendation feed by name or id, and pick one straight from the Bilibili three-dot panel.</string>
+    <string name="highlights_home_ad_coverage">Improves promoted-video filtering on Home when recommendation-ad filtering is used on its own, and clarifies the separate standard-feed ad option.</string>
+    <string name="highlights_related_ad_payload">Improves commercial and special related-video filtering without strong mode. Feedback alone remains a strong-mode-only signal.</string>
     <string name="home_recommend_title_dialog_hint">Example: compilation, reaction</string>
     <string name="remove_home_recommend_live">Filter live recommendations</string>
     <string name="remove_home_recommend_courses">Filter course recommendations</string>
