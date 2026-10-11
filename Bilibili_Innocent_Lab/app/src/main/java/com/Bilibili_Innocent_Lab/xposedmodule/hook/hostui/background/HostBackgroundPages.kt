@@ -238,6 +238,12 @@ internal class HostBackgroundPages(
                 }
                 if (wholePage) background.apply(page, night)
                 else for (ref in lists) ref.get()?.let { background.apply(it, night) }
+                val feedWindow = nativeFeedOwner(page)
+                if (feedWindow != null) {
+                    // 首页顶栏和推荐内容透出同一张窗口壁纸，列表不再从自己的原点重画。
+                    clearNeutral(page, page, false)
+                    for (ref in lists) ref.get()?.let { clearNeutral(it, page, false) }
+                }
                 window.get()?.let { window ->
                     val drawable = page.background
                     if (drawable != null && windowBackground.get() !== drawable) {
@@ -249,21 +255,23 @@ internal class HostBackgroundPages(
                 for (ref in containers) ref.get()?.takeIf { owner(it) === page }?.let { clearNeutral(it, page, nativeContainers) }
                 if (night) for (ref in texts) ref.get()?.takeIf { owner(it) === page }?.let { readableText(it, page) }
                 for (ref in lists) ref.get()?.takeIf { owner(it) === page }?.let(background::prepareList)
-                if (wholePage && kind != HostBackgroundPagePolicy.Kind.COMPOSE) {
+                if ((wholePage || feedWindow != null) && kind != HostBackgroundPagePolicy.Kind.COMPOSE) {
                     val list = activeList?.get()?.takeIf(::visible) ?: lists.firstNotNullOfOrNull { it.get()?.takeIf(::visible) }
-                    if (list != null) background.pageOffset(page, position(list).offset)
+                    if (list != null) background.pageOffset(feedWindow ?: page, position(list).offset)
                 }
             }.onFailure(onError)
             return true
         }
 
         fun scroll(list: ViewGroup, dy: Int): Boolean {
-            if (!wholePage || kind == HostBackgroundPagePolicy.Kind.COMPOSE) return false
+            val page = root.get() ?: return false
+            val feedWindow = nativeFeedOwner(page)
+            if ((!wholePage && feedWindow == null) || kind == HostBackgroundPagePolicy.Kind.COMPOSE) return false
             if (lists.none { it.get() === list } || !visible(list)) return false
             val position = positions.getOrPut(list) { Position(list) }
             position.offset += dy
             activeList = WeakReference(list)
-            root.get()?.let { background.pageOffset(it, position.offset) }
+            background.pageOffset(feedWindow ?: page, position.offset)
             return true
         }
     }
@@ -382,6 +390,16 @@ internal class HostBackgroundPages(
         }
         fun kind(view: View): HostBackgroundPagePolicy.Kind? {
             return owner(view)?.let { kinds[it] }
+        }
+        fun nativeFeedOwner(page: ViewGroup): ViewGroup? {
+            if (kinds[page] != HostBackgroundPagePolicy.Kind.FEED) return null
+            var node = page.parent as? View
+            while (node != null) {
+                if (node is ViewGroup && kinds[node] == HostBackgroundPagePolicy.Kind.NATIVE &&
+                    page.width > 0 && page.width == node.width) return node
+                node = node.parent as? View
+            }
+            return null
         }
         fun contains(view: View) = kind(view) != null
         private fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||

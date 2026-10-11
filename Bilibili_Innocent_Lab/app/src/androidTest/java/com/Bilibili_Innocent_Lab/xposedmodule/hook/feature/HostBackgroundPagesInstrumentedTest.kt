@@ -28,6 +28,73 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    @Test fun homeFeedsShareTheWindowWallpaperAndKeepTheirOwnScrollPositions() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val decor = activity.window.decorView as ViewGroup
+                val window = FrameLayout(activity)
+                val feeds = List(2) {
+                    FrameLayout(activity).apply {
+                        setBackgroundColor(Color.WHITE)
+                        addView(RecyclerView(activity).apply {
+                            id = TestR.id.dy_list
+                            layoutManager = LinearLayoutManager(activity)
+                            setBackgroundColor(Color.WHITE)
+                        }, FrameLayout.LayoutParams(-1, -1))
+                    }
+                }
+                feeds.forEach { window.addView(it, FrameLayout.LayoutParams(-1, -1).apply { topMargin = 80 }) }
+                feeds[1].visibility = View.GONE
+                decor.addView(window, ViewGroup.LayoutParams(320, 640))
+                window.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                window.layout(0, 0, 320, 640)
+                // 模拟横向分页预加载，隐藏页也已经拥有完整布局。
+                feeds[1].layout(0, 80, 320, 640)
+                feeds[1].getChildAt(0).layout(0, 0, 320, 560)
+                val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.AURORA), { throw it })
+                val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                feeds.forEach { pages.attach(it, HostBackgroundPagePolicy.Kind.FEED) }
+                pages.attach(window, HostBackgroundPagePolicy.Kind.NATIVE)
+                fun draw() {
+                    window.viewTreeObserver.dispatchOnGlobalLayout()
+                    window.viewTreeObserver.dispatchOnPreDraw()
+                }
+                draw()
+                val wallpaper = window.background as HostBackgroundDrawable
+                feeds.forEach { feed ->
+                    assertSame(window, HostBackgroundPages.nativeFeedOwner(feed))
+                }
+                val first = feeds[0].getChildAt(0) as ViewGroup
+                val second = feeds[1].getChildAt(0) as ViewGroup
+                assertNull("Feed roots must expose the window wallpaper", feeds[0].background)
+                assertNull("Lists must not restart the wallpaper below the header", first.background)
+                assertTrue(pages.scroll(first, 137))
+                assertEquals(137L, wallpaper.scrollOffset)
+                controller.apply(first, false) // 卡片监听器也不能重新创建列表壁纸。
+                assertNull(first.background)
+                feeds[0].translationY = -80f
+                draw()
+                assertSame(wallpaper, window.background)
+                assertEquals(137L, wallpaper.scrollOffset)
+                feeds[0].visibility = View.GONE
+                feeds[1].visibility = View.VISIBLE
+                draw()
+                assertEquals(0L, wallpaper.scrollOffset)
+                assertNull(feeds[1].background)
+                assertNull(second.background)
+                assertTrue(pages.scroll(second, 281))
+                assertEquals(281L, wallpaper.scrollOffset)
+                assertFalse("Hidden feeds must not move the visible wallpaper", pages.scroll(first, 50))
+                feeds[1].visibility = View.GONE
+                feeds[0].visibility = View.VISIBLE
+                draw()
+                assertEquals("Returning to a feed must restore its own position", 137L, wallpaper.scrollOffset)
+                decor.removeView(window)
+            }
+        }
+    }
+
     @Test fun emptyDynamicPageKeepsCardLayerAndRestoresWallpaperAfterReattach() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
