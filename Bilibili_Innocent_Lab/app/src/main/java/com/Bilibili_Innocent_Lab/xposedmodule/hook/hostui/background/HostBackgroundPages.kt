@@ -117,6 +117,8 @@ internal class HostBackgroundPages(
         private val positions = WeakHashMap<ViewGroup, Position>()
         private var activeList: WeakReference<ViewGroup>? = null
         private val window = WeakReference(window)
+        private val wallpaperSystemBars = background.requiresNight || window?.context?.javaClass?.name == HostBackgroundPagePolicy.SIDE_CENTER_ACTIVITY
+        private var sideCenter: WeakReference<View>? = null
         private var windowBackground = WeakReference<Drawable>(null)
         private val wholePage = kind != HostBackgroundPagePolicy.Kind.FEED && kind != HostBackgroundPagePolicy.Kind.LIVE
         private val nativeContainers = kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT
@@ -173,6 +175,7 @@ internal class HostBackgroundPages(
                     return
                 }
                 val id = name(node)
+                if (id == "sidecenter_layout") sideCenter = WeakReference(node)
                 if (protected(node)) return
                 if (kind == HostBackgroundPagePolicy.Kind.NATIVE && node !== root && node is ViewGroup &&
                     id == "content_container" && (node.parent as? View)?.let(::name) == "round_container" && node.width >= root.width * .9f) {
@@ -221,13 +224,16 @@ internal class HostBackgroundPages(
                 val page = root.get()?.takeIf { it.isShown } ?: return@runCatching
                 if (dirty) discover(page)
                 val night = host.isNight(page.context) || background.requiresNight
-                if (background.requiresNight && kind == HostBackgroundPagePolicy.Kind.NATIVE && page === page.rootView) {
-                    // Compose 的主题副作用可能晚于 onPostResume 更新系统栏；绘制前同步实际壁纸的文字对比度。
-                    val flags = page.systemUiVisibility and (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR).inv()
+                if (wallpaperSystemBars && kind == HostBackgroundPagePolicy.Kind.NATIVE && page === page.rootView) {
+                    // 侧边中心默认使用白色状态栏文字；透明化后按壁纸主题同步对比度，覆盖晚到的 Compose 副作用。
+                    val darkBars = night || (sideCenter?.get()?.background as? ColorDrawable)?.color == android.graphics.Color.BLACK
+                    val lightFlags = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                    val flags = if (darkBars) page.systemUiVisibility and lightFlags.inv() else page.systemUiVisibility or lightFlags
                     if (flags != page.systemUiVisibility) page.systemUiVisibility = flags
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-                        page.windowInsetsController?.let { if (it.systemBarsAppearance and mask != 0) it.setSystemBarsAppearance(0, mask) }
+                        val appearance = if (darkBars) 0 else mask
+                        page.windowInsetsController?.let { if (it.systemBarsAppearance and mask != appearance) it.setSystemBarsAppearance(appearance, mask) }
                     }
                 }
                 if (wholePage) background.apply(page, night)
@@ -263,6 +269,8 @@ internal class HostBackgroundPages(
     }
 
     private fun clearNeutral(view: View, page: ViewGroup, nativeContainers: Boolean) {
+        // 侧边中心会随标签切换，把同一容器从 Bg2 改成黑色。媒体页白色顶栏依赖这块黑底。
+        if ((view.background as? ColorDrawable)?.color == android.graphics.Color.BLACK && name(view) == "sidecenter_layout") return
         val left = view.paddingLeft
         val top = view.paddingTop
         val right = view.paddingRight
@@ -396,6 +404,7 @@ internal class HostBackgroundPages(
         private val chromeNames = setOf("main_top_layout", "nav_top_bar", "top_bar", "mine_top_view", "fake_input_layout", "cmt3_page_title_container")
         private val protectedNames = setOf("video_container", "video_area", "control_container", "player_wrapper", "video_cover_wrapper",
             "cover", "cover_layout", "video_cover", "iv_cover", "cover_image", "image_cover", "cover_container", "thumbnail", "pic", "banner", "dy_tab_layout",
-            "avatar", "avatar_container", "avatar_layer", "garb_bg", "high_light_view", "login_mask", "login_mask_container", "video_area_float_layer_container")
+            "avatar", "avatar_container", "avatar_layer", "garb_bg", "high_light_view", "login_mask", "login_mask_container", "video_area_float_layer_container",
+            "shortcut_video_view", "recycler_top_car", "cover_ground_layout")
     }
 }

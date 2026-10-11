@@ -156,7 +156,7 @@ internal object HostBackgroundPageHooks {
         val dispatch = KavaMemberLookup.methodOrNull(view, "dispatchDraw", Canvas::class.java) ?: return@runCatching 0
         val backgroundColors = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
         val fillTypes = HashMap<Class<*>, Boolean>()
-        data class DrawPage(val width: Int, val density: Float, val native: Boolean)
+        data class DrawPage(val width: Int, val density: Float, val native: Boolean, val preserveCards: Boolean)
         val scopes = ThreadLocal.withInitial { java.util.ArrayDeque<DrawPage>() }
         environment.registrar.exact("host_background.compose_color", bg.declaringClass, bg.name, *bg.parameterTypes) {
             after { if (!hasThrowable) (result as? Long)?.let { backgroundColors.add(it) } }
@@ -166,8 +166,10 @@ internal object HostBackgroundPageHooks {
                 val node = instance as? View
                 val kind = node?.let(HostBackgroundPages::kind)
                 val supported = node != null && kind != null && kind != HostBackgroundPagePolicy.Kind.DYNAMIC && !HostBackgroundPages.protectedAncestor(node)
+                val preserveCards = node?.let { commentOwnerActivity(it.context) }?.javaClass?.name ==
+                    HostBackgroundPagePolicy.SIDE_CENTER_ACTIVITY
                 scopes.get().push(DrawPage(if (supported) node!!.width else 0, node?.resources?.displayMetrics?.density ?: 1f,
-                    kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT))
+                    kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT, preserveCards))
             }
             after {
                 val stack = scopes.get()
@@ -186,6 +188,9 @@ internal object HostBackgroundPageHooks {
                         style.superclass == draw.parameterTypes[4] && style.declaredFields.all { java.lang.reflect.Modifier.isStatic(it.modifiers) }
                     }) return@before
                 val color = argOrNull(0) as? Long ?: return@before
+                // 侧边中心用 Bg2 铺页面，Bg1 绘制内容面板：圆角顶盖和矩形正文是独立节点。
+                // 必须一起保留 Bg1，否则只剩白色顶盖，正文和底部填充被壁纸挖空。
+                if (page.preserveCards && color in backgroundColors) return@before
                 val packed = argOrNull(2) as? Long ?: return@before
                 val height = Float.fromBits(packed.toInt())
                 if (color !in backgroundColors && !(page.native && HostBackgroundPagePolicy.nativeComposePanel(color, height, page.density))) return@before

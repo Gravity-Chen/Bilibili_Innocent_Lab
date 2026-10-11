@@ -82,10 +82,11 @@ class HostVideoCardPlayerScopeInstrumentedTest {
             root.addView(info, FrameLayout.LayoutParams(200, 20))
         }
 
-        fun attach(player: Boolean) {
+        fun attach(player: Boolean, listName: String? = null) {
             val parent = FrameLayout(root.context)
             if (player) parent.id = id("video_container")
             val list = RecyclerView(root.context)
+            if (listName != null) list.id = id(listName)
             list.layoutManager = LinearLayoutManager(root.context)
             parent.addView(list)
             list.layout(0, 0, 1080, 1800)
@@ -148,6 +149,14 @@ class HostVideoCardPlayerScopeInstrumentedTest {
         card.attach(player = true)
         style.bind(card.root)
         card.assertUnmodified()
+    }
+
+    @Test fun sideCenterPodcastPreviewsKeepTheirDarkMediaSurface() = check { context, style ->
+        val card = Card(context, endPage = false)
+        card.attach(player = false, listName = "recycler_top_car")
+        style.bind(card.root)
+        card.assertUnmodified()
+        assertFalse(style.replacesSeparators(card.root.parent as ViewGroup))
     }
 
     @Test fun latePlayerAttachmentDoesNotDecorateCover() = check { context, style ->

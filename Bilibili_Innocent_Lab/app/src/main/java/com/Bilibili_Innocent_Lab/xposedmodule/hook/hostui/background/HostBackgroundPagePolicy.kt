@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background
 
 /** 页面身份独立于卡片内容；空列表、图文动态和 Compose 页面也能接入。 */
 internal object HostBackgroundPagePolicy {
+    const val SIDE_CENTER_ACTIVITY = "com.bilibili.videoshortcut.sidecenter.SideCenterActivity"
     enum class Kind { FEED, LIVE, DYNAMIC, COMPOSE, PAGE, NATIVE, COMMENT }
 
     fun kind(name: String): Kind? = when {

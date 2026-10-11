@@ -352,7 +352,8 @@ internal class HostVideoCardStyle(
         val kind = when {
             // 结束页卡片在 bind 时可能尚未挂到播放器；其进度占位 ViewStub 可提前识别。
             name == "endpage_progess_root" || name == "endpage_progress_root" ||
-                name == "video_container" || name == "video_area" || name == "control_container" -> PLAYER
+                name == "video_container" || name == "video_area" || name == "control_container" ||
+                name == "recycler_top_car" || name == "shortcut_video_view" -> PLAYER
             name in coverNames -> COVER
             name in titleNames -> TITLE
             name == "cover_bottom_info_container" -> INFO
