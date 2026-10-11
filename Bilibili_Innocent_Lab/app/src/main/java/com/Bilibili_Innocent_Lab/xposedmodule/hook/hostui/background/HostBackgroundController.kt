@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background
 
 import android.graphics.Bitmap
 import android.view.ViewGroup
+import android.view.View
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import java.util.concurrent.Executors
@@ -25,6 +26,14 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
 
     fun apply(list: ViewGroup, night: Boolean) {
         if (!config.enabled) return
+        // 收藏夹内的横向预览属于外层列表内容，不能各自重画一块从原点开始的壁纸。
+        var ancestor = list.parent as? View
+        var pageList = list
+        while (ancestor != null) {
+            if (ancestor is ViewGroup && isRecycler(ancestor.javaClass)) pageList = ancestor
+            ancestor = ancestor.parent as? View
+        }
+        if (pageList !== list) { apply(pageList, night); return }
         val state = surfaces.getOrPut(list) {
             Surface(HostBackgroundDrawable(config, night, image), HostBackgroundListPosition(list.javaClass))
         }
@@ -56,6 +65,18 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
                 }
             }
         }
+    }
+
+    private val recyclerTypes = HashMap<Class<*>, Boolean>()
+    private fun isRecycler(type: Class<*>): Boolean = recyclerTypes.getOrPut(type) {
+        var current: Class<*>? = type
+        while (current != null) {
+            // ViewPager2 的 RecyclerView 只是分页容器，不能把壁纸提升到标签栏背后。
+            if (current.name.startsWith("androidx.viewpager2.")) return@getOrPut false
+            if (current.name == "androidx.recyclerview.widget.RecyclerView") return@getOrPut true
+            current = current.superclass
+        }
+        false
     }
 
     companion object {

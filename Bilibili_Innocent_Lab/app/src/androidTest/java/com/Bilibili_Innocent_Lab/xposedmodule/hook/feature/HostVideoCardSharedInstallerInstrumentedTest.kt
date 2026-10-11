@@ -38,15 +38,16 @@ class HostVideoCardSharedInstallerInstrumentedTest {
         val records = install(true, true, recorder)
         assertEquals(1, recorder.ids.count { it.endsWith(".bind") })
         assertEquals(1, recorder.ids.count { it.endsWith(".measure") })
-        assertEquals(FeatureInstallResult.Installed(2), records[0].result)
-        assertEquals(FeatureInstallResult.Installed(1), records[1].result)
+        assertEquals(1, recorder.ids.count { it.endsWith(".linear_measure") })
+        assertEquals(FeatureInstallResult.Installed(4), records[0].result)
+        assertEquals(FeatureInstallResult.Installed(2), records[1].result)
     }
     @Test fun backgroundAloneDoesNotInstallCardMeasurements() {
         val recorder = Recorder()
         val records = install(false, true, recorder)
-        assertEquals(listOf("host_background.bind"), recorder.ids)
+        assertEquals(listOf("host_background.background_scroll", "host_background.bind"), recorder.ids)
         assertEquals(FeatureInstallResult.Skipped("disabled"), records[0].result)
-        assertEquals(FeatureInstallResult.Installed(1), records[1].result)
+        assertEquals(FeatureInstallResult.Installed(2), records[1].result)
     }
     @Test fun disabledBackgroundKeepsItsIndependentDiagnosticState() {
         val recorder = Recorder()
@@ -61,7 +62,7 @@ class HostVideoCardSharedInstallerInstrumentedTest {
         val recorder = Recorder(failMeasurement = true)
         val records = install(true, true, recorder)
         assertEquals(FeatureInstallResult.Skipped("registration-failed"), records[0].result)
-        assertEquals(FeatureInstallResult.Installed(1), records[1].result)
+        assertEquals(FeatureInstallResult.Installed(2), records[1].result)
         assertEquals(1, recorder.ids.count { it.endsWith(".bind") })
     }
 }

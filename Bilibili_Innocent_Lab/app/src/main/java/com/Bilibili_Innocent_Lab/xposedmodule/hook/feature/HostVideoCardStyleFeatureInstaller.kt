@@ -55,6 +55,24 @@ internal class HostVideoCardStyleFeatureInstaller(
             }
         })
         return runCatching {
+            var dividerHooks = 0
+            if (enabled) {
+                val divider = KavaMemberLookup.classOrNull(loader, "tv.danmaku.bili.widget.recycler.DividerDecoration")
+                val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView")
+                val state = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$State")
+                val draw = if (divider != null && recycler != null && state != null)
+                    KavaMemberLookup.methodOrNull(divider, "onDrawOver", android.graphics.Canvas::class.java, recycler, state)
+                        ?.takeIf { it.returnType == Void.TYPE } else null
+                if (draw != null) {
+                    environment.registrar.exact("$id.history_divider", draw.declaringClass, draw.name, *draw.parameterTypes) {
+                        before {
+                            // 历史装饰器还负责左侧缩进，保留 getItemOffsets，仅关闭原生细线绘制。
+                            if (instance?.javaClass?.name?.startsWith("com.bilibili.app.history.") == true) result = null
+                        }
+                    }
+                    dividerHooks = 1
+                }
+            }
             var scrollHooks = 0
             if (backgroundConfig.enabled && backgroundConfig.preset != HostBackgroundPreset.CUSTOM) {
                 val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView")
@@ -80,6 +98,15 @@ internal class HostVideoCardStyleFeatureInstaller(
                         style.prepareMeasurement(manager, root)
                     }
                 }
+                val linearMeasure = grid.measureLinearChild
+                environment.registrar.exact("$id.linear_measure", linearMeasure.declaringClass,
+                    linearMeasure.name, *linearMeasure.parameterTypes) {
+                    before {
+                        val manager = instance ?: return@before
+                        val root = argOrNull(0) as? View ?: return@before
+                        style.prepareMeasurement(manager, root)
+                    }
+                }
             }
             // final bindViewHolder 统一覆盖各适配器，使用宿主 ClassLoader 的类型，避免跨加载器强转。
             environment.registrar.exact("$id.bind", adapter, "bindViewHolder", holder, Int::class.javaPrimitiveType!!) {
@@ -91,7 +118,7 @@ internal class HostVideoCardStyleFeatureInstaller(
                 }
             }
             environment.logInfo("${id}_installed", "[BIL] 视频列表美化安装成功（测量前留白=${grid != null}）")
-            FeatureInstallResult.Installed((if (grid != null) 2 else 1) + scrollHooks, complete = !enabled || grid != null)
+            FeatureInstallResult.Installed((if (grid != null) 3 else 1) + scrollHooks + dividerHooks, complete = !enabled || grid != null)
         }.getOrElse {
             environment.logError("${id}_error", "[BIL] 视频列表美化安装失败: $it")
             FeatureInstallResult.Skipped("registration-failed")

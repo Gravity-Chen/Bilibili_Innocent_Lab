@@ -59,6 +59,7 @@ internal class HostVideoCardStyle(
     private val listWatchers = WeakHashMap<ViewGroup, ListWatcher>()
     private val resourceKinds = SparseIntArray()
     private val recyclerTypes = HashMap<Class<*>, Boolean>()
+    private val rowDecorations = android.graphics.Rect()
     private val coverNames = setOf("cover_layout", "cover", "video_cover", "iv_cover", "cover_image", "image_cover", "cover_container", "thumbnail", "pic")
     private val titleNames = setOf("title", "title_layout", "video_title", "tv_title")
     private val coverOutline = object : ViewOutlineProvider() {
@@ -146,7 +147,17 @@ internal class HostVideoCardStyle(
             excluded.remove(root)
         }
         // 字号和封面信息留白在绑定/首次测量前设置，布局回调不再修改 LayoutParams。
-        if (decorateCards) configureInfo(root, state)
+        if (decorateCards) {
+            configureInfo(root, state)
+            // 历史等横向条目的封面原本贴着透明条目边缘；卡片化后补齐内侧留白。
+            val cover = state.covers.singleOrNull()?.view?.get()
+            val params = cover?.layoutParams as? ViewGroup.MarginLayoutParams
+            if (root.layoutParams?.width == ViewGroup.LayoutParams.MATCH_PARENT &&
+                cover?.parent === root && params != null && params.width > 0 && params.leftMargin == 0) {
+                val inset = (10f * root.resources.displayMetrics.density).toInt()
+                if (root.paddingLeft < inset) root.setPadding(inset, root.paddingTop, root.paddingRight, root.paddingBottom)
+            }
+        }
         safelyApply(root)
     }
 
@@ -169,10 +180,14 @@ internal class HostVideoCardStyle(
         val state = states[root] ?: return
         if (isInPlayer(root)) return
         val params = root.layoutParams as? ViewGroup.MarginLayoutParams ?: return
-        val span = grid?.doubleColumnSpan(manager, params) ?: -1
+        val span = grid?.spacingSpan(manager, params) ?: -1
         val spacing = state.spacing
         // 直接更新已被宿主持有的参数，原测量流程一次得到正确尺寸。
-        params.setMargins(spacing.left(span), spacing.top(span), spacing.right(span), spacing.bottom(span))
+        val parent = root.parent as? View
+        rowDecorations.setEmpty()
+        if (span == 2) grid?.decorations(manager, root, rowDecorations)
+        params.setMargins(spacing.left(span, (parent?.paddingLeft ?: 0) + rowDecorations.left), spacing.top(span),
+            spacing.right(span, (parent?.paddingRight ?: 0) + rowDecorations.right), spacing.bottom(span))
     }
 
     private fun discover(root: ViewGroup, previousSpacing: HostVideoCardSpacing?, feedback: Boolean): State? {
