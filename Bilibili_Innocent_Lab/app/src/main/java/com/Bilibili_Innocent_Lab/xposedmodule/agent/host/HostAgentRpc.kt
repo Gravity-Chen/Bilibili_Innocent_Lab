@@ -293,18 +293,31 @@ internal class HostAgentVideoStatistics private constructor(
     private val has: Method,
     private val stat: Method,
     private val defaultInstance: Method,
-    private val fields: Map<String, Method>
+    private val fields: Map<String, NumericField>
 ) {
     fun read(arc: Any): JSONObject {
         if (hostRead(has, arc) != true) return unknown()
         val value = hostRead(stat, arc) ?: return unknown()
-        if (runCatching { value === defaultInstance.invoke(null) }.getOrDefault(true)) return unknown()
+        if (isDefault(value, defaultInstance)) return unknown()
         val result = JSONObject().put("status", "reported")
         NAMES.keys.forEach { key ->
-            result.put(key, (hostRead(fields[key], value) as? Number)?.toLong()?.takeIf { it >= 0 } ?: JSONObject.NULL)
+            result.put(key, fields[key]?.read(value) ?: JSONObject.NULL)
         }
         if (NAMES.keys.none { !result.isNull(it) }) result.put("status", "unknown")
         return result
+    }
+
+    private class NumericField(private val getter: Method, private val presence: Method? = null,
+                               private val defaultInstance: Method? = null, private val valueGetter: Method? = null) {
+        fun read(stat: Any): Long? {
+            if (presence != null && hostRead(presence, stat) != true) return null
+            val raw = hostRead(getter, stat) ?: return null
+            val number = if (valueGetter == null) raw else {
+                if (defaultInstance == null || isDefault(raw, defaultInstance)) return null
+                hostRead(valueGetter, raw)
+            }
+            return (number as? Number)?.toLong()?.takeIf { it >= 0 }
+        }
     }
 
     companion object {
@@ -314,13 +327,38 @@ internal class HostAgentVideoStatistics private constructor(
         fun resolve(arc: Class<*>): HostAgentVideoStatistics? {
             val has = hostGetter(arc, "hasStat", classOf<Boolean>()) ?: return null
             val stat = hostGetter(arc, "getStat") ?: return null
-            val defaultInstance = KavaMemberLookup.methodOrNull(stat.returnType, "getDefaultInstance")?.takeIf {
-                it.isStatic && it.parameterCount == 0 && it.returnType == stat.returnType
-            } ?: return null
-            val fields = NAMES.mapNotNull { (key, method) -> hostGetter(stat.returnType, method, classOf<Int>())?.let { key to it } }.toMap()
+            val defaultInstance = defaultMethod(stat.returnType) ?: return null
+            val fields = if (hostGetter(stat.returnType, "getView", classOf<Int>()) != null) {
+                // Archive Stat：七项原始 Int；不把另一布局的展示文本当成数值。
+                NAMES.mapNotNull { (key, method) -> hostGetter(stat.returnType, method, classOf<Int>())?.let { key to NumericField(it) } }.toMap()
+            } else {
+                // ViewUnite common.Stat：五项 Long，Vt/Danmaku 必须读有载荷的 StatInfo.value。
+                NAMES.mapNotNull { (key, method) ->
+                    val field = when (key) {
+                        "view_count" -> nestedField(stat.returnType, "getVt", "hasVt")
+                        "danmaku_count" -> nestedField(stat.returnType, "getDanmaku", "hasDanmaku")
+                        else -> hostGetter(stat.returnType, method, classOf<Long>())?.let { NumericField(it) }
+                    }
+                    field?.let { key to it }
+                }.toMap()
+            }
             if ("view_count" !in fields) return null
             return HostAgentVideoStatistics(has, stat, defaultInstance, fields)
         }
+        private fun nestedField(stat: Class<*>, getterName: String, presenceName: String): NumericField? {
+            val presence = hostGetter(stat, presenceName, classOf<Boolean>()) ?: return null
+            val getter = hostGetter(stat, getterName)?.takeIf { !it.returnType.isPrimitive } ?: return null
+            val value = hostGetter(getter.returnType, "getValue", classOf<Long>()) ?: return null
+            val defaultInstance = defaultMethod(getter.returnType) ?: return null
+            return NumericField(getter, presence, defaultInstance, value)
+        }
+        private fun defaultMethod(type: Class<*>): Method? = KavaMemberLookup.methodOrNull(type, "getDefaultInstance")?.takeIf {
+            it.isStatic && it.parameterCount == 0 && it.returnType == type
+        }
+        private fun isDefault(value: Any, method: Method): Boolean = runCatching {
+            val default = method.invoke(null) ?: return@runCatching true
+            value === default
+        }.getOrDefault(true)
     }
 }
 
