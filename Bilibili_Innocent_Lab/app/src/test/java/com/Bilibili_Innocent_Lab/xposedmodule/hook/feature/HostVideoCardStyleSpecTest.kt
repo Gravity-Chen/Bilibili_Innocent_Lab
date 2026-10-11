@@ -11,8 +11,8 @@ import org.junit.Test
 
 class HostVideoCardStyleSpecTest {
     @Test fun customRadiusUsesDensityAndFitsSmallCovers() {
-        assertEquals(18f, HostVideoCardStyleSpec.coverRadius(200, 100), 0.001f)
-        assertEquals(60f, HostVideoCardStyleSpec.cardRadius(200, 300, -1, 3f), 0f)
+        assertEquals(12f, HostVideoCardStyleSpec.coverRadius(200, 100), 0.001f)
+        assertEquals(48f, HostVideoCardStyleSpec.cardRadius(200, 300, -1, 3f), 0f)
         assertEquals(0f, HostVideoCardStyleSpec.coverRadius(200, 100, 0, 3f), 0f)
         assertEquals(24f, HostVideoCardStyleSpec.coverRadius(200, 100, 8, 3f), 0f)
         assertEquals(50f, HostVideoCardStyleSpec.coverRadius(200, 100, 40, 3f), 0f)
@@ -46,5 +46,24 @@ class HostVideoCardStyleSpecTest {
         assertTrue(geometry.update(462, 582, 76.12f))
         assertTrue(geometry.update(462, 582, 77f))
         assertFalse(geometry.update(462, 582, 77f))
+    }
+
+    @Test fun fullWidthRowsKeepGuttersWithoutAccumulatingOrReducingHostSpacing() {
+        val spacing = HostVideoCardSpacing(0, 0, 0, 0, 2f)
+        repeat(100) {
+            assertEquals(24, spacing.left(2))
+            assertEquals(24, spacing.right(2))
+            assertEquals(10, spacing.top(2))
+            assertEquals(10, spacing.bottom(2))
+        }
+        val spacious = HostVideoCardSpacing(40, 30, 40, 30, 2f)
+        assertEquals(40, spacious.left(2))
+        assertEquals(30, spacious.top(2))
+        assertEquals(40, spacious.right(2))
+        assertEquals(30, spacious.bottom(2))
+        assertEquals(0, spacing.left(-1))
+        assertEquals(0, spacing.left(2, 24))
+        assertEquals(12, spacing.right(2, 12))
+        assertEquals(0, spacing.left(2, 40))
     }
 }

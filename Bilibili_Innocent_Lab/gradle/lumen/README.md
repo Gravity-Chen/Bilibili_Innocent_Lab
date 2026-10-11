@@ -1,6 +1,6 @@
 # 凝光源码接入
 
-当前基线固定为上游 [1.2.4 标签](https://github.com/jichuo1/LumenCoacervationEngine/tree/1.2.4)，core 与 motion 同时接入，正式源码归档 SHA-256 为 `b7fade429f42e3f7e32cf81102ad5ff9bacac511ebae1f3b2051bf7ba781681a`。构建只对齐 Android 复合工程需要的工具链版本，不再修改引擎的行为源码或诊断版本号。
+当前基线固定为上游 [1.2.6 标签](https://github.com/jichuo1/LumenCoacervationEngine/tree/1.2.6)，core 与 motion 同时接入，正式源码归档 SHA-256 为 `0b9cafd87be7a5f2f04f634c42543bff17b8bdfce9f3cc959cffb765b4e5dd5e`。构建只对齐 Android 复合工程需要的工具链版本，不再修改引擎的行为源码或诊断版本号。
 
 引擎 1.2.3 已吸收下述三个扩展；它们作为历史记录保留，settings 不再应用。首次构建下载固定归档并核对哈希，此后支持 `--offline`。缓存键由版本与宿主工具链版本确定，缓存位于 `.gradle/lumen-source/`，不提交缓存。
 

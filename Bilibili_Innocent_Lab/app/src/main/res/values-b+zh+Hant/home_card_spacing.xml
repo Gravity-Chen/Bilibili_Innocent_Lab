@@ -1,0 +1,9 @@
+<resources>
+    <string name="host_home_card_spacing">首頁影片卡片間距</string>
+    <string name="host_home_card_spacing_current">首頁卡片間距：橫向 %1$s · 縱向 %2$s</string>
+    <string name="host_home_card_horizontal">橫向間距（dp）</string>
+    <string name="host_home_card_vertical">縱向間距（dp）</string>
+    <string name="host_home_card_spacing_tip">拖曳滑桿或輸入 0–40 dp，留空則保留該方向的預設間距。橫向同時調整螢幕兩側留白。可獨立於卡片美化使用，僅影響首頁，重新啟動嗶哩嗶哩後生效。</string>
+    <string name="host_home_card_spacing_default">恢復預設間距</string>
+    <string name="host_home_card_spacing_invalid">請輸入 0–40 的整數</string>
+</resources>

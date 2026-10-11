@@ -19,7 +19,10 @@ internal class HostVideoCardStyle(
     private val host: HostVideoCardHostAccess,
     private val radiusDp: Int,
     private val onApplied: () -> Unit,
-    private val onError: (Throwable) -> Unit
+    private val onError: (Throwable) -> Unit,
+    private val decorateCards: Boolean = true,
+    private val background: com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController? = null,
+    private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec()
 ) {
     private class Cover(view: View) {
         val view = WeakReference(view)
@@ -53,10 +56,23 @@ internal class HostVideoCardStyle(
 
     // 值只弱引用子 View，避免 WeakHashMap 的值经 child.parent 反向持有 key。
     private val states = WeakHashMap<View, State>()
+    private val homeRoots = WeakHashMap<View, Boolean>()
+
+    fun markHome(root: View) { homeRoots[root] = true }
+
+    private fun isInHome(root: View): Boolean {
+        var current: View? = root
+        while (current != null) {
+            if (homeRoots.containsKey(current)) return true
+            current = current.parent as? View
+        }
+        return false
+    }
     private val excluded = WeakHashMap<View, Int>()
     private val listWatchers = WeakHashMap<ViewGroup, ListWatcher>()
     private val resourceKinds = SparseIntArray()
     private val recyclerTypes = HashMap<Class<*>, Boolean>()
+    private val rowDecorations = android.graphics.Rect()
     private val coverNames = setOf("cover_layout", "cover", "video_cover", "iv_cover", "cover_image", "image_cover", "cover_container", "thumbnail", "pic")
     private val titleNames = setOf("title", "title_layout", "video_title", "tv_title")
     private val coverOutline = object : ViewOutlineProvider() {
@@ -99,6 +115,8 @@ internal class HostVideoCardStyle(
         override fun onPreDraw(): Boolean {
             val list = parent.get() ?: return true
             val night = host.isNight(list.context)
+            background?.apply(list, night)
+            if (!decorateCards) return true
             val color = HostVideoCardSurface.color(night)
             // 宿主换肤可能同时替换列表背景和卡片背景，当前帧绘制前一并恢复。
             for (i in 0 until list.childCount) {
@@ -122,6 +140,16 @@ internal class HostVideoCardStyle(
         }
     }
 
+    fun replacesSeparators(list: ViewGroup): Boolean {
+        if (!decorateCards || isInPlayer(list)) return false
+        for (index in 0 until list.childCount) {
+            val child = list.getChildAt(index)
+            val state = states[child] ?: continue
+            if (state.decorated && child.background === state.surface) return true
+        }
+        return false
+    }
+
     fun bind(root: View, feedback: Boolean = false) {
         if (root !is ViewGroup) return
         if (isInPlayer(root)) return
@@ -133,7 +161,7 @@ internal class HostVideoCardStyle(
                 excluded[root] = root.childCount
                 return
             }
-            if (state == null) {
+            if (state == null && (decorateCards || background != null)) {
                 root.addOnLayoutChangeListener(layoutListener)
                 root.addOnAttachStateChangeListener(attachListener)
             }
@@ -142,7 +170,17 @@ internal class HostVideoCardStyle(
             excluded.remove(root)
         }
         // 字号和封面信息留白在绑定/首次测量前设置，布局回调不再修改 LayoutParams。
-        configureInfo(root, state)
+        if (decorateCards) {
+            configureInfo(root, state)
+            // 历史等横向条目的封面原本贴着透明条目边缘；卡片化后补齐内侧留白。
+            val cover = state.covers.singleOrNull()?.view?.get()
+            val params = cover?.layoutParams as? ViewGroup.MarginLayoutParams
+            if (root.layoutParams?.width == ViewGroup.LayoutParams.MATCH_PARENT &&
+                cover?.parent === root && params != null && params.width > 0 && params.leftMargin == 0) {
+                val inset = (10f * root.resources.displayMetrics.density).toInt()
+                if (root.paddingLeft < inset) root.setPadding(inset, root.paddingTop, root.paddingRight, root.paddingBottom)
+            }
+        }
         safelyApply(root)
     }
 
@@ -161,13 +199,28 @@ internal class HostVideoCardStyle(
 
     /** GridLayoutManager 已分配 span、尚未测量子项时调用；不发送 requestLayout。 */
     fun prepareMeasurement(manager: Any, root: View) {
+        if (!decorateCards && !homeSpacing.enabled) return
         val state = states[root] ?: return
         if (isInPlayer(root)) return
         val params = root.layoutParams as? ViewGroup.MarginLayoutParams ?: return
-        val span = grid?.doubleColumnSpan(manager, params) ?: -1
+        val span = grid?.spacingSpan(manager, params) ?: -1
         val spacing = state.spacing
+        val custom = homeSpacing.enabled && isInHome(root)
         // 直接更新已被宿主持有的参数，原测量流程一次得到正确尺寸。
-        params.setMargins(spacing.left(span), spacing.top(span), spacing.right(span), spacing.bottom(span))
+        val parent = root.parent as? View
+        rowDecorations.setEmpty()
+        if (span == 2 || custom) grid?.decorations(manager, root, rowDecorations)
+        val density = root.resources.displayMetrics.density
+        val left = spacing.left(if (decorateCards) span else -1, (parent?.paddingLeft ?: 0) + rowDecorations.left)
+        val right = spacing.right(if (decorateCards) span else -1, (parent?.paddingRight ?: 0) + rowDecorations.right)
+        val top = spacing.top(if (decorateCards) span else -1)
+        val bottom = spacing.bottom(if (decorateCards) span else -1)
+        params.setMargins(
+            if (custom) homeSpacing.horizontalMargin(span, true, parent?.paddingLeft ?: 0, rowDecorations.left, density) ?: left else left,
+            if (custom) homeSpacing.verticalMargin(span, true, rowDecorations.top, density) ?: top else top,
+            if (custom) homeSpacing.horizontalMargin(span, false, parent?.paddingRight ?: 0, rowDecorations.right, density) ?: right else right,
+            if (custom) homeSpacing.verticalMargin(span, false, rowDecorations.bottom, density) ?: bottom else bottom)
+        if (custom && span in 0..2) onApplied()
     }
 
     private fun discover(root: ViewGroup, previousSpacing: HostVideoCardSpacing?, feedback: Boolean): State? {
@@ -234,6 +287,7 @@ internal class HostVideoCardStyle(
     }
 
     private fun safelyApply(view: View, night: Boolean? = null) {
+        if (!decorateCards && background == null) return
         val root = view as? ViewGroup ?: return
         val state = states[root] ?: return
         runCatching { apply(root, state, night) }.onFailure(onError)
@@ -243,6 +297,10 @@ internal class HostVideoCardStyle(
         val parent = root.parent as? ViewGroup ?: return
         if (!isRecycler(parent.javaClass)) return
         if (isInPlayer(parent)) return
+        val night = nightOverride ?: host.isNight(root.context)
+        background?.apply(parent, night)
+        watch(parent)
+        if (!decorateCards) return
         var count = 0
         var single: View? = null
         for (cached in state.covers) {
@@ -279,7 +337,6 @@ internal class HostVideoCardStyle(
             HostVideoCardStyleSpec.coverRadius(single.width, single.height, radiusDp, density)
             else HostVideoCardStyleSpec.cardRadius(root.width, root.height, radiusDp, density)
         val resized = state.updateGeometry(root.width, root.height, radius)
-        val night = nightOverride ?: host.isNight(root.context)
         val color = HostVideoCardSurface.color(night)
         if (state.surface == null || state.surfaceRadius != radius || state.color != color) {
             val surface = HostVideoCardSurface.create(root, radius, night) ?: return
@@ -293,7 +350,6 @@ internal class HostVideoCardStyle(
             state.decorated = true
             onApplied()
         }
-        watch(parent)
         if (root.background !== state.surface) root.background = state.surface
         val replaced = root.outlineProvider !== state
         if (replaced) root.outlineProvider = state
@@ -320,7 +376,8 @@ internal class HostVideoCardStyle(
         val kind = when {
             // 结束页卡片在 bind 时可能尚未挂到播放器；其进度占位 ViewStub 可提前识别。
             name == "endpage_progess_root" || name == "endpage_progress_root" ||
-                name == "video_container" || name == "video_area" || name == "control_container" -> PLAYER
+                name == "video_container" || name == "video_area" || name == "control_container" ||
+                name == "recycler_top_car" || name == "shortcut_video_view" -> PLAYER
             name in coverNames -> COVER
             name in titleNames -> TITLE
             name == "cover_bottom_info_container" -> INFO
