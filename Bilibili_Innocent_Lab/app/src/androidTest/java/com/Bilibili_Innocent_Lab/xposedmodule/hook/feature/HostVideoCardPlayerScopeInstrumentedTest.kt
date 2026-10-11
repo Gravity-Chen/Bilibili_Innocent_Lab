@@ -4,6 +4,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHos
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyle
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.view.View
@@ -15,6 +16,8 @@ import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.core.app.ActivityScenario
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,6 +29,40 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostVideoCardPlayerScopeInstrumentedTest {
+    @Test fun separatorSuppressionTracksAppliedCardsAndExcludesOtherLists() {
+        val host = InstrumentationRegistry.getInstrumentation().targetContext.createPackageContext("tv.danmaku.bili", 0)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val context = object : ContextWrapper(activity) {
+                    override fun getResources() = host.resources
+                }
+                val style = HostVideoCardStyle(null, HostVideoCardHostAccess(javaClass.classLoader!!), -1,
+                    onApplied = {}, onError = { throw AssertionError(it) })
+                val card = Card(context, endPage = false)
+                card.attach(player = false)
+                val list = card.root.parent as ViewGroup
+                assertFalse(style.replacesSeparators(list))
+                style.bind(card.root)
+                assertTrue(style.replacesSeparators(list))
+                val surface = card.root.background
+                card.root.background = card.background
+                assertFalse(style.replacesSeparators(list))
+                card.root.background = surface
+                val parent = list.parent as View
+                parent.id = host.resources.getIdentifier("video_container", "id", "tv.danmaku.bili")
+                assertFalse(style.replacesSeparators(list))
+                parent.id = View.NO_ID
+                assertTrue(style.replacesSeparators(list))
+                val disabled = HostVideoCardStyle(null, HostVideoCardHostAccess(javaClass.classLoader!!), -1,
+                    onApplied = {}, onError = { throw AssertionError(it) }, decorateCards = false)
+                assertFalse(disabled.replacesSeparators(list))
+                list.removeView(card.root)
+                assertFalse(style.replacesSeparators(list))
+                assertFalse(style.replacesSeparators(RecyclerView(activity)))
+            }
+        }
+    }
+
     private class Card(private val context: Context, endPage: Boolean) {
         private fun id(name: String): Int = context.resources.getIdentifier(name, "id", "tv.danmaku.bili")
             .also { assertTrue("Missing host resource: $name", it != 0) }
@@ -45,10 +82,11 @@ class HostVideoCardPlayerScopeInstrumentedTest {
             root.addView(info, FrameLayout.LayoutParams(200, 20))
         }
 
-        fun attach(player: Boolean) {
+        fun attach(player: Boolean, listName: String? = null) {
             val parent = FrameLayout(root.context)
             if (player) parent.id = id("video_container")
             val list = RecyclerView(root.context)
+            if (listName != null) list.id = id(listName)
             list.layoutManager = LinearLayoutManager(root.context)
             parent.addView(list)
             list.layout(0, 0, 1080, 1800)
@@ -91,11 +129,34 @@ class HostVideoCardPlayerScopeInstrumentedTest {
         card.assertUnmodified()
     }
 
+    @Test fun backgroundWorksWithoutChangingCardsWhenCardStylingIsDisabled() = check { context, _ ->
+        val card = Card(context, endPage = false)
+        card.attach(player = false)
+        val style = HostVideoCardStyle(null, HostVideoCardHostAccess(javaClass.classLoader!!), -1,
+            onApplied = {}, onError = { throw AssertionError(it) },
+            decorateCards = false,
+            background = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController(
+                com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig(
+                    com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset.AURORA),
+                onError = { throw AssertionError(it) }))
+        style.bind(card.root)
+        card.assertUnmodified()
+        assertTrue((card.root.parent as View).background is com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundDrawable)
+    }
+
     @Test fun playerAncestorExcludesCardsWithoutEndPageMarker() = check { context, style ->
         val card = Card(context, endPage = false)
         card.attach(player = true)
         style.bind(card.root)
         card.assertUnmodified()
+    }
+
+    @Test fun sideCenterPodcastPreviewsKeepTheirDarkMediaSurface() = check { context, style ->
+        val card = Card(context, endPage = false)
+        card.attach(player = false, listName = "recycler_top_car")
+        style.bind(card.root)
+        card.assertUnmodified()
+        assertFalse(style.replacesSeparators(card.root.parent as ViewGroup))
     }
 
     @Test fun latePlayerAttachmentDoesNotDecorateCover() = check { context, style ->

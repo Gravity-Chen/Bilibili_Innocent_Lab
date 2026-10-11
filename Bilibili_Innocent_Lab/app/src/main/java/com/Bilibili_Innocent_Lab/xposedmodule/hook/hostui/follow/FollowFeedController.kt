@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
 
 import android.content.res.ColorStateList
 import android.graphics.Rect
@@ -303,22 +304,23 @@ internal class FollowFeedController(
 
         private fun applyPageColors(view: View) {
             edits.restore()
-            edits.background(view, ColorDrawable(palette.background))
+            val wallpaper = HostBackgroundPages.contains(view)
+            edits.background(view, if (wallpaper) null else ColorDrawable(palette.background))
             if (personalFeed) {
                 syncPersonalChrome(view, palette)
-                find<View>(view, "header_container")?.let { edits.background(it, ColorDrawable(palette.background)) }
+                find<View>(view, "header_container")?.let { edits.background(it, if (wallpaper) null else ColorDrawable(palette.background)) }
                 text(view, "header")?.let { edits.text(it, palette.textPrimary) }
                 text(view, "sub_title")?.let { edits.text(it, palette.textSecondary) }
                 return
             }
-            find<View>(view, "dy_app_bar")?.let { edits.background(it, ColorDrawable(palette.background)) }
+            find<View>(view, "dy_app_bar")?.let { edits.background(it, if (wallpaper) null else ColorDrawable(palette.background)) }
             var ancestor: View? = view
             repeat(12) {
                 val node = ancestor ?: return@repeat
                 if (node.id == ids.getOrPut("following_home_container") {
                     node.resources.getIdentifier("following_home_container", "id", node.context.packageName)
                 }) {
-                    edits.background(node, ColorDrawable(palette.background))
+                    edits.background(node, if (wallpaper) null else ColorDrawable(palette.background))
                     text(node, "fo_title")?.let { edits.text(it, palette.textPrimary) }
                 }
                 ancestor = node.parent as? View
@@ -526,7 +528,7 @@ internal class FollowFeedController(
 
             fun updatePalette() {
                 listEdits.restore()
-                listEdits.background(parent, ColorDrawable(palette.background))
+                listEdits.background(parent, if (HostBackgroundPages.contains(list)) null else ColorDrawable(palette.background))
                 listEdits.background(list, null)
                 referenceOptions = FollowFeedStyle.reference(palette)
                 references.values.forEach { it.binding?.update(referenceOptions) }

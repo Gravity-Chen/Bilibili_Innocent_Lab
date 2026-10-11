@@ -1,0 +1,9 @@
+<resources>
+    <string name="host_home_card_spacing">Home video card spacing</string>
+    <string name="host_home_card_spacing_current">Home card spacing: horizontal %1$s · vertical %2$s</string>
+    <string name="host_home_card_horizontal">Horizontal spacing (dp)</string>
+    <string name="host_home_card_vertical">Vertical spacing (dp)</string>
+    <string name="host_home_card_spacing_tip">Drag the sliders or enter 0–40 dp. Leave an input empty to keep its default. Horizontal spacing also controls the screen gutters. Works independently of card styling, only on Home. Restart Bilibili to apply.</string>
+    <string name="host_home_card_spacing_default">Restore default spacing</string>
+    <string name="host_home_card_spacing_invalid">Enter a whole number from 0 to 40</string>
+</resources>

@@ -340,5 +340,22 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
             isFocusable = true
             setOnClickListener { showHostVideoCardRadiusDialog(this) { refresh() } }
         }
+        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }) {
+            bindSettingDestination(this, FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP)
+            bindSettingDestination(this, FeaturePreferences.HOST_HOME_CARD_VERTICAL_DP)
+            fun refresh() {
+                fun value(dp: Int) = if (dp < 0) getString(R.string.host_video_card_radius_default) else "$dp dp"
+                text = getString(R.string.host_home_card_spacing_current,
+                    value(hostHomeCardHorizontalDp), value(hostHomeCardVerticalDp))
+            }
+            refresh()
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            setPadding(0, 12.dp, 0, 12.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showHostHomeCardSpacingDialog(this) { refresh() } }
+        }
     }
 }

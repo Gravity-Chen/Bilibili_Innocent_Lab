@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -81,6 +82,7 @@ internal class HostTopStatusFusionView(
     private var dark = palette.background == LumenPalette.neutral(true).background
     private var fadeEnd = 1f
     private var dockingBottom = 0
+    private var wallpaper = false
     private val glass = View(context)
     private val docked = View(context)
     val profile: LumenSurfaceSampling get() = options().sampling
@@ -106,7 +108,9 @@ internal class HostTopStatusFusionView(
         backdrop?.surface(docked, HostSurfaceStyle.fusion(dark, hold, fadeEnd).copy(
             material = LumenSurfaceMaterial.STATIC,
             color = if (dark) palette.surface else 0xFFFFFFFF.toInt(),
-            tintOpacity = 1f, fallbackTintOpacity = 1f
+            // 回顶时内容已经退到搜索栏下方；背景模式透出窗口壁纸，避免实色承托遮住首页顶部。
+            tintOpacity = if (wallpaper) 0f else 1f, fallbackTintOpacity = if (wallpaper) 0f else 1f,
+            backdropOpacity = 0f
         ))
     }
 
@@ -114,7 +118,12 @@ internal class HostTopStatusFusionView(
         glass.alpha = 1f - progress
         docked.alpha = progress
         translationZ = 2f * density * (1f - progress)
-        if (bottom != dockingBottom) { dockingBottom = bottom; updateSurfaces() }
+        val hasWallpaper = HostBackgroundPages.contains(this)
+        if (bottom != dockingBottom || hasWallpaper != wallpaper) {
+            dockingBottom = bottom
+            wallpaper = hasWallpaper
+            updateSurfaces()
+        }
     }
 
     fun updateMaterial(palette: LumenPalette) {
