@@ -10,6 +10,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiquidMotionMappingContractTest {
+    @Test fun preparedModalsDelegateBoundedScrollAndStretchToTheEngine() {
+        val presenter = SourceContract.read("ui/activity/MainActivity.kt")
+            .after("stylePreparedSkinControls(container)").before("val density = resources.displayMetrics.density")
+        assertTrue(presenter.contains("LumenPanelScroll.prepare(container)"))
+        assertTrue(presenter.contains("installPreparedLiquidStretch(target)"))
+        val bounded = SourceContract.read("ui/widget/MaxHeightScrollView.kt")
+        assertTrue(bounded.contains("typealias MaxHeightScrollView = com.lumen.coacervation.engine.widget.LumenMaxHeightScrollView"))
+    }
+
     @Test fun mappingAndMaskShareTheRecordedFullTransform() {
         val renderer = LceMotionSource.read("ui/skin/liquid/LiquidActivityRenderer.kt")
         assertTrue(renderer.contains("surfaceCoordinates.sourceToTarget(screenTransform, root, surfaceToBackdrop)"))
@@ -31,6 +40,7 @@ class LiquidMotionMappingContractTest {
         assertTrue(settle.contains("LiquidRealtimeCapturePolicy.WAKE_SETTLE_FRAMES"))
         val viewport = LceMotionSource.read("ui/skin/liquid/LiquidStretchViewport.kt")
         assertTrue(viewport.contains("if (nativeStretch) super.draw(canvas)"))
-        assertTrue(stretch.contains("boundRoot?.rootView?.let(::flushSurfaceRefresh)"))
+        assertTrue(stretch.contains("flushSurfaceRefresh(windowRoot)"))
+        assertTrue(stretch.contains("if (windowRoot === boundRoot?.rootView)"))
     }
 }

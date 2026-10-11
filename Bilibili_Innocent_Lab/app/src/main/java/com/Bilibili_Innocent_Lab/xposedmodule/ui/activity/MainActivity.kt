@@ -2283,6 +2283,9 @@ class MainActivity : SkinnedActivity() {
         val coveredParent = if (cover != null) activeConfirmDialog?.takeIf { it.isShowing } else null
         if (cover == null) activeConfirmDialog?.dismiss()
         stylePreparedSkinControls(container)
+        com.lumen.coacervation.engine.motion.modal.LumenPanelScroll.prepare(container) { target ->
+            installPreparedLiquidStretch(target) { dialog.isShowing && !isFinishing && !isDestroyed }
+        }
         val density = resources.displayMetrics.density
         // 由 dismissWithAnimation 传进来的一次性收尾回调（例如"关闭后打开链接"）；
         // 为空时用弹窗自己的 onBackDismiss。每次弹窗独立一份，不能提到 Activity 字段上。
