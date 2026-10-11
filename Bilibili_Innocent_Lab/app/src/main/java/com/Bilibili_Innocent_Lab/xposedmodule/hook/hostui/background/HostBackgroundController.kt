@@ -7,7 +7,7 @@ import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import java.util.concurrent.Executors
 
-/** 仅挂在已识别为视频卡片列表的背景，不插入叠层、不修改 Fragment 可见性。 */
+/** 挂在已识别的内容列表或页面根容器，不插入叠层、不修改 Fragment 可见性。 */
 internal class HostBackgroundController(private val config: HostBackgroundConfig, private val onError: (Throwable) -> Unit,
     private val onApplied: () -> Unit = {}) {
     private class Surface(val drawable: HostBackgroundDrawable, val position: HostBackgroundListPosition)
@@ -16,6 +16,7 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
     private var image: Bitmap? = null
     private var requested = false
     private var applied = false
+    val requiresNight: Boolean get() = config.preset.isCelestial
 
     fun scroll(list: ViewGroup, dy: Int) {
         if (dy == 0 || config.preset == HostBackgroundPreset.CUSTOM) return
@@ -24,10 +25,29 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
         surface.scrollOffset += dy
     }
 
+    fun pageOffset(page: ViewGroup, offset: Long) {
+        if (config.preset != HostBackgroundPreset.CUSTOM) surfaces[page]?.drawable?.scrollOffset = offset
+    }
+
+    fun prepareList(list: ViewGroup) = loadingFooter.apply(list)
+
+    fun release(view: ViewGroup) {
+        val state = surfaces.remove(view) ?: return
+        if (view.background === state.drawable) view.background = null
+    }
+
     fun apply(list: ViewGroup, night: Boolean) {
         if (!config.enabled) return
+        // 动态的凝光卡片在列表后方的兄弟层，壁纸必须位于整页后面。
+        val page = HostBackgroundPages.owner(list)
+        val pageKind = page?.let { HostBackgroundPages.kind(it) }
+        if (page != null && page !== list && pageKind != HostBackgroundPagePolicy.Kind.FEED && pageKind != HostBackgroundPagePolicy.Kind.LIVE) {
+            apply(page, night)
+            return
+        }
         // 收藏夹内的横向预览属于外层列表内容，不能各自重画一块从原点开始的壁纸。
-        var ancestor = list.parent as? View
+        // 页面根容器已经确定，不能再越过它提升到承载整个详情页的外层 RecyclerView。
+        var ancestor = if (page === list) null else list.parent as? View
         var pageList = list
         while (ancestor != null) {
             if (ancestor is ViewGroup && isRecycler(ancestor.javaClass)) pageList = ancestor

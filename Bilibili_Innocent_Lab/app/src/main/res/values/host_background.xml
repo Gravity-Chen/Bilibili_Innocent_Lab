@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="host_background_title">Feed background</string>
-    <string name="host_background_current">Feed background: %1$s</string>
-    <string name="host_background_tip">A stationary background for video card lists, including when floating cards are disabled. Restart Bilibili to apply. Images stay on this device; settings backups include effects only. Missing images use Aurora.</string>
+    <string name="host_background_title">Host page background</string>
+    <string name="host_background_current">Host page background: %1$s</string>
+    <string name="host_background_tip">Backgrounds for native pages including home, dynamic feeds, comments, details, profiles, history, favorites, search, messages and settings, including when floating cards are disabled. Restart Bilibili to apply. Images stay on this device; settings backups include effects only. Missing images use Aurora.</string>
     <string name="host_background_off">Follow Bilibili</string>
     <string name="host_background_aurora">Aurora</string>
     <string name="host_background_sakura">Sakura haze</string>

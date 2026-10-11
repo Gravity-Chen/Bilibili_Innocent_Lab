@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="host_background_title">视频列表背景</string>
-    <string name="host_background_current">视频列表背景：%1$s</string>
-    <string name="host_background_tip">为视频卡片列表铺上固定背景，可独立于卡片美化启用，重启哔哩哔哩后生效。图片仅保存在本机，设置备份只恢复预设和效果参数；图片不可用时使用极光柔色。</string>
+    <string name="host_background_title">宿主页面背景</string>
+    <string name="host_background_current">宿主页面背景：%1$s</string>
+    <string name="host_background_tip">为首页、动态、评论、详情、个人空间、历史、收藏、搜索、消息和设置等原生页面铺上背景，可独立于卡片美化启用，重启哔哩哔哩后生效。图片仅保存在本机，设置备份只恢复预设和效果参数；图片不可用时使用极光柔色。</string>
     <string name="host_background_off">跟随哔哩哔哩</string>
     <string name="host_background_aurora">极光柔色</string>
     <string name="host_background_sakura">樱花薄雾</string>
