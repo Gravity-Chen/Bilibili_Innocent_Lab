@@ -1337,6 +1337,8 @@
     <string name="agent_logs_title">Execution log</string>
     <string name="agent_logs_help">Logs keep task stages, source numbers, timing and outcomes. Goals, API keys, images and raw replies are not stored. At most four tasks are kept; long logs are trimmed with a visible count.</string>
     <string name="agent_logs_empty">No execution log yet</string>
+    <string name="agent_notification_show_status">Show status</string>
+    <string name="agent_notification_logs_hint">Recent execution records. The full log is available on the module main page.</string>
     <string name="agent_logs_next">Next task</string>
     <string name="agent_logs_cache">Cache hit</string>
     <string name="agent_logs_persistence_failed">Log persistence failed; current in-memory records are still available.</string>

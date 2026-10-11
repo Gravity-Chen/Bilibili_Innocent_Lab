@@ -128,4 +128,41 @@ class HostAgentWindowPolicyTest {
         assertEquals(revoked, gate.observe(1, 10, "search", "别的目标", 102))
         assertEquals(revoked, gate.observe(1, 10, search.kind, search.identity, 103))
     }
+
+    @Test fun `system display focus loss preserves only owned resumed visible read access`() {
+        val gate = HostAgentWindowPolicy()
+        gate.begin(1, 10)
+        assertTrue(gate.canUseWindow(1, 10, resumed = true, shown = true, focused = false, readOnly = true))
+        assertFalse(gate.canUseWindow(1, 10, resumed = true, shown = true, focused = false, readOnly = false))
+        assertTrue(gate.canUseWindow(1, 10, resumed = true, shown = true, focused = true, readOnly = false))
+        assertEquals(ready, gate.observe(1, 10, "unknown", null, 100))
+    }
+
+    @Test fun `read access cannot transfer to another window generation or hidden paused Activity`() {
+        val gate = HostAgentWindowPolicy()
+        assertFalse(gate.canUseWindow(1, 10, resumed = true, shown = true, focused = true, readOnly = true))
+        gate.begin(1, 10)
+        assertFalse(gate.canUseWindow(2, 10, resumed = true, shown = true, focused = false, readOnly = true))
+        assertFalse(gate.canUseWindow(1, 11, resumed = true, shown = true, focused = false, readOnly = true))
+        assertFalse(gate.canUseWindow(1, 10, resumed = false, shown = true, focused = false, readOnly = true))
+        assertFalse(gate.canUseWindow(1, 10, resumed = true, shown = false, focused = false, readOnly = true))
+    }
+
+    @Test fun `opening another Activity still revokes and cannot return through the read exception`() {
+        val gate = HostAgentWindowPolicy()
+        gate.begin(1, 10)
+        assertTrue(gate.canUseWindow(1, 10, resumed = true, shown = true, focused = false, readOnly = true))
+        assertFalse(gate.pause(1, 10, 100))
+        assertFalse(gate.canUseWindow(1, 10, resumed = true, shown = true, focused = true, readOnly = true))
+        assertFalse(gate.resume(1, 10, "unknown", null, 101))
+    }
+
+    @Test fun `real input takeover removes read access as well as action access`() {
+        val gate = HostAgentWindowPolicy()
+        gate.begin(1, 10)
+        gate.revoke(1)
+        for (focused in listOf(false, true)) for (readOnly in listOf(false, true)) {
+            assertFalse(gate.canUseWindow(1, 10, resumed = true, shown = true, focused = focused, readOnly = readOnly))
+        }
+    }
 }

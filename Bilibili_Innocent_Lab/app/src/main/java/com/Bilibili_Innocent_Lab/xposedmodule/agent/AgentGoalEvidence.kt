@@ -22,8 +22,8 @@ internal class AgentGoalEvidence(private val goal: String) {
     val live = Regex("直播状态|是否.*直播|在不在直播|有没有.*开播|正在直播|开播了吗").containsMatchIn(goal)
     val userVideos = Regex("投稿|发布的视频|作品列表").containsMatchIn(goal)
     val comments = Regex("评论内容|评论正文|评论区说|评论区.*观点|(?:看看|查看)评论(?!数|量|的数量)|读.*评论(?!数|量|的数量)").containsMatchIn(goal)
-    val wantsPlaying = Regex("播放(?!量)").containsMatchIn(goal) && (seedVideos.isNotEmpty() || ranking || goal.contains("视频"))
-    val wantsOpen = wantsPlaying || Regex("打开|点开").containsMatchIn(goal) && (seedVideos.isNotEmpty() || ranking && rankText != null)
+    val wantsPlaying = affirmativeAction("播放(?!量)") && (seedVideos.isNotEmpty() || ranking || goal.contains("视频"))
+    val wantsOpen = wantsPlaying || affirmativeAction("打开|点开") && (seedVideos.isNotEmpty() || ranking && rankText != null)
     val statisticFields = linkedMapOf("view_count" to "播放量|观看量", "like_count" to "点赞数|点赞量",
         "coin_count" to "投币数|硬币数", "favorite_count" to "收藏数|收藏量", "share_count" to "分享数",
         "comment_count" to "评论(?:的)?(?:数量|数|量)", "danmaku_count" to "弹幕数|弹幕量")
@@ -43,6 +43,8 @@ internal class AgentGoalEvidence(private val goal: String) {
     private var opened = false
     private var currentVideo: String? = null
     private var firstRanked: String? = null
+    // 每个操作/业务身份只安排一次首读；保存原身份，后续真实别名映射仍可去重。
+    private val nativeFirstReads = linkedSetOf<Pair<String, String>>()
 
     val required: Set<String> get() = linkedSetOf<String>().apply {
         if (ranking) add("get_ranking")
@@ -55,20 +57,53 @@ internal class AgentGoalEvidence(private val goal: String) {
         if (statisticFields.isNotEmpty()) add("get_video_metrics")
     }
 
-    fun initial(): Pair<String, JSONObject>? = when {
-        ranking && regionRequested && region == null -> "get_regions" to JSONObject()
-        ranking -> "get_ranking" to JSONObject().apply { region?.takeIf { it != "0" }?.let { put("region_id", it) } }
-        popular -> "get_popular" to JSONObject()
-        history -> "get_history" to JSONObject()
-        following -> "get_following_feed" to JSONObject()
-        live && seedUsers.isNotEmpty() -> "get_live_status" to JSONObject().put("user_id", seedUsers.first())
-        userVideos && seedUsers.isNotEmpty() -> "get_user_videos" to JSONObject().put("user_id", seedUsers.first())
-        comments && seedVideos.isNotEmpty() -> (if (seedVideos.first().startsWith("BV")) "get_video_details" else "get_video_comments") to
-            JSONObject().put("video_id", seedVideos.first())
-        statisticFields.isNotEmpty() && seedVideos.isNotEmpty() -> "get_video_metrics" to JSONObject().put("video_id", seedVideos.first())
-        statisticFields.isNotEmpty() -> "get_host_state" to JSONObject()
-        wantsOpen && seedVideos.isNotEmpty() -> "get_video_details" to JSONObject().put("video_id", seedVideos.first())
-        else -> null
+    /** 只补明确目标的只读前置项；榜单身份与 BV 评论身份必须等真实响应后再生成。 */
+    fun nextNativeRead(supported: (String) -> Boolean): Pair<String, JSONObject>? {
+        if (nativeFirstReads.size >= MAX_NATIVE_FIRST_READS) return null
+        val candidates = mutableListOf<Pair<String, JSONObject>>()
+        fun add(operation: String, key: String? = null, id: String? = null) {
+            candidates += operation to JSONObject().apply { if (key != null && id != null) put(key, id) }
+        }
+        if (ranking && !invalidRank) {
+            if (regionRequested && region == null) add("get_regions")
+            else add("get_ranking", "region_id", region)
+        }
+        if (popular) add("get_popular")
+        if (history) add("get_history")
+        if (following) add("get_following_feed")
+        seedUsers.forEach { id ->
+            if (live) add("get_live_status", "user_id", id)
+            if (userVideos) add("get_user_videos", "user_id", id)
+        }
+        val videos = targetVideoIds()
+        if (statisticFields.isNotEmpty() && videos.isEmpty() && !ranking && seedVideos.isEmpty()) add("get_host_state")
+        videos.forEach { id ->
+            if (comments) {
+                if (id.startsWith("BV")) add("get_video_details", "video_id", id)
+                else if (id.startsWith("av")) add("get_video_comments", "video_id", id)
+            }
+            if (statisticFields.isNotEmpty()) add("get_video_metrics", "video_id", id)
+            if (wantsOpen && !comments && seedVideos.isNotEmpty()) add("get_video_details", "video_id", id)
+        }
+        val readScopes = nativeFirstReads.mapTo(hashSetOf()) { (operation, identity) -> operation to resolvedReadIdentity(operation, identity) }
+        return candidates.firstOrNull { (operation, args) -> supported(operation) && (operation to readIdentity(operation, args)) !in readScopes }
+    }
+
+    private fun rawReadIdentity(operation: String, args: JSONObject): String = when (operation) {
+        "get_video_details", "get_video_metrics", "get_video_comments" -> args.optString("video_id")
+        "get_user_videos", "get_live_status" -> args.optString("user_id")
+        "get_ranking" -> args.optString("region_id").ifBlank { "0" }
+        else -> ""
+    }
+    private fun readIdentity(operation: String, args: JSONObject): String = resolvedReadIdentity(operation, rawReadIdentity(operation, args))
+    private fun resolvedReadIdentity(operation: String, identity: String): String =
+        if (operation in setOf("get_video_details", "get_video_metrics", "get_video_comments")) canonical(identity) else identity
+
+    private fun affirmativeAction(pattern: String): Boolean = Regex(pattern).findAll(goal).any { match ->
+        val prefix = goal.substring(0, match.range.first).substringAfterLast('\n')
+            .split(Regex("[,，。;；!?！？]")).last()
+        !Regex("(?:不要|别|无需|不必|不用|不需要|禁止|不)(?:\\s|自动|直接|再|帮我|去|打开|点开|播放|或|者|和|及|、)*$")
+            .containsMatchIn(prefix)
     }
 
     fun missingNative(routing: AgentNativeRoutingPolicy): String? = required.firstOrNull {
@@ -79,6 +114,9 @@ internal class AgentGoalEvidence(private val goal: String) {
         Regex("(?:热榜|排行榜|榜单)(?:第[一1]|第一名|首位|第一)").containsMatchIn(args.optString(if (operation == "search_videos") "query" else "text").replace(" ", ""))
 
     fun record(operation: String, args: JSONObject, response: JSONObject) {
+        if (operation in AgentToolCatalog.nativeReads && operation != "get_capabilities" &&
+            response.optString("error") !in setOf("goal_route_required", "native_evidence_required") && nativeFirstReads.size < MAX_NATIVE_FIRST_READS)
+            nativeFirstReads += operation to rawReadIdentity(operation, args)
         if (!response.optBoolean("ok")) {
             val error = response.optString("error")
             if (error !in setOf("goal_route_required", "native_evidence_required")) {
@@ -94,7 +132,8 @@ internal class AgentGoalEvidence(private val goal: String) {
             if (requested != null && (expectedVideos().isEmpty() || canonical(requested) in expectedVideos())) openRequested = requested
             if (wantsOpen) attempted += operation
         }
-        if (operation == "get_host_state" && data.optBoolean("foreground") && data.optBoolean("interaction_guard"))
+        if (operation == "get_host_state" && data.optString("source") == "host_rpc" &&
+            (data.opt("foreground") == true || data.opt("native_read_context") == true) && data.opt("interaction_guard") == true)
             currentVideo = HostAgentNavigationPolicy.videoId(data.optString("video_id"))
         if (operation == "get_host_state" && AgentNavigationEvidence.confirmed(data, openRequested, ::canonical)) {
             opened = true
@@ -150,7 +189,7 @@ internal class AgentGoalEvidence(private val goal: String) {
             } == true && data.optString("video_id") == args.optString("video_id") &&
                 (expectedVideos().isEmpty() || canonical(data.optString("video_id")) in expectedVideos())) {
                     commentVideos += canonical(data.optString("video_id"))
-                    if (expectedVideos().isEmpty() || expectedVideos().all(commentVideos::contains)) satisfied += operation
+                    if (coveredVideos(commentVideos)) satisfied += operation
                 }
             "get_live_status" -> if (data.optString("dataset") == "up_live_status" && data.optString("live_status") in setOf("live", "offline", "replay") &&
                 data.optString("user_id") == args.optString("user_id") && (seedUsers.isEmpty() || data.optString("user_id") in seedUsers)) {
@@ -163,7 +202,7 @@ internal class AgentGoalEvidence(private val goal: String) {
                 if ((expectedVideos().isEmpty() || canonical(id) in expectedVideos()) && canonical(id) == canonical(args.optString("video_id")) && statistics.optString("status") == "reported" &&
                     statisticFields.all { key -> (statistics.opt(key) as? Number)?.toLong()?.let { it >= 0 } == true }) {
                     metricVideos += canonical(id)
-                    if (expectedVideos().isEmpty() || expectedVideos().all(metricVideos::contains)) satisfied += operation
+                    if (coveredVideos(metricVideos)) satisfied += operation
                 }
             }
         }
@@ -186,9 +225,12 @@ internal class AgentGoalEvidence(private val goal: String) {
         seedVideos.isNotEmpty() -> seedVideos.map(::canonical).toSet()
         else -> listOfNotNull(currentVideo).map(::canonical).toSet()
     }
-    fun complete(): Boolean = !invalidRank && required.all { it in satisfied } && (!wantsOpen || opened && expectedVideos().all(openedVideos::contains)) && !wantsPlaying &&
-        (statisticFields.isEmpty() || expectedVideos().isEmpty() || expectedVideos().all(metricVideos::contains)) &&
-        (!comments || expectedVideos().isEmpty() || expectedVideos().all(commentVideos::contains)) &&
+    private fun coveredVideos(values: Set<String>): Boolean {
+        val canonicalValues = values.mapTo(hashSetOf(), ::canonical)
+        return expectedVideos().all(canonicalValues::contains)
+    }
+    fun complete(): Boolean = !invalidRank && required.all { it in satisfied } && (!wantsOpen || opened && coveredVideos(openedVideos)) && !wantsPlaying &&
+        (statisticFields.isEmpty() || coveredVideos(metricVideos)) && (!comments || coveredVideos(commentVideos)) &&
         !(userVideos && Regex("全部|所有|完整").containsMatchIn(goal))
     fun preferredVideo(): String? = (firstRanked ?: seedVideos.firstOrNull() ?: currentVideo)?.let { canonicalVideos[it] ?: it }
     fun targetVideoIds(): List<String> = expectedVideos().toList()
@@ -213,6 +255,7 @@ internal class AgentGoalEvidence(private val goal: String) {
     }
 
     companion object {
+        private const val MAX_NATIVE_FIRST_READS = 512
         private fun boundedNumber(raw: String): Int? {
             raw.toIntOrNull()?.let { return it.takeIf { number -> number in 1..200 } }
             val digits = mapOf('一' to 1, '二' to 2, '两' to 2, '三' to 3, '四' to 4, '五' to 5, '六' to 6, '七' to 7, '八' to 8, '九' to 9)

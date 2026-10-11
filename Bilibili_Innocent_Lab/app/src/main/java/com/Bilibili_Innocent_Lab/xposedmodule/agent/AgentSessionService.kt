@@ -15,6 +15,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.ui.AgentIslandOverlay
 import com.Bilibili_Innocent_Lab.xposedmodule.agent.ui.AgentTaskNotification
+import java.lang.ref.WeakReference
 
 /** 用户启动的任务由前台服务维持；结束即回收，不恢复或重放目标。 */
 class AgentSessionService : Service() {
@@ -22,30 +23,48 @@ class AgentSessionService : Service() {
     private var island: AgentIslandOverlay? = null
     private val main = Handler(Looper.getMainLooper())
     private val notificationPolicy = AgentNotificationPolicy()
+    private val logMode = AgentNotificationLogMode()
+    private var logObserverRegistered = false
+    private var shownLogRevision = -1L
+    private var forceNotificationRefresh = false
     private val update: Runnable = Runnable {
         val task = ownerTaskId ?: return@Runnable
         val state = AgentController.state
         if (!state.running || AgentController.currentTaskId() != task || AgentNotificationReceiver.dismissed(task)) return@Runnable
+        val logVisible = logMode.showing(task)
+        val revision = if (logVisible) AgentExecutionLogStore.snapshot().revision else -1L
         val visible = notificationPolicy.take(SystemClock.elapsedRealtime())
+            ?: state.takeIf { forceNotificationRefresh || logVisible && revision != shownLogRevision }
         if (visible != null && (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)) {
             runCatching { getSystemService(NotificationManager::class.java).notify(AgentTaskNotification.ID,
-                AgentTaskNotification.create(this, task, visible)) }
+                AgentTaskNotification.create(this, task, visible, logVisible))
+                shownLogRevision = revision; forceNotificationRefresh = false }
         }
         notificationPolicy.delay(SystemClock.elapsedRealtime())?.let { main.postDelayed(update, it) }
     }
     private val observer: (AgentTaskState) -> Unit = {
         val current = AgentController.currentTaskId()
-        if (ownerTaskId != current) { notificationPolicy.reset(); ownerTaskId = current }
+        if (ownerTaskId != current) { notificationPolicy.reset(); ownerTaskId = current; synchronizeLogOwner(current) }
         val delay = notificationPolicy.offer(it, SystemClock.elapsedRealtime())
         main.removeCallbacks(update)
         if (!it.running) stopForeground(STOP_FOREGROUND_REMOVE) else delay?.let { wait -> main.postDelayed(update, wait) }
     }
+    private val logObserver: (AgentLogSnapshot) -> Unit = {
+        val task = ownerTaskId
+        if (task != null && logMode.showing(task) && task == AgentController.currentTaskId() && AgentController.state.running) {
+            val delay = notificationPolicy.offer(AgentController.state, SystemClock.elapsedRealtime())
+            main.removeCallbacks(update)
+            delay?.let { wait -> main.postDelayed(update, wait) }
+        }
+    }
     override fun onCreate() {
         super.onCreate()
         ownerTaskId = AgentController.currentTaskId()
+        synchronizeLogOwner(ownerTaskId)
         AgentExecutionLogStore.initialize(applicationContext)
         val task = ownerTaskId ?: return
-        val notification = AgentTaskNotification.create(this, task, AgentController.state)
+        activeService = WeakReference(this)
+        val notification = AgentTaskNotification.create(this, task, AgentController.state, logMode.showing(task))
         if (Build.VERSION.SDK_INT >= 34) startForeground(AgentTaskNotification.ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         else startForeground(AgentTaskNotification.ID, notification)
         if (!AgentUiPolicy.systemNotification(Build.VERSION.SDK_INT)) island = runCatching { AgentIslandOverlay(this) }.getOrNull()
@@ -70,18 +89,46 @@ class AgentSessionService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         main.removeCallbacks(update)
         notificationPolicy.reset()
-        ownerTaskId = AgentController.currentTaskId()
+        val current = AgentController.currentTaskId()
+        if (ownerTaskId != current) { ownerTaskId = current; synchronizeLogOwner(current) }
         val task = ownerTaskId
         if (!AgentController.state.running || task == null) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
         else {
-            val notification = AgentTaskNotification.create(this, task, AgentController.state)
+            val notification = AgentTaskNotification.create(this, task, AgentController.state, logMode.showing(task))
             if (Build.VERSION.SDK_INT >= 34) startForeground(AgentTaskNotification.ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
             else startForeground(AgentTaskNotification.ID, notification)
             notificationPolicy.offer(AgentController.state, SystemClock.elapsedRealtime())?.let { main.postDelayed(update, it) }
         }
         return START_NOT_STICKY
     }
+    private fun synchronizeLogOwner(task: String?) {
+        logMode.synchronize(task)
+        shownLogRevision = -1L
+        forceNotificationRefresh = false
+        if (logObserverRegistered) {
+            AgentExecutionLogStore.removeObserver(logObserver)
+            logObserverRegistered = false
+        }
+    }
+    private fun toggleLogs(task: String) {
+        if (!AgentController.owns(task) || !logMode.toggle(task, AgentController.currentTaskId(), AgentController.state.running)) return
+        if (logMode.showing(task) && !logObserverRegistered) {
+            logObserverRegistered = true
+            AgentExecutionLogStore.observe(logObserver)
+        } else if (!logMode.showing(task) && logObserverRegistered) {
+            AgentExecutionLogStore.removeObserver(logObserver)
+            logObserverRegistered = false
+        }
+        shownLogRevision = -1L
+        forceNotificationRefresh = true
+        // 用户切换只刷新同一通知，不启动 Activity、续租宿主、撤销任务或改写模型状态。
+        val delay = notificationPolicy.offer(AgentController.state, SystemClock.elapsedRealtime())
+        main.removeCallbacks(update)
+        main.postDelayed(update, delay ?: 0L)
+    }
     override fun onDestroy() {
+        if (activeService.get() === this) activeService.clear()
+        synchronizeLogOwner(null)
         island?.close(); island = null
         AgentController.removeObserver(observer)
         main.removeCallbacks(update)
@@ -91,5 +138,9 @@ class AgentSessionService : Service() {
             AgentController.cancel(this, "service_stopped")
         }
         super.onDestroy()
+    }
+    companion object {
+        private var activeService = WeakReference<AgentSessionService>(null)
+        internal fun toggleNotificationLogs(task: String) { activeService.get()?.toggleLogs(task) }
     }
 }

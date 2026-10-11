@@ -165,7 +165,8 @@ internal object HostAgentRuntime {
                         .put("account_read_state", accountRefusal(lease) ?: "ready")
                         .put("unsupported_native", JSONArray(listOf("related_recommendations", "favorites", "social_write", "download", "payment")))
                     "get_host_state" -> onMain(lease) { windows.state(lease) }.also { state ->
-                        if (state.optBoolean("foreground") && state.optBoolean("interaction_guard"))
+                        stamp(state)
+                        if ((state.optBoolean("foreground") || state.optBoolean("native_read_context")) && state.optBoolean("interaction_guard"))
                             HostAgentNavigationPolicy.videoId(state.optString("video_id"))?.let { session.remember(lease, listOf(it), now()) }
                     }
                     "search_videos" -> search(lease, args)

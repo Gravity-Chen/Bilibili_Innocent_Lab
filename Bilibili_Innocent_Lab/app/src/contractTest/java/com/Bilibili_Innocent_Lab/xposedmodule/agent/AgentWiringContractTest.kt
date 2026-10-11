@@ -145,4 +145,23 @@ class AgentWiringContractTest {
         assertTrue(catalog.contains("打开详情页不证明正在播放"))
         assertTrue(catalog.contains("不能把任务全文" ) || catalog.contains("不把完整任务直接当搜索词"))
     }
+    @Test fun requiredNativeFirstReadsUseTheSameBudgetLeaseHistoryAndAuthorizationBeforePlanning() {
+        val runner = SourceContract.read("agent/AgentController.kt")
+        val read = runner.after("fun initialRead(").before("val nativeCapabilities =")
+        assertTrue(read.contains("task.limits.allowsStep(steps)"))
+        assertTrue(read.contains("steps++"))
+        assertTrue(read.contains("renew(task)"))
+        assertTrue(read.contains("host(task, operation, arguments)"))
+        assertTrue(read.contains("task.goalEvidence.record(operation, arguments, result)"))
+        assertTrue(read.contains("observed++"))
+        assertTrue(read.contains("models.record(call, result)"))
+        assertTrue(read.contains("history.append(initialTurn(call), result)"))
+        assertTrue(read.contains("AgentNativeRoutingPolicy.accountFailure"))
+        val beforePlanner = runner.after("val currentSources =").before("val turn = models.next(history)")
+        assertTrue(beforePlanner.contains("task.backend.nativeActive && !task.stopped() && task.limits.allowsStep(steps)"))
+        assertTrue(beforePlanner.contains("task.goalEvidence.nextNativeRead { task.backend.supported(it) == true } ?: break"))
+        assertTrue(beforePlanner.contains("initialRead(read.first, read.second)"))
+        assertTrue(beforePlanner.contains("if (task.stopped() || !task.limits.allowsStep(steps)) break"))
+        assertFalse(runner.contains("task.goalEvidence.initial()"))
+    }
 }

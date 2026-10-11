@@ -108,6 +108,15 @@ internal class HostAgentWindow(
             it.hasWindowFocus() && it.window?.decorView?.isShown == true
     }
 
+    /** 只读续行只能使用此前拥有的同一窗口；不能从任意仍存活的后台 Activity 重建授权。 */
+    private fun ownedActivity(lease: HostAgentSession.Lease, readOnly: Boolean): Activity? = resumed.get()?.takeIf {
+        it.packageName == AgentWire.TARGET_PACKAGE && !it.isFinishing && !it.isDestroyed &&
+            ownershipGeneration == lease.generation && ownedWindow.get() === it.window &&
+            ownedCallback.get()?.let { callback -> it.window?.callback === callback && callback.lease.generation == lease.generation } == true &&
+            control.canUseWindow(lease.generation, windowSerial, resumed = true,
+                shown = it.window?.decorView?.isShown == true, focused = it.hasWindowFocus(), readOnly = readOnly)
+    }
+
     /** 开始时只接受实际拥有焦点的宿主窗口，之后任何用户输入都会撤销这一所有权。 */
     private fun beginTask(lease: HostAgentSession.Lease) {
         val current = activity() ?: throw HostAgentFailure("host_not_foreground")
@@ -125,10 +134,10 @@ internal class HostAgentWindow(
         }
     }
 
-    /** 续租只等待当前任务已经发起的导航，不从任意宿主前台窗口重建所有权。 */
+    /** 续租保留同一 resumed 可见窗口；系统浮层临时失焦不撤销只读权，真实离页仍停止。 */
     fun awaitTaskContext(lease: HostAgentSession.Lease) {
         awaitMainCondition(lease, HostAgentWindowPolicy.NAVIGATION_MS, "task_context_lost") {
-            val current = activity()
+            val current = ownedActivity(lease, readOnly = true)
             if (current == null) {
                 if (!control.awaitingNavigation(lease.generation, now())) throw HostAgentFailure("host_not_foreground")
                 false
@@ -164,7 +173,7 @@ internal class HostAgentWindow(
     /** 即使 Binder 已关闭租约，回收排队期间也不能丢失真实用户接管。仅主线程调用。 */
     fun canHandoff(lease: HostAgentSession.Lease): Boolean = ownershipGeneration == lease.generation &&
         control.ownsWindow(lease.generation, windowSerial) && !control.awaitingNavigation(lease.generation, now()) &&
-        activity() != null && ownedCallback.get()?.let { ownedWindow.get()?.callback === it } == true
+        ownedActivity(lease, readOnly = false) != null
 
     fun releaseTask(lease: HostAgentSession.Lease): Boolean {
         if (ownershipGeneration != lease.generation) return false
@@ -178,7 +187,7 @@ internal class HostAgentWindow(
 
     /** 必须在 BLRouter.open 之前调用；仅租借一次短导航窗口，不允许模型从任意前台页重新接管。 */
     fun prepareNavigation(lease: HostAgentSession.Lease, query: String?, video: String?): Activity {
-        val current = requireTaskContext(lease)
+        val current = requireFocusedTaskContext(lease)
         val destination = if (query != null) HostAgentWindowPolicy.Target("search", query)
         else HostAgentWindowPolicy.Target("video", video ?: throw HostAgentFailure("invalid_navigation"))
         val token = control.expectNavigation(lease.generation, windowSerial, destination, now())
@@ -198,7 +207,16 @@ internal class HostAgentWindow(
     fun navigationFailed(lease: HostAgentSession.Lease) { stopTask(lease) }
 
     fun requireTaskContext(lease: HostAgentSession.Lease): Activity {
-        val current = activity() ?: throw HostAgentFailure("host_not_foreground")
+        val current = ownedActivity(lease, readOnly = true) ?: throw HostAgentFailure("host_not_foreground")
+        return requireObservedContext(current, lease)
+    }
+
+    private fun requireFocusedTaskContext(lease: HostAgentSession.Lease): Activity {
+        val current = ownedActivity(lease, readOnly = false) ?: throw HostAgentFailure("host_not_foreground")
+        return requireObservedContext(current, lease)
+    }
+
+    private fun requireObservedContext(current: Activity, lease: HostAgentSession.Lease): Activity {
         when (observeContext(current, lease)) {
             HostAgentWindowPolicy.Observation.READY -> return current
             HostAgentWindowPolicy.Observation.NAVIGATING -> throw HostAgentFailure("navigation_pending")
@@ -293,7 +311,8 @@ internal class HostAgentWindow(
             return original.dispatchGenericMotionEvent(event)
         }
         override fun onWindowFocusChanged(hasFocus: Boolean) {
-            if (!hasFocus && ownedCallback.get() === this && !control.awaitingNavigation(lease.generation, now())) takeOver()
+            if (!hasFocus && ownedCallback.get() === this && !control.awaitingNavigation(lease.generation, now()) &&
+                ownedActivity(lease, readOnly = true) == null) takeOver()
             original.onWindowFocusChanged(hasFocus)
         }
     }
@@ -328,9 +347,10 @@ internal class HostAgentWindow(
 
     /** Intent 身份仅证明目标 Activity 的启动参数，不据此宣称视频已播放或页面正文已完成渲染。 */
     fun state(lease: HostAgentSession.Lease): JSONObject {
-        val current = activity() ?: return JSONObject().put("foreground", false).put("page", "unknown")
+        val current = ownedActivity(lease, readOnly = true) ?: return JSONObject().put("foreground", false).put("page", "unknown")
         val observation = observeContext(current, lease)
-        return page(current, lease).json().put("foreground", true)
+        return page(current, lease).json().put("foreground", current.hasWindowFocus())
+            .put("native_read_context", observation == HostAgentWindowPolicy.Observation.READY)
             .put("task_page", observation == HostAgentWindowPolicy.Observation.READY && control.isTaskPage(lease.generation))
             .put("navigation_pending", observation == HostAgentWindowPolicy.Observation.NAVIGATING)
             .put("interaction_guard", observation != HostAgentWindowPolicy.Observation.REVOKED)

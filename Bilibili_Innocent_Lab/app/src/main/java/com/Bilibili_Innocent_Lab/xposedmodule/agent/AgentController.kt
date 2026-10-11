@@ -41,6 +41,11 @@ internal data class AgentTaskState(val running: Boolean = false, val phase: Stri
                                    val lastOperation: String = "", val lastOperationSucceeded: Boolean? = null,
                                    val lastOperationStep: Long = 0, val showRecentOperation: Boolean = false)
 
+/** 原生查询不依赖可选的界面观察；丢失宿主所有权或实际界面控制仍必须终止。 */
+internal fun agentHostFailureStopsTask(operation: String, error: String, nativeActive: Boolean): Boolean =
+    error in setOf("host_not_foreground", "device_locked") ||
+        error == "accessibility_not_connected" && !(nativeActive && operation == "get_ui_state")
+
 /** 所有模型请求在模块进程串行执行。状态与对话只在内存，进程回收后不会自动恢复或重放动作。 */
 internal object AgentController {
     private class Task(val context: Application, val goal: String, val sources: List<AgentModelSource>, val route: AgentRoutePolicy,
@@ -190,7 +195,11 @@ internal object AgentController {
                     }
                 }).also { cooperation = it }
             fun initialRead(operation: String, arguments: JSONObject = JSONObject(), countStep: Boolean = true): JSONObject {
-                if (countStep) { check(task.limits.allowsStep(steps)) { "task_budget_exhausted" }; steps++ }
+                if (countStep) {
+                    check(task.limits.allowsStep(steps)) { "task_budget_exhausted" }
+                    steps++
+                    renew(task)
+                }
                 publish(task, AgentTaskState(true, operation, steps, observations = observed))
                 val call = AgentModelToolCall("initial_" + UUID.randomUUID(), operation, arguments)
                 check(history.acceptCallId(call.id)) { "duplicate_tool_call" }
@@ -198,8 +207,17 @@ internal object AgentController {
                 result.optJSONObject("data")?.let(task.navigation::recordAliases)
                 task.goalEvidence.record(operation, arguments, result)
                 if (result.optBoolean("ok") && operation != "get_capabilities") observed++
+                task.lastOperation = operation
+                task.lastOperationSucceeded = result.optBoolean("ok")
+                task.lastOperationStep = steps
+                publish(task, state, recordLog = false)
                 models.record(call, result)
                 history.append(initialTurn(call), result)
+                check(!agentHostFailureStopsTask(operation, result.optString("error"), task.backend.nativeActive) &&
+                    !(operation in AgentToolCatalog.personalReads && AgentNativeRoutingPolicy.accountFailure(result.optString("error")))) {
+                    result.optString("error")
+                }
+                check(result.optString("error") !in setOf("task_inactive", "closed_task", "task_budget_exhausted", "host_disconnected")) { "task_inactive" }
                 return result
             }
             val nativeCapabilities = initialRead("get_capabilities", countStep = false)
@@ -207,32 +225,18 @@ internal object AgentController {
             task.backend.capabilities(nativeCapabilities.optJSONObject("data") ?: JSONObject())
             if (task.goalEvidence.required.any { it in AgentToolCatalog.personalReads })
                 task.backend.accountRefusal?.let { throw IllegalStateException(it) }
-            task.goalEvidence.initial()?.let { (operation, arguments) ->
-                if (task.backend.nativeActive && task.backend.supported(operation) != false) {
-                    val result = initialRead(operation, arguments)
-                    check(!AgentNativeRoutingPolicy.accountFailure(result.optString("error")) || operation !in AgentToolCatalog.personalReads) {
-                        result.optString("error")
-                    }
-                    if (operation == "get_host_state" && task.goalEvidence.statisticFields.isNotEmpty()) {
-                        task.goalEvidence.preferredVideo()?.let { id ->
-                            if (task.backend.supported("get_video_metrics") == true)
-                                initialRead("get_video_metrics", JSONObject().put("video_id", id))
-                        }
-                    }
-                    if (operation == "get_regions" && task.goalEvidence.selectedRegion() != null && task.backend.supported("get_ranking") == true)
-                        initialRead("get_ranking", JSONObject().put("region_id", checkNotNull(task.goalEvidence.selectedRegion())))
-                    if (operation == "get_video_details" && task.goalEvidence.comments && task.backend.supported("get_video_comments") == true)
-                        task.goalEvidence.preferredVideo()?.takeIf { it.startsWith("av") }?.let { id ->
-                            initialRead("get_video_comments", JSONObject().put("video_id", id))
-                        }
-                }
-            }
             var previousOperation = ""
             var repeatedFailures = 0
             while (!task.stopped() && task.limits.allowsStep(steps)) {
                 check(context.prefs().getBoolean(AgentPreferences.ENABLED, false) && UserTermsConsentStore.readOrInitialize(context).isAuthorized) { "not_authorized" }
                 val currentSources = AgentPreferences.sources(context).associateBy { it.index }
                 check(task.sources.all { currentSources[it.index]?.fingerprint == it.fingerprint }) { "source_config_changed" }
+                // 每次模型规划前补齐真实身份已经可确定的目标首读；空页、失败和未知字段不会自动重试。
+                while (task.backend.nativeActive && !task.stopped() && task.limits.allowsStep(steps)) {
+                    val read = task.goalEvidence.nextNativeRead { task.backend.supported(it) == true } ?: break
+                    initialRead(read.first, read.second)
+                }
+                if (task.stopped() || !task.limits.allowsStep(steps)) break
                 val turn = models.next(history)
                 if (turn.toolCalls.isEmpty()) {
                     check(!verificationPending) { "ui_verification_required" }
@@ -261,7 +265,7 @@ internal object AgentController {
                 task.lastOperationSucceeded = response.optBoolean("ok")
                 task.lastOperationStep = steps
                 publish(task, state, recordLog = false)
-                if (response.optString("error") in setOf("host_not_foreground", "device_locked", "accessibility_not_connected") ||
+                if (agentHostFailureStopsTask(call.name, response.optString("error"), task.backend.nativeActive) ||
                     call.name in AgentToolCatalog.personalReads && AgentNativeRoutingPolicy.accountFailure(response.optString("error")))
                     throw IllegalStateException(response.optString("error"))
                 if (response.optBoolean("ok")) {

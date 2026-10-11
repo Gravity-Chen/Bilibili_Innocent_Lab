@@ -1337,6 +1337,8 @@
     <string name="agent_logs_title">执行日志</string>
     <string name="agent_logs_help">日志记录任务阶段、来源编号、耗时和执行结果，不保存目标、API Key、截图或原始响应。最多保留四个任务，长日志会明确显示省略数量。</string>
     <string name="agent_logs_empty">暂无执行记录</string>
+    <string name="agent_notification_show_status">返回状态</string>
+    <string name="agent_notification_logs_hint">最近执行记录；完整日志可在模块主页面查看。</string>
     <string name="agent_logs_next">切换任务</string>
     <string name="agent_logs_cache">命中缓存</string>
     <string name="agent_logs_persistence_failed">日志保存失败，当前内存记录仍可查看。</string>

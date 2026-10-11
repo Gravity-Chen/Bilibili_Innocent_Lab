@@ -394,6 +394,11 @@ internal class HostAgentWindowPolicy(private val navigationMs: Long = NAVIGATION
 
     fun ownsWindow(generation: Long, window: Long): Boolean = this.generation == generation && this.window == window
 
+    /** 系统展示浮层只改变焦点，不授权其它 Activity；动作仍必须等原宿主窗口恢复焦点。 */
+    fun canUseWindow(generation: Long, window: Long, resumed: Boolean, shown: Boolean,
+                     focused: Boolean, readOnly: Boolean): Boolean =
+        ownsWindow(generation, window) && resumed && shown && (readOnly || focused)
+
     fun revoke(generation: Long) {
         if (this.generation != generation) return
         this.generation = null
