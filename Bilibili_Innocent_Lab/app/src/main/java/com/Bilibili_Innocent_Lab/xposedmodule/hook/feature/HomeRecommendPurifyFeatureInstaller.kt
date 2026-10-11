@@ -244,6 +244,16 @@ internal class HomeRecommendPurifyFeatureInstaller(
                     "按名字那半边不生效，按 id 那半边继续"
             )
         }
+        // 类型兜底仍能过滤，但广告载体不可读时不能把视频样式的推广覆盖报成完整。
+        val adPayloadReadable = accessors.adInfo != null
+        if (removeAds && !adPayloadReadable) {
+            partialReason = if (partialReason == null) "missing-ad-info-accessor"
+            else "$partialReason+missing-ad-info-accessor"
+            environment.logError(
+                "home_recommend_ad_info_missing",
+                "[BIL] 首页广告载体读取适配不完整，类型与路由过滤继续"
+            )
+        }
 
         var installed = 0
         adapted.responseItemGetters.forEachIndexed { index, point ->
@@ -256,10 +266,11 @@ internal class HomeRecommendPurifyFeatureInstaller(
                         var removedBanners = 0
                         var removedPgc = 0
                         var removedSpecial = 0
+                        val advertisements = if (removeAds || removeCmV2) AdvertisementCounts() else null
                         val semanticVerdicts = semantic.verdicts(source) { item -> invokeString(accessors.title, item) }
                         val filtered = CopyOnFilter.list(source) { item ->
                             if (semanticVerdicts?.get(item) == SemanticVerdict.BLOCK) return@list true
-                            val signals = signals(item, accessors)
+                            val signals = signals(item, accessors, advertisements)
                             probeTag(signals, environment)
                             val isBanner = removeBanner && isHomeBanner(signals)
                             if (isBanner) removedBanners += 1
@@ -270,7 +281,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
                             val special = removeSpecialCards && kind == HomeExtraCardPolicy.Kind.SPECIAL
                             if (pgc) { removedPgc++; environment.reportRuntimeEvidence("home_recommend_pgc_removed", FeatureRuntimeStage.OBSERVED) }
                             if (special) { removedSpecial++; environment.reportRuntimeEvidence("home_recommend_special_cards_removed", FeatureRuntimeStage.OBSERVED) }
-                            pgc || special || isBanner || shouldRemove(signals)
+                            pgc || special || isBanner || shouldRemove(signals, advertisements)
                         }
                         if (filtered !== source) {
                             result = filtered
@@ -297,6 +308,30 @@ internal class HomeRecommendPurifyFeatureInstaller(
                                 removedBanners
                             )
                         }
+                        advertisements?.let { counts ->
+                            if (removeAds && counts.reads > 0) {
+                                environment.reportRuntimeEvidence("home_recommend_ads_removed", FeatureRuntimeStage.OBSERVED)
+                            }
+                            if (counts.unreadable > 0) {
+                                environment.reportRuntimeEvidence("home_recommend_ads_removed", FeatureRuntimeStage.ERROR, counts.unreadable)
+                                environment.logError(
+                                    "home_recommend_ad_info_unreadable",
+                                    "[BIL] 首页广告载体读取失败 ${counts.unreadable}/${counts.reads} 项，已保守放行未知卡片"
+                                )
+                            }
+                            if (counts.ads > 0) {
+                                environment.reportRuntimeEvidence("home_recommend_ads_removed", FeatureRuntimeStage.APPLIED, counts.ads)
+                            }
+                            if (counts.cmV2 > 0) {
+                                environment.reportRuntimeEvidence("home_recommend_cm_v2_removed", FeatureRuntimeStage.OBSERVED)
+                                environment.reportRuntimeEvidence("home_recommend_cm_v2_removed", FeatureRuntimeStage.APPLIED, counts.cmV2)
+                            }
+                            environment.logInfo(
+                                "home_recommend_ad_summary",
+                                "[BIL] 首页广告过滤计数: reads=${counts.reads},unreadable=${counts.unreadable}," +
+                                    "ads=${counts.ads},cmV2=${counts.cmV2}"
+                            )
+                        }
                     }
                 }
                 installed += 1
@@ -309,8 +344,6 @@ internal class HomeRecommendPurifyFeatureInstaller(
             }
         }
         if (installed == 0) return missing(environment, "registration-failed")
-        val routeReadable = accessors.cardType != null || accessors.cardGoto != null ||
-            accessors.goTo != null || accessors.uri != null
         for (capability in capabilityIds) {
             val readable = when (capability) {
                 "home_recommend_duration_filter" -> accessors.duration != null
@@ -329,9 +362,12 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 "home_recommend_author_block" -> accessors.author != null
                 AiDeclaredVideoPolicy.CAPABILITY_HOME -> accessors.uri != null || accessors.param != null
                 CAPABILITY_SEMANTIC -> accessors.title != null
-                else -> routeReadable
+                // 其余类型都把必需的 holderType 交给同一分类器，独立开关也有类型兜底。
+                else -> true
             }
-            environment.reportCapabilityCoverage(capability, readable, installed, adapted.responseItemGetters.size)
+            val incompleteAdPayload = capability == "home_recommend_ads_removed" && !adPayloadReadable
+            environment.reportCapabilityCoverage(capability, readable, installed,
+                adapted.responseItemGetters.size + if (incompleteAdPayload) 1 else 0)
         }
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         environment.reportStatus(
@@ -377,7 +413,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
         )
     }
 
-    private fun shouldRemove(signals: Signals): Boolean {
+    private fun shouldRemove(signals: Signals, advertisements: AdvertisementCounts?): Boolean {
         if (!itemRemovalEnabled) return false
         val hostSignals = signals.toHostSignals()
         val kinds = if (semanticClassificationEnabled) {
@@ -385,9 +421,14 @@ internal class HomeRecommendPurifyFeatureInstaller(
         } else {
             emptySet()
         }
-        return (removeCmV2 && HostContentSemanticClassifier.isCmV2(hostSignals)) ||
-            (removeAds && HostContentKind.ADVERTISEMENT in kinds) ||
-            (removePictures && HostContentKind.PICTURE in kinds) ||
+        val cmV2 = removeCmV2 && HostContentSemanticClassifier.isCmV2(hostSignals)
+        val advertisement = removeAds && HostContentKind.ADVERTISEMENT in kinds
+        if (cmV2 || advertisement) {
+            if (cmV2) advertisements?.let { it.cmV2 += 1 }
+            if (advertisement) advertisements?.let { it.ads += 1 }
+            return true
+        }
+        return (removePictures && HostContentKind.PICTURE in kinds) ||
             (removeGamePromotions && HostContentKind.GAME in kinds) ||
             RuleSetCodec.matches(titleKeywords, signals.title) ||
             (removeLive && HostContentKind.LIVE in kinds) ||
@@ -414,8 +455,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
             signals.aiDeclared
     }
 
-    private fun signals(item: Any, accessors: Accessors): Signals {
-        val needsRoute = removePictures || removeGamePromotions || removeLive ||
+    private fun signals(item: Any, accessors: Accessors, advertisements: AdvertisementCounts?): Signals {
+        val needsRoute = removeAds || removePictures || removeGamePromotions || removeLive ||
             removeCourses || removeVertical || removeLarge || removePgc || removeSpecialCards
         val needsClassification = removeAds || removeCmV2 || needsRoute
         val tidAccessor = accessors.tid
@@ -433,7 +474,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
             }
         }
         return Signals(
-            holderType = if (removeAds || removeBanner || removeLarge) {
+            holderType = if (needsClassification || removeBanner) {
                 invokeString(accessors.holderType, item)
             } else {
                 null
@@ -467,7 +508,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
             subtitle = if (removeGamePromotions) invokeString(accessors.subtitle, item) else null,
             desc = if (removeGamePromotions) invokeString(accessors.desc, item) else null,
             hasAdInfo = (removeAds || removeGamePromotions) &&
-                invokeCompatible(accessors.adInfo, item) != null,
+                readAdInfo(accessors.adInfo, item, advertisements.takeIf { removeAds }),
             durationSeconds = if (durationRange.isEnabled) {
                 accessors.duration?.let { duration ->
                     VideoDurationReader.fromContainer(
@@ -648,6 +689,28 @@ internal class HomeRecommendPurifyFeatureInstaller(
     private fun invokeCompatible(method: Method?, target: Any): Any? {
         if (method == null || !method.declaringClass.isInstance(target)) return null
         return runCatching { method.invoke(target) }.getOrNull()
+    }
+
+    /** 每个响应只保存计数；空广告字段和读取失败分别处理，不保存卡片或异常内容。 */
+    private class AdvertisementCounts {
+        var reads = 0
+        var unreadable = 0
+        var ads = 0
+        var cmV2 = 0
+    }
+
+    private fun readAdInfo(method: Method?, target: Any, counts: AdvertisementCounts?): Boolean {
+        counts?.let { it.reads += 1 }
+        if (method == null || !method.declaringClass.isInstance(target)) {
+            counts?.let { it.unreadable += 1 }
+            return false
+        }
+        return try {
+            method.invoke(target) != null
+        } catch (_: Throwable) {
+            counts?.let { it.unreadable += 1 }
+            false
+        }
     }
 
     private fun missing(
