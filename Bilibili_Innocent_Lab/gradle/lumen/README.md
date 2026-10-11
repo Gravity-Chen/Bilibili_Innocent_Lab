@@ -1,12 +1,14 @@
 # 凝光源码接入
 
-当前基线固定为上游 [1.2.6 标签](https://github.com/jichuo1/LumenCoacervationEngine/tree/1.2.6)，core 与 motion 同时接入，正式源码归档 SHA-256 为 `0b9cafd87be7a5f2f04f634c42543bff17b8bdfce9f3cc959cffb765b4e5dd5e`。构建只对齐 Android 复合工程需要的工具链版本，不再修改引擎的行为源码或诊断版本号。
+当前基线固定为上游 [1.3.0 标签](https://github.com/jichuo1/LumenCoacervationEngine/tree/1.3.0)，core 与 motion 同时接入，正式源码归档 SHA-256 为 `d0a36b696cd0f8a296f30f135003f54444d8e895d66196b7dd8162630018e201`。构建只对齐 Android 复合工程需要的工具链版本，不再修改引擎的行为源码或诊断版本号。
 
 引擎 1.2.3 已吸收下述三个扩展；它们作为历史记录保留，settings 不再应用。首次构建下载固定归档并核对哈希，此后支持 `--offline`。缓存键由版本与宿主工具链版本确定，缓存位于 `.gradle/lumen-source/`，不提交缓存。
 
 宿主 motion 的兼容名称委托到 LCE；窗口只有一个弹性控制器，原生回弹、翻页、手风琴、气泡、锚点和全屏形变使用引擎实现。业务 View 树、颜色、入口坐标协议和业务回调留在宿主。源码契约先核对实际委托，再读取本次 Gradle 编译的引擎源码。
 
 本地开发引擎时可显式传 `-PinnocentLab.lumenDevelopmentSource=<引擎目录>`，默认构建与 CI 均使用上面的正式标签和哈希。开发目录必须完成工具链对齐；正式验收不得把开发覆盖当作标签构建证据。
+
+本地 SDK 优先读取宿主 Android 工程 `local.properties` 的 `sdk.dir`，未配置时沿用 `ANDROID_HOME` / `ANDROID_SDK_ROOT`。settings 在准备锁内将解析后的绝对 SDK 路径同步到缓存源码自己的 `local.properties`；首次准备及已有缓存都检查，仅路径变化时更新，只同步 `sdk.dir`。因此只在宿主配置 SDK 即可构建正式标签，不需要为每次引擎升级手动设置环境变量，也不会复制签名或其他本地参数。生成文件留在 `.gradle/`，不提交机器路径。显式开发源码目录由其自身配置 SDK，宿主不覆盖它的配置。
 
 ## 历史：1.2.2 的公共扩展
 
