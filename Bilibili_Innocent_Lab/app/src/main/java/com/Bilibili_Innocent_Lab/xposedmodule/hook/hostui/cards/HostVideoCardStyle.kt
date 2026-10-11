@@ -127,6 +127,16 @@ internal class HostVideoCardStyle(
         }
     }
 
+    fun replacesSeparators(list: ViewGroup): Boolean {
+        if (!decorateCards || isInPlayer(list)) return false
+        for (index in 0 until list.childCount) {
+            val child = list.getChildAt(index)
+            val state = states[child] ?: continue
+            if (state.decorated && child.background === state.surface) return true
+        }
+        return false
+    }
+
     fun bind(root: View, feedback: Boolean = false) {
         if (root !is ViewGroup) return
         if (isInPlayer(root)) return

@@ -55,24 +55,7 @@ internal class HostVideoCardStyleFeatureInstaller(
             }
         })
         return runCatching {
-            var dividerHooks = 0
-            if (enabled) {
-                val divider = KavaMemberLookup.classOrNull(loader, "tv.danmaku.bili.widget.recycler.DividerDecoration")
-                val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView")
-                val state = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$State")
-                val draw = if (divider != null && recycler != null && state != null)
-                    KavaMemberLookup.methodOrNull(divider, "onDrawOver", android.graphics.Canvas::class.java, recycler, state)
-                        ?.takeIf { it.returnType == Void.TYPE } else null
-                if (draw != null) {
-                    environment.registrar.exact("$id.history_divider", draw.declaringClass, draw.name, *draw.parameterTypes) {
-                        before {
-                            // 历史装饰器还负责左侧缩进，保留 getItemOffsets，仅关闭原生细线绘制。
-                            if (instance?.javaClass?.name?.startsWith("com.bilibili.app.history.") == true) result = null
-                        }
-                    }
-                    dividerHooks = 1
-                }
-            }
+            val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators) else 0
             var scrollHooks = 0
             if (backgroundConfig.enabled && backgroundConfig.preset != HostBackgroundPreset.CUSTOM) {
                 val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView")

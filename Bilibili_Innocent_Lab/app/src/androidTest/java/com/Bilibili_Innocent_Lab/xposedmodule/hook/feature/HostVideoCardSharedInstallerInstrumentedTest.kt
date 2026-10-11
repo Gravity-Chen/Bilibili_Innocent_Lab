@@ -39,7 +39,8 @@ class HostVideoCardSharedInstallerInstrumentedTest {
         assertEquals(1, recorder.ids.count { it.endsWith(".bind") })
         assertEquals(1, recorder.ids.count { it.endsWith(".measure") })
         assertEquals(1, recorder.ids.count { it.endsWith(".linear_measure") })
-        assertEquals(FeatureInstallResult.Installed(4), records[0].result)
+        assertEquals(listOf("host_video_cards.androidx.divider"), recorder.ids.filter { it.endsWith(".divider") })
+        assertEquals(FeatureInstallResult.Installed(5), records[0].result)
         assertEquals(FeatureInstallResult.Installed(2), records[1].result)
     }
     @Test fun backgroundAloneDoesNotInstallCardMeasurements() {
