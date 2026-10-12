@@ -405,7 +405,7 @@
     <string name="comment_classic_style">恢復舊版評論區</string>
     <string name="comment_classic_style_tip">恢復舊版評論版面。樓中樓預覽為空時自動補取最多三條回覆，更多回覆仍可點按查看。補取可能稍微增加評論載入時間。重新啟動 Bilibili 後生效。</string>
     <string name="highlights_reply_topology_keyword_export">回覆脈絡支援依作者或回覆關鍵詞篩選，保留上層回覆關係，並可將目前可見的回覆預覽複製到剪貼簿。</string>
-    <string name="highlights_reply_topology_tree_explorer">深層回覆顯示真實層級，可開啟完整樹狀圖自由拖曳縮放，也可透過獨立入口查看最近上層與直接回覆。</string>
+    <string name="highlights_reply_topology_tree_explorer">樹狀圖會分批載入該樓層的全部可用回覆；檢視路徑或點選節點時，突顯其上層與後代，其他分支淡化，支援自由拖曳縮放。</string>
     <string name="reply_topology_enabled_tip">開啟後，有回覆的第一層評論會顯示「脈絡」入口，可檢視回覆關係並定位評論；僅開啟面板時載入資料。重新啟動 Bilibili 後生效。</string>
     <string name="remove_comment_search_links">關閉評論關鍵字搜尋連結</string>
     <string name="remove_comment_search_links_tip">啟用後，評論中的關鍵字不再跳轉至搜尋，評論文字與表情維持不變。重新啟動 Bilibili 後生效。</string>

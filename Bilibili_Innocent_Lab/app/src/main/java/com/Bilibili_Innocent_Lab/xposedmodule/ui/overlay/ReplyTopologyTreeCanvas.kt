@@ -40,6 +40,8 @@ internal class ReplyTopologyTreeCanvas(
     private val rowStep = cardHeight + 24.0 * density
     private val viewport = ReplyTopologyTreeViewport()
     private var scene: ReplyTopologyTreeLayout? = null
+    private var focusMask: BooleanArray? = null
+    private var focusedChildRows = IntArray(0)
     private var selectedRpid: Long? = null
     private var select: ((Long) -> Unit)? = onSelected
     private var released = false
@@ -154,6 +156,21 @@ internal class ReplyTopologyTreeCanvas(
         invalidate()
     }
 
+    fun setFocus(mask: BooleanArray?) {
+        if (released) return
+        val value = scene ?: return
+        require(mask == null || mask.size == value.graph.size)
+        focusMask = mask
+        if (focusedChildRows.size != value.size) focusedChildRows = IntArray(value.size)
+        focusedChildRows.fill(-1)
+        if (mask != null) for (row in 0 until value.size) {
+            if (!mask[value.indexAt(row)]) continue
+            val parent = value.parentRow(row)
+            if (parent >= 0 && mask[value.indexAt(parent)]) focusedChildRows[parent] = row
+        }
+        invalidate()
+    }
+
     fun fitView() {
         if (released) return
         val value = scene ?: return
@@ -234,18 +251,32 @@ internal class ReplyTopologyTreeCanvas(
                 val junction = viewport.screenX(value.depthAt(row) * columnStep + cardWidth + (columnStep - cardWidth) * 0.5)
                 val from = viewport.screenY(row * rowStep + cardHeight * 0.5)
                 val to = viewport.screenY(last * rowStep + cardHeight * 0.5)
+                edgeColor(focusMask == null)
                 if (from in 0.0..height.toDouble() && junction >= 0.0 && right <= width) {
                     canvas.drawLine(max(0.0, right).toFloat(), from.toFloat(), min(width.toDouble(), junction).toFloat(), from.toFloat(), edge)
                 }
                 if (junction in 0.0..width.toDouble() && to >= 0.0 && from <= height) {
                     canvas.drawLine(junction.toFloat(), max(0.0, from).toFloat(), junction.toFloat(), min(height.toDouble(), to).toFloat(), edge)
                 }
+                val focusedLast = focusedChildRows.getOrNull(row) ?: -1
+                if (focusMask != null && focusedLast >= 0) {
+                    edgeColor(true)
+                    if (from in 0.0..height.toDouble() && junction >= 0.0 && right <= width) {
+                        canvas.drawLine(max(0.0, right).toFloat(), from.toFloat(), min(width.toDouble(), junction).toFloat(), from.toFloat(), edge)
+                    }
+                    val focusedTo = viewport.screenY(focusedLast * rowStep + cardHeight * 0.5)
+                    if (junction in 0.0..width.toDouble() && focusedTo >= 0.0 && from <= height) {
+                        canvas.drawLine(junction.toFloat(), max(0.0, from).toFloat(), junction.toFloat(), min(height.toDouble(), focusedTo).toFloat(), edge)
+                    }
+                }
             }
         }
         var bucketX = Int.MIN_VALUE
         var bucketY = Int.MIN_VALUE
+        var bucketFocused = false
         for (row in visible) {
             val index = value.indexAt(row)
+            val focused = focusMask?.get(index) != false
             val left = viewport.screenX(value.depthAt(row) * columnStep)
             val top = viewport.screenY(row * rowStep)
             val right = left + cardWidth * zoom
@@ -253,6 +284,7 @@ internal class ReplyTopologyTreeCanvas(
             run {
                 val parentRow = value.parentRow(row)
                 if (parentRow >= 0) {
+                    edgeColor(focused && focusMask?.get(value.indexAt(parentRow)) != false)
                     val from = viewport.screenX(value.depthAt(parentRow) * columnStep + cardWidth + (columnStep - cardWidth) * 0.5)
                     val y = viewport.screenY(row * rowStep + cardHeight * 0.5)
                     if (y in 0.0..height.toDouble() && from <= width && left >= 0.0) {
@@ -265,9 +297,10 @@ internal class ReplyTopologyTreeCanvas(
             if (cardWidth * zoom < 24.0) {
                 val bx = (left / 2.0).toInt()
                 val by = (top / 2.0).toInt()
-                if (bx == bucketX && by == bucketY && !selected) continue
-                bucketX = bx; bucketY = by
-                fill.color = if (selected) theme.accentColor else theme.trackColor
+                if (bx == bucketX && by == bucketY && !selected && (!focused || bucketFocused)) continue
+                bucketX = bx; bucketY = by; bucketFocused = focused
+                fill.color = if (selected || focused && focusMask != null) theme.accentColor else theme.trackColor
+                if (!focused) fill.alpha = (fill.alpha * DIM_OPACITY).toInt()
                 canvas.drawRect(left.toFloat(), top.toFloat(), max(right, left + 2.0).toFloat(), max(bottom, top + 2.0).toFloat(), fill)
                 continue
             }
@@ -275,8 +308,11 @@ internal class ReplyTopologyTreeCanvas(
             canvas.translate(left.toFloat(), top.toFloat())
             canvas.scale(zoom.toFloat(), zoom.toFloat())
             canvas.clipRect(0f, 0f, cardWidth.toFloat(), cardHeight.toFloat())
-            fill.color = if (selected) ReplyTopologyPanelTheme.blendColor(theme.backgroundColor, theme.accentColor, 0.2f) else theme.backgroundColor
-            border.color = if (selected) theme.accentColor else theme.strokeColor
+            fill.color = if (selected) ReplyTopologyPanelTheme.blendColor(theme.backgroundColor, theme.accentColor, 0.2f)
+                else if (focused && focusMask != null) ReplyTopologyPanelTheme.blendColor(theme.backgroundColor, theme.accentColor, 0.05f) else theme.backgroundColor
+            border.color = if (selected) theme.accentColor else if (focused && focusMask != null)
+                ReplyTopologyPanelTheme.blendColor(theme.strokeColor, theme.accentColor, 0.65f) else theme.strokeColor
+            if (!focused) { fill.alpha = (fill.alpha * DIM_OPACITY).toInt(); border.alpha = (border.alpha * DIM_OPACITY).toInt() }
             border.strokeWidth = if (selected) 2f * density else density
             canvas.drawRoundRect(0f, 0f, cardWidth.toFloat(), cardHeight.toFloat(), 10f * density, 10f * density, fill)
             canvas.drawRoundRect(0f, 0f, cardWidth.toFloat(), cardHeight.toFloat(), 10f * density, 10f * density, border)
@@ -284,18 +320,41 @@ internal class ReplyTopologyTreeCanvas(
                 val text = textCache.get(value.graph.rpids[index])?.takeIf { it.matches(value.graph, index) }
                 canvas.translate(8f * density, 7f * density)
                 if (text != null) {
-                    text.title.draw(canvas)
-                    canvas.translate(0f, 22f * density * fontFactor)
-                    text.body.draw(canvas)
-                    canvas.translate(0f, 64f * density * fontFactor)
-                    text.depth.draw(canvas)
+                    val titleAlpha = text.title.paint.alpha
+                    val bodyAlpha = text.body.paint.alpha
+                    val depthAlpha = text.depth.paint.alpha
+                    try {
+                        if (!focused) {
+                            text.title.paint.alpha = (titleAlpha * DIM_OPACITY).toInt()
+                            text.body.paint.alpha = (bodyAlpha * DIM_OPACITY).toInt()
+                            text.depth.paint.alpha = (depthAlpha * DIM_OPACITY).toInt()
+                        }
+                        text.title.draw(canvas)
+                        canvas.translate(0f, 22f * density * fontFactor)
+                        text.body.draw(canvas)
+                        canvas.translate(0f, 64f * density * fontFactor)
+                        text.depth.draw(canvas)
+                    } finally {
+                        text.title.paint.alpha = titleAlpha
+                        text.body.paint.alpha = bodyAlpha
+                        text.depth.paint.alpha = depthAlpha
+                    }
                 } else {
                     // 首帧保留作者及可点击节点；文字布局在可见节点优先的帧任务中完成。
-                    canvas.drawText(value.graph.authorNames[index], 0f, -titlePaint.ascent(), titlePaint)
+                    val alpha = titlePaint.alpha
+                    try {
+                        if (!focused) titlePaint.alpha = (alpha * DIM_OPACITY).toInt()
+                        canvas.drawText(value.graph.authorNames[index], 0f, -titlePaint.ascent(), titlePaint)
+                    } finally { titlePaint.alpha = alpha }
                 }
             }
             canvas.restoreToCount(save)
         }
+    }
+
+    private fun edgeColor(focused: Boolean) {
+        edge.color = if (focused && focusMask != null) theme.accentColor else theme.trackColor
+        if (!focused) edge.alpha = (edge.alpha * DIM_OPACITY).toInt()
     }
 
     private fun textBlock(layout: ReplyTopologyTreeLayout, index: Int): TextBlock {
@@ -393,6 +452,12 @@ internal class ReplyTopologyTreeCanvas(
         } finally { cancel.recycle() }
         textCache.evictAll()
         scene = null
+        focusMask = null
+        focusedChildRows = IntArray(0)
         select = null
+    }
+
+    private companion object {
+        const val DIM_OPACITY = 0.34f
     }
 }

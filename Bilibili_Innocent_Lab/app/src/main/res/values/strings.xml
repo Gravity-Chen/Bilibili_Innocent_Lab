@@ -405,7 +405,7 @@
     <string name="comment_classic_style">Restore classic comments</string>
     <string name="comment_classic_style_tip">Restores the classic comment layout. Fetches up to three replies when previews are missing. Tap to view more replies. Fetching may slightly increase comment loading time. Restart Bilibili to apply.</string>
     <string name="highlights_reply_topology_keyword_export">Filter reply context by author or reply keywords while keeping ancestor replies, and copy the visible reply previews to the clipboard.</string>
-    <string name="highlights_reply_topology_tree_explorer">Deep replies show their actual levels. Open the full tree to pan and zoom freely, or view a reply’s recent ancestors and direct replies through a separate path entry.</string>
+    <string name="highlights_reply_topology_tree_explorer">The tree loads all available replies in the thread in batches. View a path or select a node to highlight its ancestors and descendants while dimming other branches. Pan and zoom freely.</string>
     <string name="reply_topology_enabled_tip">Adds a “Trace” entry to top-level comments with replies and presents the actual reply relationships in a draggable, navigable workflow view. Data is loaded only while the panel is open. Restart Bilibili to apply.</string>
     <string name="remove_comment_search_links">Disable comment keyword search links</string>
     <string name="remove_comment_search_links_tip">When enabled, comment keywords no longer open search. Comment text and emoji remain unchanged. Restart Bilibili to apply.</string>

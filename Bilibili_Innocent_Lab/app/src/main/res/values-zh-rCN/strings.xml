@@ -405,7 +405,7 @@
     <string name="comment_classic_style">恢复旧版评论区</string>
     <string name="comment_classic_style_tip">恢复旧版评论布局。楼中楼预览为空时自动补取最多三条回复，更多回复仍可点击查看。补取可能稍微增加评论加载时间。重启哔哩哔哩后生效。</string>
     <string name="highlights_reply_topology_keyword_export">回复脉络支持按作者或回复关键词筛选，保留上级回复关系，并可将当前可见的回复预览复制到剪贴板。</string>
-    <string name="highlights_reply_topology_tree_explorer">深层回复显示真实层级，可打开完整树状图自由拖动缩放，也可通过独立入口查看最近上级与直接回复。</string>
+    <string name="highlights_reply_topology_tree_explorer">树状图会分批加载该楼层的全部可用回复；查看路径或点选节点时，高亮其上级与后代，其他分支淡化，支持自由拖动缩放。</string>
     <string name="reply_topology_enabled_tip">开启后，有回复的一级评论会显示“脉络”入口，可查看回复关系并定位评论；仅打开面板时加载数据。重启哔哩哔哩后生效。</string>
     <string name="remove_comment_search_links">关闭评论关键词搜索链接</string>
     <string name="remove_comment_search_links_tip">开启后，评论中的关键词不再跳转搜索，评论文字和表情保持不变。重启哔哩哔哩后生效。</string>

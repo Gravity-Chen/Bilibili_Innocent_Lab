@@ -8,6 +8,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CommentSurfaceWiringContractTest {
+    @Test fun fullTreeLoadingSwitchesBudgetBeforeInspectingAnInFlightRequest() {
+        val source = SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
+        val open = source.after("override fun onFullTreeRequested()").before("override fun onOpacityCommitted")
+        assertTrue(open.before("if (!state.loadingRequest)").contains("if (!state.loadAll) state.guard.beginBatch"))
+        val host = SourceContract.read("hook/feature/ReplyTopologyHostAccess.kt")
+        assertTrue(host.contains("MAX_MAPPER_SEED_NODES, requireReplies = true"))
+        assertTrue(host.contains("if (requireReplies &&"))
+        val page = host.after("private fun parsePage").before("private fun snapshotTree")
+        assertTrue(page.contains("error(\"DetailListReply pagination is unavailable\")"))
+        assertTrue(page.contains("error(\"DetailListReply next offset is unavailable\")"))
+        assertFalse(page.contains("pagination?.let"))
+        assertTrue(host.after("private fun snapshotTree").before("private fun snapshotNode")
+            .contains("?: error(\"ReplyInfo replies is unavailable\")"))
+    }
+
     @Test fun storyPanelUsesTheClickedCommentWindowAndRetainsOnlyWeakOwnership() {
         val source = SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
         assertTrue(source.contains("coordinator?.open(activity, currentSeed, this@ReplyTopologyAnchorView)"))

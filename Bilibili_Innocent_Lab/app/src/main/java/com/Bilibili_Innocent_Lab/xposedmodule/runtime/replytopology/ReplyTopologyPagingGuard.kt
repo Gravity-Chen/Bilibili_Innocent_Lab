@@ -39,20 +39,31 @@ internal sealed interface ReplyTopologyPagingDecision {
  * newUniqueNodes/totalUniqueNodes，避免在 Guard 内再维护一份节点集合。
  */
 internal class ReplyTopologyPagingGuard(
-    private val startedAtMs: Long,
-    private val budget: ReplyTopologyPagingBudget = ReplyTopologyPagingBudget()
+    private var startedAtMs: Long,
+    private var budget: ReplyTopologyPagingBudget = ReplyTopologyPagingBudget()
 ) {
     private val seenOffsets = HashSet<String>()
     private var pageCount = 0
     private var consecutiveNoProgressPages = 0
     private var lastTotalUniqueNodes = 0
+    private var batchStartUniqueNodes = 0
+
+    /** 只重置本批资源预算；游标与无进展记录属于整个会话，不能随“继续”清空。 */
+    fun beginBatch(nowMs: Long, nextBudget: ReplyTopologyPagingBudget) {
+        require(nowMs >= startedAtMs)
+        startedAtMs = nowMs
+        budget = nextBudget
+        pageCount = 0
+        batchStartUniqueNodes = lastTotalUniqueNodes
+    }
 
     fun onPage(
         currentOffset: String?,
         nextOffset: String?,
         newUniqueNodes: Int,
         totalUniqueNodes: Int,
-        nowMs: Long
+        nowMs: Long,
+        pageTruncated: Boolean = false
     ): ReplyTopologyPagingDecision {
         if (
             newUniqueNodes < 0 || totalUniqueNodes < 0 || newUniqueNodes > totalUniqueNodes ||
@@ -67,6 +78,8 @@ internal class ReplyTopologyPagingGuard(
         }
         pageCount++
         lastTotalUniqueNodes = totalUniqueNodes
+
+        if (pageTruncated) return stop(ReplyTopologyPagingStopReason.INVALID_PAGE)
 
         val normalizedNext = nextOffset?.takeIf(String::isNotBlank)
             ?: return ReplyTopologyPagingDecision.Stop(
@@ -83,7 +96,7 @@ internal class ReplyTopologyPagingGuard(
             0
         }
         return when {
-            totalUniqueNodes >= budget.maxUniqueNodes -> stop(ReplyTopologyPagingStopReason.NODE_LIMIT)
+            totalUniqueNodes - batchStartUniqueNodes >= budget.maxUniqueNodes -> stop(ReplyTopologyPagingStopReason.NODE_LIMIT)
             pageCount >= budget.maxPages -> stop(ReplyTopologyPagingStopReason.PAGE_LIMIT)
             nowMs - startedAtMs >= budget.maxElapsedMs -> stop(ReplyTopologyPagingStopReason.TIME_LIMIT)
             consecutiveNoProgressPages >= budget.maxConsecutiveNoProgressPages ->

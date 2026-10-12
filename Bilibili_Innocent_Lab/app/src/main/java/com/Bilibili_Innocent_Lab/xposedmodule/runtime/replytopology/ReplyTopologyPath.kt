@@ -1,6 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology
 
-/** 局部路径只生成索引，不修改真实深度、父子关系或主面板的筛选。 */
+/** 路径聚焦只生成显示掩码，不修改真实深度、父子关系或主面板的筛选。 */
 internal object ReplyTopologyPath {
     data class Selection(val indexes: IntArray, val baseDepth: Int, val omittedAncestors: Int)
 
@@ -13,6 +13,7 @@ internal object ReplyTopologyPath {
         private val byId = HashMap<Long, Int>(graph.size)
         private val firstChild = IntArray(graph.size) { -1 }
         private val nextSibling = IntArray(graph.size) { -1 }
+        private val work = IntArray(graph.size)
 
         init {
             for (index in graph.size - 1 downTo 0) {
@@ -26,6 +27,31 @@ internal object ReplyTopologyPath {
         }
 
         fun indexOf(rpid: Long): Int = byId[rpid] ?: -1
+
+        fun focus(rpid: Long): BooleanArray? {
+            val target = indexOf(rpid)
+            if (target < 0) return null
+            val focused = BooleanArray(graph.size)
+            var cursor = target
+            while (cursor in focused.indices && !focused[cursor]) {
+                focused[cursor] = true
+                cursor = graph.parentIndexes[cursor]
+            }
+            var pending = 1
+            work[0] = target
+            while (pending > 0) {
+                val parent = work[--pending]
+                var child = firstChild[parent]
+                while (child >= 0) {
+                    if (!focused[child]) {
+                        focused[child] = true
+                        work[pending++] = child
+                    }
+                    child = nextSibling[child]
+                }
+            }
+            return focused
+        }
 
         fun resolve(rpid: Long, ancestorLimit: Int = 6): Selection? {
             require(ancestorLimit >= 0)

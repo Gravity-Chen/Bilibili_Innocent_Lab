@@ -92,4 +92,56 @@ class ReplyTopologyPagingGuardTest {
 
         assertEquals(ReplyTopologyPagingStopReason.INVALID_PAGE, decision.reason)
     }
+
+    @Test fun continuedBatchesKeepCursorHistoryAndUseNewNodeBudgetPerBatch() {
+        val budget = ReplyTopologyPagingBudget(maxUniqueNodes = 2)
+        val guard = ReplyTopologyPagingGuard(0L, budget)
+        assertEquals(ReplyTopologyPagingStopReason.NODE_LIMIT,
+            (guard.onPage("", "a", 2, 2, 1L) as ReplyTopologyPagingDecision.Stop).reason)
+        guard.beginBatch(2L, budget)
+        assertEquals(ReplyTopologyPagingDecision.LoadNext("b"), guard.onPage("a", "b", 1, 3, 3L))
+        assertEquals(ReplyTopologyPagingStopReason.NODE_LIMIT,
+            (guard.onPage("b", "c", 1, 4, 4L) as ReplyTopologyPagingDecision.Stop).reason)
+        guard.beginBatch(5L, budget)
+        val loop = guard.onPage("c", "a", 1, 5, 6L) as ReplyTopologyPagingDecision.Stop
+        assertEquals(ReplyTopologyPagingStopReason.REPEATED_OFFSET, loop.reason)
+        assertFalse(loop.complete)
+    }
+
+    @Test fun terminalCursorNeverCompletesATruncatedPage() {
+        val guard = ReplyTopologyPagingGuard(0L)
+        val stop = guard.onPage("", null, 4, 4, 1L, pageTruncated = true) as ReplyTopologyPagingDecision.Stop
+        assertEquals(ReplyTopologyPagingStopReason.INVALID_PAGE, stop.reason)
+        assertFalse(stop.complete)
+    }
+
+    @Test fun batchingCannotResetTheNoProgressProtection() {
+        val guard = ReplyTopologyPagingGuard(0L)
+        guard.onPage("", "a", 1, 1, 1L)
+        guard.onPage("a", "b", 0, 1, 2L)
+        guard.beginBatch(3L, ReplyTopologyPagingBudget())
+        val stop = guard.onPage("b", "c", 0, 1, 4L) as ReplyTopologyPagingDecision.Stop
+        assertEquals(ReplyTopologyPagingStopReason.NO_PROGRESS, stop.reason)
+    }
+
+    @Test fun manyBatchesCanFinishBeyondTheOldFiveThousandNodeLimit() {
+        val budget = ReplyTopologyPagingBudget(maxUniqueNodes = 1_500)
+        val guard = ReplyTopologyPagingGuard(0L, budget)
+        for (page in 0..5) {
+            val now = page * 2L + 1L
+            val stop = guard.onPage(if (page == 0) "" else "p$page",
+                if (page == 5) null else "p${page + 1}", 1_500, (page + 1) * 1_500, now) as ReplyTopologyPagingDecision.Stop
+            assertEquals(page == 5, stop.complete)
+            if (page < 5) guard.beginBatch(now + 1L, budget)
+        }
+    }
+
+    @Test fun openingTheFullTreeDuringLoadingUsesItsExtendedNoProgressBudget() {
+        val guard = ReplyTopologyPagingGuard(0L)
+        guard.onPage("", "a", 1, 1, 1L)
+        guard.onPage("a", "b", 0, 1, 2L)
+        guard.beginBatch(3L, ReplyTopologyPagingBudget(maxConsecutiveNoProgressPages = 3))
+        assertEquals(ReplyTopologyPagingDecision.LoadNext("c"), guard.onPage("b", "c", 0, 1, 4L))
+        assertEquals(ReplyTopologyPagingDecision.LoadNext("d"), guard.onPage("c", "d", 1, 2, 5L))
+    }
 }

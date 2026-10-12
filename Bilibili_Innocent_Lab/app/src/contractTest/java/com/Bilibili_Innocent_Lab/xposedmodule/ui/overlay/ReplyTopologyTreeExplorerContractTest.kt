@@ -18,9 +18,11 @@ class ReplyTopologyTreeExplorerContractTest {
         assertTrue(adapter.contains("strings.depthLabel(trueDepth)"))
     }
 
-    @Test fun fullTreeIsAvailableWhenDepthIsCompressedAndPathHasItsOwnAction() {
+    @Test fun fullTreeIsAvailableForEveryNonemptyGraphAndPathHasItsOwnAction() {
         val panel = SourceContract.read("ui/overlay/ReplyTopologyPanelView.kt")
         assertTrue(panel.contains("workflowAdapter.hasCompressedDepth(layout.maxLane)"))
+        assertTrue(panel.contains("fullTreeAvailable = (workflowAdapter.currentGraph()?.size ?: 0) > 0"))
+        assertFalse(panel.contains("deepTreeAvailable"))
         assertTrue(panel.contains("showTreeExplorer(rpid, path = true)"))
         assertTrue(panel.contains("showTreeExplorer(workflowAdapter.selectedNode(), path = false)"))
         val adapter = SourceContract.read("ui/overlay/ReplyTopologyWorkflowAdapter.kt")
@@ -89,9 +91,57 @@ class ReplyTopologyTreeExplorerContractTest {
         assertTrue(warm.contains("SystemClock.uptimeMillis() - start >= 2L"))
         assertTrue(canvas.contains("it.matches(value.graph, index)"))
         val explorer = SourceContract.read("ui/overlay/ReplyTopologyTreeExplorer.kt")
-        assertTrue(explorer.contains("if (graph !== value) pathIndex = ReplyTopologyPath.Index(value)"))
+        val graphUpdate = explorer.after("if (graph !== value) {").before("graph = value")
+        assertTrue(graphUpdate.contains("pathIndex = ReplyTopologyPath.Index(value)"))
+        assertTrue(graphUpdate.contains("layout = ReplyTopologyTreeLayout(value)"))
         assertFalse(explorer.contains("ReplyTopologyPath.resolve(value"))
         assertTrue(panel.contains("viewer.submit(graph, rpid, initialPath = rpid.takeIf { path })"))
+    }
+
+    @Test fun focusChangesKeepTheFullLayoutAndViewportAndRestoreCachedTextAlpha() {
+        val explorer = SourceContract.read("ui/overlay/ReplyTopologyTreeExplorer.kt")
+        assertFalse(explorer.contains("pathIndex?.resolve("))
+        assertFalse(explorer.contains("path.indexes"))
+        val selection = explorer.after("private val tree = ReplyTopologyTreeCanvas").before("init {")
+        assertTrue(selection.contains("selectedRpid = it"))
+        assertTrue(selection.contains("pathRpid = it"))
+        assertTrue(selection.contains("treeFocusChanged()"))
+        assertFalse(selection.contains("rebuild("))
+        val focus = explorer.after("private fun treeFocusChanged").before("fun updateState")
+        assertTrue(focus.contains("pathIndex?.focus(it)"))
+        assertTrue(focus.contains("tree.setFocus(focus)"))
+        assertFalse(focus.contains("ReplyTopologyTreeLayout("))
+        assertFalse(focus.contains("centerSelected("))
+        assertTrue(explorer.contains("pathRpid = null; treeFocusChanged()"))
+        val canvas = SourceContract.read("ui/overlay/ReplyTopologyTreeCanvas.kt")
+        val mask = canvas.after("fun setFocus").before("fun fitView")
+        assertTrue(mask.contains("focusedChildRows[parent] = row"))
+        assertFalse(mask.contains("viewport."))
+        val draw = canvas.after("private fun drawScene").before("private fun textBlock")
+        assertTrue(draw.contains("val focusedLast = focusedChildRows.getOrNull(row)"))
+        assertTrue(draw.contains("edgeColor(focused && focusMask?.get(value.indexAt(parentRow)) != false)"))
+        assertTrue(draw.contains("text.title.paint.alpha = titleAlpha"))
+        assertTrue(draw.contains("text.body.paint.alpha = bodyAlpha"))
+        assertTrue(draw.contains("text.depth.paint.alpha = depthAlpha"))
+        assertFalse(draw.contains("for (row in 0 until value.size)"))
+        assertFalse(draw.contains("BooleanArray("))
+        assertFalse(draw.contains("StaticLayout.Builder"))
+    }
+
+    @Test fun openingEitherTreeRequestsAllRepliesAndDisplaysCurrentStateAndControls() {
+        val panel = SourceContract.read("ui/overlay/ReplyTopologyPanelView.kt")
+        assertTrue(panel.after("fun updateState").before("fun setBackgroundOpacity").contains("treeExplorer?.updateState(state)"))
+        val show = panel.after("private fun showTreeExplorer").before("private fun closeTreeExplorer")
+        assertTrue(show.before("viewer.submit(graph").contains("viewer.updateState(currentState)"))
+        assertTrue(show.after("viewer.submit(graph").contains("panelListener?.onFullTreeRequested()"))
+        assertTrue(show.contains("onRetry = { panelListener?.onRetryRequested() }"))
+        assertTrue(show.contains("onContinue = { panelListener?.onContinueRequested() }"))
+        val explorer = SourceContract.read("ui/overlay/ReplyTopologyTreeExplorer.kt")
+        val state = explorer.after("fun updateState").before("private fun updateSelection")
+        for (field in listOf("state.loadedCount", "state.expectedCount", "state.phase", "state.canRetry", "state.canContinue")) {
+            assertTrue(state.contains(field))
+        }
+        assertTrue(explorer.contains("retry = null; continueLoading = null"))
     }
 
     @Test fun resizingRecomputesSizeBeforePositionAndFullViewUsesTheSourceWindow() {

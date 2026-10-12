@@ -91,7 +91,8 @@ class ReplyTopologyPanelFilterContractTest {
                 "private val TRADITIONAL_CHINESE" to "private val ENGLISH",
                 "private val ENGLISH" to "internal data class ReplyTopologyPanelConfig")) {
             val language = source.after(start).before(end)
-            for (field in listOf("filterHint", "export", "exportSuccess", "exportEmpty", "exportFailed", "exportTooLarge")) {
+            for (field in listOf("filterHint", "export", "exportSuccess", "exportEmpty", "exportFailed", "exportTooLarge",
+                    "pathScopeHint", "completeMessage", "memoryLimitMessage", "pageTruncatedMessage")) {
                 assertTrue(language.contains("$field ="))
             }
         }

@@ -168,12 +168,17 @@ internal object ReplyTopologyGraphBuilder {
         diagnostics.duplicateNodes++
         val conflict = hasCriticalConflict(existing.snapshot, incoming)
         if (conflict) diagnostics.conflictingDuplicateNodes++
-        existing.snapshot = mergeSnapshots(existing.snapshot, incoming).copy(
-            flags = existing.snapshot.flags or incoming.flags or
-                ReplyTopologyNodeFlags.DUPLICATE or
-                (if (conflict) ReplyTopologyNodeFlags.DUPLICATE_CONFLICT else 0)
-        )
+        existing.snapshot = mergeDuplicateSnapshots(existing.snapshot, incoming)
     }
+
+    internal fun mergeDuplicateSnapshots(
+        first: ReplyTopologyNodeSnapshot,
+        second: ReplyTopologyNodeSnapshot
+    ): ReplyTopologyNodeSnapshot = mergeSnapshots(first, second).copy(
+            flags = first.flags or second.flags or
+                ReplyTopologyNodeFlags.DUPLICATE or
+                (if (hasCriticalConflict(first, second)) ReplyTopologyNodeFlags.DUPLICATE_CONFLICT else 0)
+        )
 
     private fun mergeSnapshots(
         first: ReplyTopologyNodeSnapshot,

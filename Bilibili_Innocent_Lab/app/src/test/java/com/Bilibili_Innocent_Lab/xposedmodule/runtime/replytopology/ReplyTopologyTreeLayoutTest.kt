@@ -106,6 +106,62 @@ class ReplyTopologyTreeLayoutTest {
         assertTrue(runCatching { index.resolve(120L, -1) }.isFailure)
     }
 
+    @Test fun focusRetainsAllAncestorsAndEveryDescendantWithoutIncludingSiblingBranches() {
+        val graph = ReplyTopologyGraphBuilder.build(key, chainNodes(20) + listOf(
+            node(201L, 118L), node(202L, 201L), node(121L, 120L), node(122L, 121L), node(123L, 122L)
+        ))
+        val index = ReplyTopologyPath.Index(graph)
+        val focus = requireNotNull(index.focus(120L))
+        assertEquals(graph.size, focus.size)
+        assertEquals((100L..123L).toList(),
+            graph.rpids.indices.filter { focus[it] }.map { graph.rpids[it] })
+        assertFalse(focus[index.indexOf(201L)])
+        assertFalse(focus[index.indexOf(202L)])
+        val layout = ReplyTopologyTreeLayout(graph)
+        assertEquals(graph.size, layout.size)
+        assertEquals(23, layout.depthAt(layout.rowOf(123L)))
+        assertEquals(layout.rowOf(122L), layout.parentRow(layout.rowOf(123L)))
+    }
+
+    @Test fun changingFocusUsesRpidAndLeavesThePreviousMaskAndWholeGraphIntact() {
+        val graph = ReplyTopologyGraphBuilder.build(key, listOf(node(100L, 0L),
+            node(101L, 100L), node(102L, 100L), node(103L, 101L), node(104L, 102L)))
+        val originalParents = graph.parentIndexes.clone()
+        val index = ReplyTopologyPath.Index(graph)
+        val first = requireNotNull(index.focus(101L))
+        val previous = first.clone()
+        val second = requireNotNull(index.focus(102L))
+        assertTrue(first[index.indexOf(100L)])
+        assertTrue(second[index.indexOf(100L)])
+        assertTrue(first[index.indexOf(103L)])
+        assertFalse(second[index.indexOf(103L)])
+        assertFalse(first[index.indexOf(104L)])
+        assertTrue(second[index.indexOf(104L)])
+        assertArrayEquals(previous, first)
+        assertArrayEquals(originalParents, graph.parentIndexes)
+        assertTrue(requireNotNull(index.focus(100L)).all { it })
+        assertNull(index.focus(Long.MAX_VALUE))
+    }
+
+    @Test fun focusIncludesPlaceholderAncestorsAndTheirEntireDescendantBranch() {
+        val graph = ReplyTopologyGraphBuilder.build(key, listOf(node(100L, 0L),
+            node(201L, 999L), node(202L, 201L), node(203L, 202L), node(300L, 100L)))
+        val index = ReplyTopologyPath.Index(graph)
+        val focus = requireNotNull(index.focus(999L))
+        assertTrue(focus[index.indexOf(100L)])
+        assertTrue(focus[index.indexOf(999L)])
+        assertTrue(focus[index.indexOf(203L)])
+        assertFalse(focus[index.indexOf(300L)])
+        assertNull(ReplyTopologyPath.Index(ReplyTopologyGraphBuilder.build(key, emptyList())).focus(9L))
+    }
+
+    @Test fun focusWalksDeepAncestorsAndDescendantsWithoutRecursion() {
+        val graph = chain(20_000)
+        val focus = requireNotNull(ReplyTopologyPath.Index(graph).focus(10_100L))
+        assertTrue(focus.all { it })
+        assertEquals(20_001, focus.size)
+    }
+
     private fun chainNodes(count: Int) = (0..count).map { node(100L + it, if (it == 0) 0L else 99L + it) }
     private fun node(id: Long, parent: Long) = ReplyTopologyNodeSnapshot.fromRaw(id,
         if (id == 100L) 0L else 100L, parent, authorName = "same author", message = "reply")

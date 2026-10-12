@@ -26,6 +26,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopolog
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyPagingDecision
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyPagingGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyPagingStopReason
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyNodeStore
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyRequestToken
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologySessionGate
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologySessionToken
@@ -1239,8 +1240,7 @@ internal class ReplyTopologyCoordinator(
             sourceAnchor = sourceAnchor?.let(::WeakReference),
             strings = ReplyTopologyPanelStrings.resolve(activity),
             worker = worker,
-            nodes = ArrayList(seed.nodes),
-            uniqueRpids = seed.nodes.mapTo(HashSet()) { it.rpid },
+            nodes = ReplyTopologyNodeStore(seed.key).apply { append(seed.nodes) },
             expectedCount = seed.expectedReplyCount,
             nextOffset = "",
             guard = newPagingGuard(extended = false)
@@ -1304,6 +1304,13 @@ internal class ReplyTopologyCoordinator(
                 restartLoading(state.token, extended = true)
             }
 
+            override fun onFullTreeRequested() {
+                if (active !== state || !gate.accepts(state.token) || !state.canLoadMore) return
+                if (!state.loadAll) state.guard.beginBatch(SystemClock.elapsedRealtime(), EXTENDED_BUDGET)
+                state.loadAll = true
+                if (!state.loadingRequest) restartLoading(state.token, extended = true)
+            }
+
             override fun onOpacityCommitted(opacity: Float) {
                 lastOpacity = opacity.coerceIn(0.35f, 1f)
             }
@@ -1326,7 +1333,7 @@ internal class ReplyTopologyCoordinator(
     }
 
     private fun requestNext(state: Active) {
-        if (active !== state || !gate.accepts(state.token) || state.loadingRequest) return
+        if (active !== state || !gate.accepts(state.token) || state.loadingRequest || !state.canLoadMore) return
         val request = gate.beginRequest(state.token) ?: return
         val offset = state.nextOffset.orEmpty()
         state.loadingRequest = true
@@ -1387,28 +1394,37 @@ internal class ReplyTopologyCoordinator(
         currentOffset: String,
         page: ReplyTopologyHostPage
     ) {
-        var newUnique = 0
-        page.nodes.forEach { node ->
-            if (state.uniqueRpids.size >= HARD_NODE_LIMIT && node.rpid !in state.uniqueRpids) {
-                return@forEach
-            }
-            if (state.uniqueRpids.add(node.rpid)) {
-                state.nodes += node
-                newUnique++
-            } else if (state.duplicateMergeRpids.add(node.rpid)) {
-                // 每个 rpid 最多保留一个后续完整快照，供构图器补全 mapper 的轻量预览。
-                state.nodes += node
-            }
+        val appended = runCatching { state.nodes.append(page.nodes) }.getOrElse {
+            if (it is IllegalArgumentException) {
+                state.canLoadMore = false
+                state.loadAll = false
+                scheduleGraphBuild(state, force = true)
+                updatePanelState(state, ReplyTopologyPanelState.partial(
+                    loadedCount(state), state.expectedCount, state.strings.invalidPageMessage, canRetry = false
+                ))
+                environment.logError("comment_topology_request", "[BIL] 回复脉络收到非法页，已保留当前结果: $it")
+            } else handleFailure(state, it)
+            return
+        }
+        if (!appended.accepted) {
+            state.canLoadMore = false
+            state.loadAll = false
+            scheduleGraphBuild(state, force = true)
+            updatePanelState(state, ReplyTopologyPanelState.partial(
+                loadedCount(state), state.expectedCount, state.strings.memoryLimitMessage, canRetry = false
+            ))
+            return
         }
         page.expectedReplyCount?.let { state.expectedCount = it }
-        scheduleGraphBuild(state)
         val decision = state.guard.onPage(
             currentOffset = currentOffset,
             nextOffset = page.nextOffset,
-            newUniqueNodes = newUnique,
-            totalUniqueNodes = state.uniqueRpids.size,
-            nowMs = SystemClock.elapsedRealtime()
+            newUniqueNodes = appended.newUniqueNodes,
+            totalUniqueNodes = state.nodes.uniqueCount,
+            nowMs = SystemClock.elapsedRealtime(),
+            pageTruncated = page.truncated
         )
+        scheduleGraphBuild(state, force = decision is ReplyTopologyPagingDecision.Stop)
         val loaded = loadedCount(state)
         when (decision) {
             is ReplyTopologyPagingDecision.LoadNext -> {
@@ -1420,22 +1436,27 @@ internal class ReplyTopologyCoordinator(
                         expectedCount = state.expectedCount
                     )
                 )
-                requestNext(state)
+                if (state.loadAll) scheduleNextPage(state) else requestNext(state)
             }
             is ReplyTopologyPagingDecision.Stop -> {
                 state.nextOffset = page.nextOffset
                 if (decision.complete) {
                     state.complete = true
-                    updatePanelState(
-                        state,
-                        ReplyTopologyPanelState(
-                            phase = ReplyTopologyPanelPhase.COMPLETE,
-                            loadedCount = loaded,
-                            expectedCount = state.expectedCount ?: loaded,
-                            message = state.strings.completeMessage
-                        )
+                    state.canLoadMore = false
+                    state.pendingCompletion = ReplyTopologyPanelState(
+                        phase = ReplyTopologyPanelPhase.COMPLETE,
+                        loadedCount = loaded,
+                        expectedCount = state.expectedCount ?: loaded,
+                        message = state.strings.completeMessage
                     )
+                    updatePanelState(state, ReplyTopologyPanelState.loading(loaded, state.expectedCount))
                 } else if (decision.reason in RESOURCE_STOP_REASONS) {
+                    if (state.loadAll) {
+                        state.guard.beginBatch(SystemClock.elapsedRealtime(), EXTENDED_BUDGET)
+                        updatePanelState(state, ReplyTopologyPanelState.loading(loaded, state.expectedCount))
+                        scheduleNextPage(state)
+                        return
+                    }
                     updatePanelState(
                         state,
                         ReplyTopologyPanelState.resourceLimit(
@@ -1445,13 +1466,16 @@ internal class ReplyTopologyCoordinator(
                         )
                     )
                 } else {
+                    state.canLoadMore = false
+                    state.loadAll = false
                     updatePanelState(
                         state,
                         ReplyTopologyPanelState.partial(
                             loadedCount = loaded,
                             expectedCount = state.expectedCount,
-                            message = stopReasonMessage(state.strings, decision.reason),
-                            canRetry = decision.reason == ReplyTopologyPagingStopReason.INVALID_PAGE
+                            message = if (page.truncated) state.strings.pageTruncatedMessage
+                                else stopReasonMessage(state.strings, decision.reason),
+                            canRetry = false
                         )
                     )
                 }
@@ -1465,6 +1489,7 @@ internal class ReplyTopologyCoordinator(
             "comment_topology_request",
             "[BIL] 回复脉络分页失败，已保留当前结果: $throwable"
         )
+        scheduleGraphBuild(state, force = true)
         val loaded = loadedCount(state)
         updatePanelState(
             state,
@@ -1492,10 +1517,22 @@ internal class ReplyTopologyCoordinator(
         handleFailure(state, IllegalStateException("DetailList request timeout"))
     }
 
+    private fun scheduleNextPage(state: Active) {
+        state.nextBatch?.let { mainHandler.removeCallbacks(it) }
+        val next = Runnable {
+            state.nextBatch = null
+            if (active === state && gate.accepts(state.token)) requestNext(state)
+        }
+        state.nextBatch = next
+        mainHandler.postDelayed(next, FULL_TREE_PAGE_YIELD_MS)
+    }
+
     private fun restartLoading(token: ReplyTopologySessionToken, extended: Boolean) {
         val state = active?.takeIf { it.token == token } ?: return
-        if (state.complete || state.loadingRequest || state.nextOffset == null) return
-        state.guard = newPagingGuard(extended)
+        if (state.complete || !state.canLoadMore || state.loadingRequest || state.nextOffset == null) return
+        state.nextBatch?.let { mainHandler.removeCallbacks(it) }
+        state.nextBatch = null
+        state.guard.beginBatch(SystemClock.elapsedRealtime(), if (extended) EXTENDED_BUDGET else AUTO_BUDGET)
         updatePanelState(
             state,
             ReplyTopologyPanelState.loading(
@@ -1506,10 +1543,15 @@ internal class ReplyTopologyCoordinator(
         requestNext(state)
     }
 
-    private fun scheduleGraphBuild(state: Active) {
+    private fun scheduleGraphBuild(state: Active, force: Boolean = false) {
+        if (active !== state || !gate.accepts(state.token)) return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && state.graphRevision > 0L && now - state.lastGraphBuildAtMs < GRAPH_BUILD_INTERVAL_MS) return
+        state.lastGraphBuildAtMs = now
         val revision = ++state.graphRevision
-        val snapshots = state.nodes.toList()
+        val snapshots = state.nodes.snapshot()
         execute(state.worker) {
+            if (!gate.accepts(state.token) || Thread.currentThread().isInterrupted) return@execute
             val result = runCatching { ReplyTopologyGraphBuilder.build(state.token.key, snapshots) }
             mainHandler.post {
                 if (active !== state || !gate.accepts(state.token) || revision != state.graphRevision) {
@@ -1524,12 +1566,22 @@ internal class ReplyTopologyCoordinator(
                                 ReplyTopologyRenderSnapshot(graph, state.selectedRpid)
                             )
                         }
+                        state.pendingCompletion?.let { complete ->
+                            state.pendingCompletion = null
+                            updatePanelState(state, complete)
+                        }
                     },
                     onFailure = { throwable ->
                         environment.logError(
                             "comment_topology_graph",
                             "[BIL] 回复脉络构图失败，已保留当前面板: $throwable"
                         )
+                        if (state.pendingCompletion != null) {
+                            state.pendingCompletion = null
+                            updatePanelState(state, ReplyTopologyPanelState.partial(
+                                loadedCount(state), state.expectedCount, state.strings.loadErrorMessage, canRetry = false
+                            ))
+                        }
                     }
                 )
             }
@@ -1561,14 +1613,14 @@ internal class ReplyTopologyCoordinator(
         state.timeout = null
         state.currentCall?.call?.cancel()
         state.currentCall = null
+        state.nextBatch?.let { mainHandler.removeCallbacks(it) }
+        state.nextBatch = null
         state.worker.shutdownNow()
         val panel = state.panelSession
         state.panelSession = null
         panel?.let { panelController.detach(it, reason) }
         state.activityRef.clear()
         state.nodes.clear()
-        state.uniqueRpids.clear()
-        state.duplicateMergeRpids.clear()
         state.graph = null
     }
 
@@ -1588,7 +1640,7 @@ internal class ReplyTopologyCoordinator(
     )
 
     private fun loadedCount(state: Active): Int =
-        (state.uniqueRpids.size - 1).coerceAtLeast(0)
+        state.nodes.replyCount.coerceAtLeast(0)
 
     private fun stopReasonMessage(
         strings: ReplyTopologyPanelStrings,
@@ -1606,9 +1658,7 @@ internal class ReplyTopologyCoordinator(
         val sourceAnchor: WeakReference<View>?,
         var strings: ReplyTopologyPanelStrings,
         val worker: ExecutorService,
-        val nodes: ArrayList<com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyNodeSnapshot>,
-        val uniqueRpids: HashSet<Long>,
-        val duplicateMergeRpids: HashSet<Long> = HashSet(),
+        val nodes: ReplyTopologyNodeStore,
         var expectedCount: Int?,
         var nextOffset: String?,
         var guard: ReplyTopologyPagingGuard,
@@ -1618,6 +1668,11 @@ internal class ReplyTopologyCoordinator(
         var selectedRpid: Long? = null,
         var loadingRequest: Boolean = false,
         var complete: Boolean = false,
+        var loadAll: Boolean = false,
+        var canLoadMore: Boolean = true,
+        var nextBatch: Runnable? = null,
+        var lastGraphBuildAtMs: Long = 0L,
+        var pendingCompletion: ReplyTopologyPanelState? = null,
 
         /** 当前未确认定位的目标节点；null=无未确认定位。防抖与可重定向以此判定。 */
         var graphRevision: Long = 0L,
@@ -1638,7 +1693,8 @@ internal class ReplyTopologyCoordinator(
     companion object {
         private const val TARGET_PACKAGE = "tv.danmaku.bili"
         private const val REQUEST_TIMEOUT_MS = 15_000L
-        private const val HARD_NODE_LIMIT = 5_000
+        private const val GRAPH_BUILD_INTERVAL_MS = 350L
+        private const val FULL_TREE_PAGE_YIELD_MS = 150L
         private val AUTO_BUDGET = ReplyTopologyPagingBudget(
             maxPages = 60,
             maxUniqueNodes = 1_500,
@@ -1647,7 +1703,7 @@ internal class ReplyTopologyCoordinator(
         )
         private val EXTENDED_BUDGET = ReplyTopologyPagingBudget(
             maxPages = 200,
-            maxUniqueNodes = HARD_NODE_LIMIT,
+            maxUniqueNodes = 1_500,
             maxElapsedMs = 60_000L,
             maxConsecutiveNoProgressPages = 3
         )

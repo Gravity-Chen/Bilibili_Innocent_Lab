@@ -30,6 +30,8 @@ internal class ReplyTopologyTreeExplorer(
     private val strings: ReplyTopologyPanelStrings,
     onLocate: (Long) -> Boolean,
     onText: (View, CharSequence) -> Unit,
+    onRetry: () -> Unit,
+    onContinue: () -> Unit,
     onClose: (ReplyTopologyTreeExplorer) -> Unit
 ) : LinearLayout(context) {
     private val density = resources.displayMetrics.density
@@ -40,22 +42,30 @@ internal class ReplyTopologyTreeExplorer(
     private val title = TextView(context)
     private val scope = TextView(context)
     private val selection = TextView(context)
+    private val status = TextView(context)
+    private val retryButton = chip(strings.retry)
+    private val continueButton = chip(strings.continueLoading)
     private val pathButton = chip(strings.viewPath)
     private val locateButton = chip(strings.treeLocate)
     private val textButton = chip(strings.treeText)
     private val fullButton = chip(strings.completeTree)
     private var graph: ReplyTopologyGraph? = null
     private var pathIndex: ReplyTopologyPath.Index? = null
+    private var layout: ReplyTopologyTreeLayout? = null
     private var selectedRpid: Long? = null
     private var pathRpid: Long? = null
     private var locate: ((Long) -> Boolean)? = onLocate
     private var text: ((View, CharSequence) -> Unit)? = onText
+    private var retry: (() -> Unit)? = onRetry
+    private var continueLoading: (() -> Unit)? = onContinue
     private var close: ((ReplyTopologyTreeExplorer) -> Unit)? = onClose
     private var released = false
     private var backDispatcher: Any? = null
     private var backCallback: Any? = null
     private val tree = ReplyTopologyTreeCanvas(context, theme, strings) {
         selectedRpid = it
+        pathRpid = it
+        treeFocusChanged()
         updateSelection()
     }
 
@@ -85,6 +95,14 @@ internal class ReplyTopologyTreeExplorer(
         fullButton.setOnClickListener { HostThreadGuard.run("reply_topology.tree_full") { showFull() } }
         listOf(fullButton, fit, center, minus, plus).forEach { toolbar.addView(it, LayoutParams(LayoutParams.WRAP_CONTENT, dp(34))) }
         addView(scroll(toolbar), LayoutParams(LayoutParams.MATCH_PARENT, dp(38)))
+        val stateRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+        status.apply { textSize = 11f; setTextColor(theme.secondaryTextColor); maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
+        retryButton.setOnClickListener { HostThreadGuard.run("reply_topology.tree_retry") { retry?.invoke() } }
+        continueButton.setOnClickListener { HostThreadGuard.run("reply_topology.tree_continue") { continueLoading?.invoke() } }
+        stateRow.addView(status, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        stateRow.addView(retryButton, LayoutParams(LayoutParams.WRAP_CONTENT, dp(32)))
+        stateRow.addView(continueButton, LayoutParams(LayoutParams.WRAP_CONTENT, dp(32)))
+        addView(stateRow, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         addView(tree, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         selection.apply { textSize = 12f; setTextColor(theme.secondaryTextColor); maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         addView(selection, LayoutParams(LayoutParams.MATCH_PARENT, dp(28)))
@@ -108,6 +126,7 @@ internal class ReplyTopologyTreeExplorer(
         }
         listOf(pathButton, locateButton, textButton).forEach { actions.addView(it, LayoutParams(LayoutParams.WRAP_CONTENT, dp(36))) }
         addView(scroll(actions), LayoutParams(LayoutParams.MATCH_PARENT, dp(40)))
+        updateState(ReplyTopologyPanelState(ReplyTopologyPanelPhase.IDLE))
         updateSelection()
     }
 
@@ -116,7 +135,10 @@ internal class ReplyTopologyTreeExplorer(
         if (graph != null && graph?.key != value.key) { close?.invoke(this); return }
         if (graph === value && selectedRpid == selected && initialPath == null) return
         val initial = graph == null
-        if (graph !== value) pathIndex = ReplyTopologyPath.Index(value)
+        if (graph !== value) {
+            pathIndex = ReplyTopologyPath.Index(value)
+            layout = ReplyTopologyTreeLayout(value)
+        }
         graph = value
         selectedRpid = selected?.takeIf { requireNotNull(pathIndex).indexOf(it) >= 0 }
         if (initial) pathRpid = initialPath
@@ -124,25 +146,48 @@ internal class ReplyTopologyTreeExplorer(
         rebuild(reset = initial)
     }
 
-    fun showFull() { if (released) return; pathRpid = null; rebuild(reset = true) }
+    fun showFull() { if (released) return; pathRpid = null; treeFocusChanged() }
     fun selection(): Long? = selectedRpid
     fun showPath(rpid: Long) {
         if (released || pathIndex?.indexOf(rpid)?.takeIf { it >= 0 } == null) return
         selectedRpid = rpid
         pathRpid = rpid
-        rebuild(reset = true)
+        rebuild(reset = false)
+        tree.centerSelected()
     }
 
     private fun rebuild(reset: Boolean) {
-        val value = graph ?: return
-        val path = pathRpid?.let { pathIndex?.resolve(it) }
-        val layout = if (path == null) ReplyTopologyTreeLayout(value) else ReplyTopologyTreeLayout(value, path.indexes, path.baseDepth)
-        title.text = if (path == null) strings.completeTree else strings.viewPath
-        scope.text = if (path == null) "${strings.treeLoadedFormat.format(value.size)} · ${strings.treeGestureHint}"
-        else (if (path.omittedAncestors > 0) strings.earlierAncestorsFormat.format(path.omittedAncestors) + " · " else "") + strings.pathScopeHint
-        fullButton.visibility = if (path == null) View.GONE else View.VISIBLE
-        tree.submit(layout, selectedRpid, reset)
+        if (graph == null) return
+        title.text = strings.completeTree
+        tree.submit(requireNotNull(layout), selectedRpid, reset)
+        treeFocusChanged()
         updateSelection()
+    }
+
+    private fun treeFocusChanged() {
+        val value = graph ?: return
+        val focus = pathRpid?.let { pathIndex?.focus(it) }
+        tree.setFocus(focus)
+        scope.text = if (focus == null) "${strings.treeLoadedFormat.format(value.size)} · ${strings.treeGestureHint}" else strings.pathScopeHint
+        fullButton.visibility = if (focus == null) View.GONE else View.VISIBLE
+    }
+
+    fun updateState(state: ReplyTopologyPanelState) {
+        if (released) return
+        val message = state.message?.takeIf { it.isNotBlank() } ?: when (state.phase) {
+            ReplyTopologyPanelPhase.IDLE -> strings.idleMessage
+            ReplyTopologyPanelPhase.LOADING -> strings.loadingMessage
+            ReplyTopologyPanelPhase.COMPLETE -> strings.completeMessage
+            ReplyTopologyPanelPhase.PARTIAL -> strings.partialMessage
+            ReplyTopologyPanelPhase.ERROR -> strings.errorMessage
+            ReplyTopologyPanelPhase.RESOURCE_LIMIT -> strings.resourceLimitMessage
+            ReplyTopologyPanelPhase.LOCATING -> strings.locatingMessage
+        }
+        val progress = state.expectedCount?.takeIf { it > 0 }?.let { "${state.loadedCount}/$it" } ?: state.loadedCount.toString()
+        status.text = "$message · $progress"
+        status.setTextColor(if (state.phase == ReplyTopologyPanelPhase.ERROR) theme.errorColor else theme.secondaryTextColor)
+        retryButton.visibility = if (state.canRetry) View.VISIBLE else View.GONE
+        continueButton.visibility = if (state.canContinue) View.VISIBLE else View.GONE
     }
 
     private fun updateSelection() {
@@ -220,8 +265,8 @@ internal class ReplyTopologyTreeExplorer(
         tree.release()
         controls.forEach { it.setOnClickListener(null) }
         controls.clear()
-        graph = null; pathIndex = null; selectedRpid = null; pathRpid = null
-        locate = null; text = null; close = null
+        graph = null; pathIndex = null; layout = null; selectedRpid = null; pathRpid = null
+        locate = null; text = null; retry = null; continueLoading = null; close = null
     }
 
     private fun chip(label: String) = TextView(context).apply {

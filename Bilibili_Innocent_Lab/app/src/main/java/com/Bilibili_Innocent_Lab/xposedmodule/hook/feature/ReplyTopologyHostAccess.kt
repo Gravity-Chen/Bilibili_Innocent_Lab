@@ -4,6 +4,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyNodeFlags
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyNodeSnapshot
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.ReplyTopologyThreadKey
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.replytopology.snapshotReplyTopologyTree
 import java.lang.ref.ReferenceQueue
 import java.lang.ref.WeakReference
 import java.lang.reflect.Constructor
@@ -24,7 +25,8 @@ internal data class ReplyTopologySeed(
 internal data class ReplyTopologyHostPage(
     val nodes: List<ReplyTopologyNodeSnapshot>,
     val nextOffset: String?,
-    val expectedReplyCount: Int?
+    val expectedReplyCount: Int?,
+    val truncated: Boolean = false
 )
 
 internal fun requireMatchingReplyTopologyThread(
@@ -261,10 +263,15 @@ internal class ReplyTopologyHostAccess private constructor(
 
     /** Mapper after-hook 的同步热路径：非根回复只读一个 getter 即返回。 */
     fun snapshotRoot(replyInfo: Any): ReplyTopologySeed? {
-        return snapshotRoot(replyInfo, MAX_MAPPER_SEED_NODES)
+        return runCatching { snapshotRoot(replyInfo, MAX_MAPPER_SEED_NODES, requireReplies = true) }.getOrNull()
     }
 
-    private fun snapshotRoot(replyInfo: Any, nodeLimit: Int): ReplyTopologySeed? {
+    private fun snapshotRoot(
+        replyInfo: Any,
+        nodeLimit: Int,
+        requireReplies: Boolean = false,
+        onTruncated: ((Boolean) -> Unit)? = null
+    ): ReplyTopologySeed? {
         if (!replyInfoClass.isInstance(replyInfo)) return null
         val rootValue = invokeNumber(replyRoot, replyInfo)?.toLong() ?: return null
         if (rootValue != 0L) return null
@@ -274,8 +281,10 @@ internal class ReplyTopologyHostAccess private constructor(
         val key = ReplyTopologyThreadKey(oid = oid, type = type, rootRpid = rpid)
         if (!key.isValid) return null
         val expected = invokeNumber(replyCount, replyInfo)?.toLong()?.toBoundedCount()
-        val nodes = snapshotTree(replyInfo, rootRpid = rpid, limit = nodeLimit)
-        if ((expected ?: 0) <= 0 && nodes.size <= 1) return null
+        val tree = snapshotTree(replyInfo, rootRpid = rpid, limit = nodeLimit)
+        onTruncated?.invoke(tree.truncated)
+        val nodes = tree.nodes
+        if (requireReplies && (expected ?: 0) <= 0 && nodes.size <= 1) return null
         return ReplyTopologySeed(key, expected, nodes)
     }
 
@@ -362,16 +371,19 @@ internal class ReplyTopologyHostAccess private constructor(
     ): ReplyTopologyHostPage {
         val root = detailRoot.invoke(detailReplyObject)
             ?: error("DetailListReply.root is null")
-        val seed = snapshotRoot(root, MAX_PAGE_NODES)
+        var truncated = false
+        val seed = snapshotRoot(root, MAX_PAGE_NODES) { truncated = it }
             ?: error("DetailListReply.root identity is invalid")
         requireMatchingReplyTopologyThread(expectedKey, seed.key)
         val pagination = detailPagination.invoke(detailReplyObject)
-        val nextOffset = pagination?.let { paginationNextOffset.invoke(it)?.toString() }
-            ?.takeIf(String::isNotBlank)
+            ?: error("DetailListReply pagination is unavailable")
+        val nextOffset = (paginationNextOffset.invoke(pagination)
+            ?: error("DetailListReply next offset is unavailable")).toString().takeIf(String::isNotBlank)
         return ReplyTopologyHostPage(
             nodes = seed.nodes,
             nextOffset = nextOffset,
-            expectedReplyCount = seed.expectedReplyCount
+            expectedReplyCount = seed.expectedReplyCount,
+            truncated = truncated
         )
     }
 
@@ -379,33 +391,21 @@ internal class ReplyTopologyHostAccess private constructor(
         root: Any,
         rootRpid: Long,
         limit: Int
-    ): List<ReplyTopologyNodeSnapshot> {
-        if (limit <= 0) return emptyList()
-        val result = ArrayList<ReplyTopologyNodeSnapshot>(minOf(limit, 32))
-        val stack = ArrayDeque<Any>()
-        stack.addLast(root)
-        var visited = 0
-        while (stack.isNotEmpty() && visited < limit && result.size < limit) {
-            val current = stack.removeLast()
-            visited++
-            if (!replyInfoClass.isInstance(current)) continue
-            snapshotNode(current, rootRpid)?.let(result::add)
-            val children = runCatching { replyChildren.invoke(current) as? List<*> }.getOrNull()
-                ?: continue
-            // 已访问 + 已入栈合计不超过 limit；宽树不会瞬时强持全部宿主 ReplyInfo。
-            val remainingScheduleBudget = (limit - visited - stack.size).coerceAtLeast(0)
-            val lastSelectedIndex = minOf(children.lastIndex, remainingScheduleBudget - 1)
-            for (index in lastSelectedIndex downTo 0) {
-                val child = children[index]
-                if (child != null && replyInfoClass.isInstance(child)) stack.addLast(child)
-            }
+    ) = snapshotReplyTopologyTree(root, limit,
+        children = { current ->
+            if (replyInfoClass.isInstance(current)) {
+                replyChildren.invoke(current) as? List<*> ?: error("ReplyInfo replies is unavailable")
+            } else null
+        },
+        snapshot = { current ->
+            if (replyInfoClass.isInstance(current)) snapshotNode(current, rootRpid) else null
         }
-        return result
-    }
+    )
 
     private fun snapshotNode(value: Any, expectedRoot: Long): ReplyTopologyNodeSnapshot? {
         val rpid = invokeNumber(replyId, value)?.toLong()?.takeIf { it > 0L } ?: return null
-        val sourceRoot = invokeNumber(replyRoot, value)?.toLong() ?: 0L
+        val sourceRoot = invokeNumber(replyRoot, value)?.toLong()?.takeIf { it >= 0L } ?: return null
+        val sourceParent = invokeNumber(replyParent, value)?.toLong()?.takeIf { it >= 0L } ?: return null
         val isRoot = sourceRoot == 0L && rpid == expectedRoot
         val content = invokeCompatible(replyContent, value)
         val legacyMember = replyMember?.let { invokeCompatible(it, value) }
@@ -415,8 +415,7 @@ internal class ReplyTopologyHostAccess private constructor(
         return ReplyTopologyNodeSnapshot.fromRaw(
             rpid = rpid,
             rootRpid = if (isRoot) 0L else sourceRoot.takeIf { it > 0L } ?: expectedRoot,
-            parentRpid = if (isRoot) 0L else
-                invokeNumber(replyParent, value)?.toLong()?.takeIf { it > 0L } ?: expectedRoot,
+            parentRpid = if (isRoot) 0L else sourceParent.takeIf { it > 0L } ?: expectedRoot,
             dialogId = invokeNumber(replyDialog, value)?.toLong() ?: 0L,
             ctime = invokeNumber(replyCtime, value)?.toLong() ?: 0L,
             authorMid = invokeNumber(replyMid, value)?.toLong() ?: 0L,
@@ -451,7 +450,7 @@ internal class ReplyTopologyHostAccess private constructor(
         private const val DEFAULT_DETAIL_MODE = 0
         private const val MAX_MAPPER_PREVIEW_NODES = 3
         private const val MAX_MAPPER_SEED_NODES = 1 + MAX_MAPPER_PREVIEW_NODES
-        private const val MAX_PAGE_NODES = 96
+        private const val MAX_PAGE_NODES = 4_096
 
         fun resolve(
             environment: HookEnvironment,
