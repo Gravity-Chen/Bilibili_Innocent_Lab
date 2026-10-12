@@ -120,6 +120,8 @@
     <string name="home_recommend_filter_summary_selected">Selected: %1$d / %2$d</string>
     <string name="home_recommend_filter_dialog_description">Choose what to hide, then save and restart Bilibili. Anime &amp; films covers recognized film and series cards; special cards excludes recognized film and series cards. Titles are not used to identify these categories.</string>
     <string name="remove_home_recommend_pgc">Filter anime &amp; films</string>
+    <string name="remove_home_recommend_comic">Filter comic recommendations</string>
+    <string name="highlights_home_comic">Filter identified comic recommendation cards while keeping ordinary videos about comics. Disabled by default.</string>
     <string name="remove_home_recommend_special_cards">Filter special cards</string>
     <string name="home_recommend_filter_select_all">Select all</string>
     <string name="home_recommend_filter_clear">Clear</string>

@@ -294,7 +294,10 @@ internal object ReleaseHighlightsCatalog {
             HighlightDestination("player.buffer.mode", alsoCovers = setOf(
                 "player.buffer.seconds", "player.buffer.memory_mb", "player.buffer.disk_mb",
                 "player.buffer.wifi_only")))
-    ), automatic = false))
+    ), automatic = false), ReleaseHighlightsBatch(18, listOf(
+        ReleaseHighlight("home-comic-filter", HighlightKind.NEW, R.string.highlights_home_comic,
+            HighlightDestination("home.recommend.comic.removed", homeFilterOption = true))
+    )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }
         .mapNotNull { it.destination }.distinctBy { it.settingId }

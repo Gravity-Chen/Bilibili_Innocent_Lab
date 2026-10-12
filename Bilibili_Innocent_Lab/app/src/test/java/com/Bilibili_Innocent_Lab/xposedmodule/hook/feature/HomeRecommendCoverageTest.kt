@@ -19,12 +19,30 @@ class HomeRecommendCoverageTest {
         private val goTo: String = "av",
         private val uri: String = "bilibili://video/1",
         private val ad: Object? = null,
-        private val failAd: Boolean = false
+        private val failAd: Boolean = false,
+        private val cardGoto: String = "av",
+        private val title: String = "ordinary video",
+        private val failRoute: Boolean = false
     ) : PegasusHolderData() {
+        var titleReads = 0
         override fun getHolderType() = holder
         override fun getCardType() = type
-        override fun getGoTo() = goTo
-        override fun getUri() = uri
+        override fun getCardGoto(): String {
+            check(!failRoute)
+            return cardGoto
+        }
+        override fun getGoTo(): String {
+            check(!failRoute)
+            return goTo
+        }
+        override fun getUri(): String {
+            check(!failRoute)
+            return uri
+        }
+        override fun getTitle(): String {
+            titleReads += 1
+            return title
+        }
         override fun getAdInfo(): Object? {
             check(!failAd) { "private payload must not reach diagnostics" }
             return ad
@@ -35,6 +53,8 @@ class HomeRecommendCoverageTest {
         ads: Boolean = false,
         cmV2: Boolean = false,
         hidden: String = "",
+        comic: Boolean = false,
+        special: Boolean = false,
         adapted: VersionAdapter.HomeRecommendFeedPoints = points
     ) {
         val registrar = ContentFilterTestRegistrar(loader)
@@ -55,10 +75,72 @@ class HomeRecommendCoverageTest {
             titleFilterEnabled = false, rawTitleKeywords = "",
             removeLive = hidden == "LIVE", removeCourses = hidden == "COURSE",
             removeVertical = hidden == "VERTICAL", removeLarge = false,
+            removeComic = comic, removeSpecialCards = special,
             minDurationSeconds = 0, maxDurationSeconds = 0, points = adapted
         ).install(environment)
 
         fun filter(source: List<*>) = registrar.items("home.recommend.purify.0", PegasusResponse(), source)
+    }
+
+    @Test fun comicAloneUsesExactBusinessTokensAndRoutesWithoutReadingTitles() {
+        val h = Harness(comic = true)
+        val ordinary = Card(title = "漫画解说：comic 动画与漫画的区别")
+        val source = listOf(ordinary, Card(goTo = "comic"), Card(cardGoto = "COMIC"), Card(type = "comic"),
+            Card(uri = "bilibili://comic/detail?comic_id=123"),
+            Card(uri = "https://manga.bilibili.com/m/detail/mc123"))
+        assertEquals(listOf(ordinary), h.filter(source))
+        assertEquals(6, source.size)
+        assertEquals(0, ordinary.titleReads)
+        assertTrue(h.evidence.contains(Triple("home_recommend_comic_removed", FeatureRuntimeStage.APPLIED, 5)))
+        assertFalse(h.evidence.any { it.first == "home_recommend_special_cards_removed" })
+    }
+
+    @Test fun comicToggleOffPreservesComicCardsWhenAnIndependentFilterIsEnabled() {
+        val h = Harness(ads = true)
+        val source = listOf(Card(type = "comic", goTo = "comic"))
+        assertSame(source, h.filter(source))
+        assertFalse(h.capabilities.containsKey("home_recommend_comic_removed"))
+        assertFalse(h.evidence.any { it.first == "home_recommend_comic_removed" })
+    }
+
+    @Test fun comicAndSpecialFlagsCountTheirOwnMatchesWithoutChangingSpecialSemantics() {
+        val comic = Card(goTo = "comic")
+        val specialComic = Card(type = "special", uri = "bilibili://comic/detail?comic_id=123")
+        val plainSpecial = Card(type = "special")
+        val ordinary = Card()
+        val source = listOf(comic, specialComic, plainSpecial, ordinary)
+        assertEquals(listOf(plainSpecial, ordinary), Harness(comic = true).filter(source))
+        assertEquals(listOf(comic, ordinary), Harness(special = true).filter(source))
+        val h = Harness(comic = true, special = true)
+        assertEquals(listOf(ordinary), h.filter(source))
+        assertTrue(h.evidence.contains(Triple("home_recommend_comic_removed", FeatureRuntimeStage.APPLIED, 2)))
+        assertTrue(h.evidence.any { it.first == "home_recommend_special_cards_removed" && it.second == FeatureRuntimeStage.APPLIED })
+        assertTrue(h.evidence.contains(Triple(HomeRecommendPurifyFeatureInstaller.ID, FeatureRuntimeStage.APPLIED, 3)))
+    }
+
+    @Test fun missingComicReadersArePartialAndOtherFiltersContinue() {
+        val h = Harness(comic = true, hidden = "PICTURE", adapted = points.copy(
+            cardTypeGetter = null, cardGotoGetter = null, goToGetter = null, uriGetter = null))
+        assertFalse((h.result as FeatureInstallResult.Installed).complete)
+        assertTrue(h.capabilities.getValue("home_recommend_comic_removed") is FeatureInstallResult.Skipped)
+        val ordinary = Card()
+        assertEquals(listOf(ordinary), h.filter(listOf(Card(holder = "picture"), ordinary)))
+        assertTrue(h.statuses.single().contains("missing-comic-readers"))
+    }
+
+    @Test fun comicRouteRemainsUsableWhenOptionalTypeReadersAreMissing() {
+        val h = Harness(comic = true, adapted = points.copy(cardTypeGetter = null, cardGotoGetter = null, goToGetter = null))
+        val ordinary = Card()
+        assertEquals(listOf(ordinary), h.filter(listOf(Card(uri = "bilibili://comic/reader?ep_id=456"), ordinary)))
+        assertTrue((h.capabilities.getValue("home_recommend_comic_removed") as FeatureInstallResult.Installed).complete)
+    }
+
+    @Test fun comicFilterPreservesUnknownAndThrowingCardsWithoutReplacingNoMatchLists() {
+        val h = Harness(comic = true)
+        val source = listOf(Card(failRoute = true), Any(), Card(uri = "bilibili://comic/detail_future"),
+            Card(uri = "https://manga.bilibili.com.evil.test/m/detail/mc123"))
+        assertSame(source, h.filter(source))
+        assertFalse(h.evidence.any { it.first == "home_recommend_comic_removed" && it.second == FeatureRuntimeStage.APPLIED })
     }
 
     @Test fun adsAloneUseGotoAndUriWithoutAnotherFilterOrBanner() {

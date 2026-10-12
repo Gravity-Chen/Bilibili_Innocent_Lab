@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 22
+    const val VERSION = 23
     val definitions = listOf(
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
@@ -78,6 +78,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("home_recommend_semantic_filter_enabled", "home_recommend_purify", R.string.video_semantic_filter, setOf("video.semantic_filter.enabled", "video.semantic_filter.rules", "video.semantic_filter.source", "video.semantic_filter.custom_rules"), introducedCatalogVersion = 16),
         DiagnosticCapabilityDefinition("home_recommend_live_removed", "home_recommend_purify", R.string.remove_home_recommend_live, setOf("home.recommend.live.removed")),
         DiagnosticCapabilityDefinition("home_recommend_pgc_removed", "home_recommend_purify", R.string.remove_home_recommend_pgc, setOf("home.recommend.pgc.removed"), introducedCatalogVersion = 2),
+        DiagnosticCapabilityDefinition("home_recommend_comic_removed", "home_recommend_purify", R.string.remove_home_recommend_comic, setOf("home.recommend.comic.removed"), introducedCatalogVersion = 23),
         DiagnosticCapabilityDefinition("home_recommend_special_cards_removed", "home_recommend_purify", R.string.remove_home_recommend_special_cards, setOf("home.recommend.special_cards.removed"), introducedCatalogVersion = 2),
         DiagnosticCapabilityDefinition("home_recommend_courses_removed", "home_recommend_purify", R.string.remove_home_recommend_courses, setOf("home.recommend.courses.removed")),
         DiagnosticCapabilityDefinition("home_recommend_vertical_removed", "home_recommend_purify", R.string.remove_home_recommend_vertical, setOf("home.recommend.vertical.removed")),
@@ -258,6 +259,7 @@ internal object DiagnosticCapabilityCatalog {
         "search_home_recommend_hidden",
         "dynamic_frequent_visits_hidden",
         "home_recommend_pgc_removed",
+        "home_recommend_comic_removed",
         "home_recommend_special_cards_removed",
         "home_banner_view",
         "home_banner_feed",

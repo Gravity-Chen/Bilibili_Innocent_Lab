@@ -9,6 +9,27 @@ internal object HomeExtraCardPolicy {
     private val specialTypes = setOf("SPECIAL", "SPECIAL_S", "SPECIAL_S_P")
     private val webHosts = setOf("bilibili.com", "www.bilibili.com", "m.bilibili.com")
     private val playbackPath = Regex("^/(?:play/(?:ep|ss)[1-9][0-9]*|season/[1-9][0-9]*)/?$")
+    private val comicPaths = setOf("/detail", "/reader", "/home")
+    private val comicWebPath = Regex("^/(?:detail/mc[1-9][0-9]*|m/(?:detail/mc[1-9][0-9]*|mc[1-9][0-9]*/[1-9][0-9]*))/?$")
+
+    fun isComic(cardType: String?, cardGoto: String?, goTo: String?, rawUri: String?): Boolean {
+        if (HostContentSemanticClassifier.normalizedToken(cardType) == "COMIC" ||
+            HostContentSemanticClassifier.normalizedToken(cardGoto) == "COMIC" ||
+            HostContentSemanticClassifier.normalizedToken(goTo) == "COMIC"
+        ) return true
+        if (rawUri.isNullOrBlank() || rawUri.length > 4096) return false
+        val uri = runCatching { URI(rawUri.trim()) }.getOrNull() ?: return false
+        if (uri.rawUserInfo != null || uri.port != -1) return false
+        val scheme = uri.scheme?.lowercase() ?: return false
+        val host = uri.host?.lowercase() ?: return false
+        val path = uri.rawPath.orEmpty()
+        return when {
+            scheme == "bilibili" && host == "comic" -> path in comicPaths
+            (scheme == "http" || scheme == "https") && host == "manga.bilibili.com" ->
+                comicWebPath.matches(path)
+            else -> false
+        }
+    }
 
     fun classify(cardType: String?, cardGoto: String?, goTo: String?, uri: String?): Kind {
         val tokens = listOfNotNull(cardType, cardGoto, goTo).mapNotNull(HostContentSemanticClassifier::normalizedToken)

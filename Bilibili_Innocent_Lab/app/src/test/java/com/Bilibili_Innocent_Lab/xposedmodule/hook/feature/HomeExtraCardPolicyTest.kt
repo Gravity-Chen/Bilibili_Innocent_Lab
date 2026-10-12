@@ -1,9 +1,52 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeExtraCardPolicyTest {
+    @Test fun comicBusinessTypeIsExactInEachExistingCarrier() {
+        for (token in listOf("comic", "CoMiC", " CARD_TYPE_COMIC ")) {
+            assertTrue(HomeExtraCardPolicy.isComic(token, null, null, null))
+            assertTrue(HomeExtraCardPolicy.isComic(null, token, null, null))
+            assertTrue(HomeExtraCardPolicy.isComic(null, null, token, null))
+        }
+        for (token in listOf(null, "av", "manga", "comic_video", "comic_future", "not_comic", "漫画解说")) {
+            assertFalse(token, HomeExtraCardPolicy.isComic(token, token, token, null))
+        }
+    }
+
+    @Test fun comicRoutesRequireTheirOwnKnownAuthorityAndPath() {
+        for (uri in listOf("bilibili://comic/detail?comic_id=123", "BILIBILI://COMIC/reader?ep_id=456",
+            "bilibili://comic/home", "https://manga.bilibili.com/m/detail/mc123",
+            "HTTPS://MANGA.BILIBILI.COM/detail/mc123?from=home",
+            "http://manga.bilibili.com/m/mc123/456")) {
+            assertTrue(uri, HomeExtraCardPolicy.isComic(null, null, null, uri))
+        }
+        for (uri in listOf(null, "", "not a uri", "fake://comic/detail", "bilibili://comic.evil/detail",
+            "bilibili://comic/detail_more", "bilibili://comic/reader_fake", "bilibili://comic/unknown",
+            "bilibili://comic/%64etail", "bilibili://user@comic/detail", "bilibili://comic:123/detail",
+            "bilibili://video/123?target=bilibili://comic/detail", "bilibili://comic-video/detail",
+            "https://manga.bilibili.com.evil.test/m/detail/mc123",
+            "https://notmanga.bilibili.com/m/detail/mc123", "https://evil.test/manga.bilibili.com/m/detail/mc123",
+            "https://evil.test@manga.bilibili.com/m/detail/mc123", "https://manga.bilibili.com:123/m/detail/mc123",
+            "https://manga.bilibili.com/m/detail/mc0", "https://manga.bilibili.com/m/detail/mc123evil",
+            "https://manga.bilibili.com/m/mc123/0", "https://manga.bilibili.com/app-download?from=home",
+            "https://manga.bilibili.com/mc123/456",
+            "https://manga.bilibili.com/m/detail/mc" + "1".repeat(4096))) {
+            assertFalse(uri, HomeExtraCardPolicy.isComic(null, null, null, uri))
+        }
+    }
+
+    @Test fun comicDetectionLeavesExistingPgcAndSpecialClassificationUnchanged() {
+        val uri = "bilibili://comic/detail?comic_id=123"
+        assertTrue(HomeExtraCardPolicy.isComic("special", null, null, uri))
+        assertEquals(HomeExtraCardPolicy.Kind.SPECIAL, HomeExtraCardPolicy.classify("special", null, null, uri))
+        assertEquals(HomeExtraCardPolicy.Kind.UNKNOWN, HomeExtraCardPolicy.classify("comic", null, "comic", uri))
+        assertEquals(HomeExtraCardPolicy.Kind.PGC, HomeExtraCardPolicy.classify("pgc", null, null, null))
+    }
+
     @Test fun explicitTypesWorkInEachExistingCarrier() {
         for (token in listOf("bangumi", "bangumi_av", "bangumi_p", "bangumi_rcmd", "pgc", "CARD_TYPE_PGC")) {
             assertEquals(HomeExtraCardPolicy.Kind.PGC, HomeExtraCardPolicy.classify(token, null, null, null))

@@ -22,6 +22,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
     private val points: VersionAdapter.HomeRecommendFeedPoints?,
     private val removePgc: Boolean = false,
     private val removeSpecialCards: Boolean = false,
+    private val removeComic: Boolean = false,
     /**
      * 标签黑名单的原始存储串；空串就是整个维度关闭。
      *
@@ -115,6 +116,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
         if (removeVertical) add("home_recommend_vertical_removed")
         if (removeLarge) add("home_recommend_large_removed")
         if (removePgc) add("home_recommend_pgc_removed")
+        if (removeComic) add("home_recommend_comic_removed")
         if (removeSpecialCards) add("home_recommend_special_cards_removed")
         if (durationRange.isEnabled) add("home_recommend_duration_filter")
         if (playCountRange.isEnabled) add("home_recommend_play_count_filter")
@@ -127,7 +129,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         val hasContentFilter = removeAds || removeCmV2 || removeBanner || removePictures || removeGamePromotions ||
             titleKeywords.isNotEmpty() || removeLive || removeCourses || removeVertical ||
-            removeLarge || removePgc || removeSpecialCards || tagDimensionEnabled ||
+            removeLarge || removePgc || removeSpecialCards || removeComic || tagDimensionEnabled ||
             authorDimensionEnabled || removeAiDeclared || semantic.enabled
         if (durationRange.isConfigured && !durationRange.isValid) {
             environment.logError(
@@ -176,8 +178,15 @@ internal class HomeRecommendPurifyFeatureInstaller(
         )
         var partialReason: String? = null
         val extraTypesReadable = accessors.cardType != null || accessors.cardGoto != null || accessors.goTo != null
-        if (removePgc && !extraTypesReadable && accessors.uri == null) partialReason = "missing-pgc-readers"
-        if (removeSpecialCards && !extraTypesReadable) partialReason = "missing-special-card-readers"
+        if (removePgc && !extraTypesReadable && accessors.uri == null) {
+            partialReason = partialReason?.let { "$it+missing-pgc-readers" } ?: "missing-pgc-readers"
+        }
+        if (removeSpecialCards && !extraTypesReadable) {
+            partialReason = partialReason?.let { "$it+missing-special-card-readers" } ?: "missing-special-card-readers"
+        }
+        if (removeComic && !extraTypesReadable && accessors.uri == null) {
+            partialReason = partialReason?.let { "$it+missing-comic-readers" } ?: "missing-comic-readers"
+        }
         if (durationRange.isEnabled && accessors.duration == null) {
             if (!hasContentFilter && !playCountRange.isEnabled) {
                 return missing(environment, "missing-duration-accessor")
@@ -266,6 +275,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
                         var removedBanners = 0
                         var removedPgc = 0
                         var removedSpecial = 0
+                        var removedComics = 0
                         val advertisements = if (removeAds || removeCmV2) AdvertisementCounts() else null
                         val semanticVerdicts = semantic.verdicts(source) { item -> invokeString(accessors.title, item) }
                         val filtered = CopyOnFilter.list(source) { item ->
@@ -279,14 +289,22 @@ internal class HomeRecommendPurifyFeatureInstaller(
                             ) else HomeExtraCardPolicy.Kind.UNKNOWN
                             val pgc = removePgc && kind == HomeExtraCardPolicy.Kind.PGC
                             val special = removeSpecialCards && kind == HomeExtraCardPolicy.Kind.SPECIAL
+                            val comic = removeComic && HomeExtraCardPolicy.isComic(
+                                signals.cardType, signals.cardGoto, signals.goTo, signals.uri
+                            )
                             if (pgc) { removedPgc++; environment.reportRuntimeEvidence("home_recommend_pgc_removed", FeatureRuntimeStage.OBSERVED) }
                             if (special) { removedSpecial++; environment.reportRuntimeEvidence("home_recommend_special_cards_removed", FeatureRuntimeStage.OBSERVED) }
-                            pgc || special || isBanner || shouldRemove(signals, advertisements)
+                            if (comic) removedComics += 1
+                            pgc || special || comic || isBanner || shouldRemove(signals, advertisements)
                         }
                         if (filtered !== source) {
                             result = filtered
                             if (removedPgc > 0) environment.reportRuntimeEvidence("home_recommend_pgc_removed", FeatureRuntimeStage.APPLIED)
                             if (removedSpecial > 0) environment.reportRuntimeEvidence("home_recommend_special_cards_removed", FeatureRuntimeStage.APPLIED)
+                            if (removedComics > 0) {
+                                environment.reportRuntimeEvidence("home_recommend_comic_removed", FeatureRuntimeStage.OBSERVED)
+                                environment.reportRuntimeEvidence("home_recommend_comic_removed", FeatureRuntimeStage.APPLIED, removedComics)
+                            }
                             environment.reportRuntimeEvidence(
                                 ID,
                                 FeatureRuntimeStage.APPLIED,
@@ -356,6 +374,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 "home_recommend_large_removed" -> true // required holderType is resolved above
                 "home_recommend_pgc_removed" -> extraTypesReadable || accessors.uri != null
                 "home_recommend_special_cards_removed" -> extraTypesReadable
+                "home_recommend_comic_removed" -> extraTypesReadable || accessors.uri != null
                 "home_recommend_tid_block" -> accessors.tid != null
                 // UP 屏蔽的真实前提是 args/up 读取链；落进 else 的 routeReadable 会在
                 // "链缺失但路由字段可读"的宿主上把这一维度报成可用，与实际相反。
@@ -457,7 +476,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
 
     private fun signals(item: Any, accessors: Accessors, advertisements: AdvertisementCounts?): Signals {
         val needsRoute = removeAds || removePictures || removeGamePromotions || removeLive ||
-            removeCourses || removeVertical || removeLarge || removePgc || removeSpecialCards
+            removeCourses || removeVertical || removeLarge || removePgc || removeSpecialCards || removeComic
         val needsClassification = removeAds || removeCmV2 || needsRoute
         val tidAccessor = accessors.tid
         val tidArgs = tidAccessor?.let { accessor ->

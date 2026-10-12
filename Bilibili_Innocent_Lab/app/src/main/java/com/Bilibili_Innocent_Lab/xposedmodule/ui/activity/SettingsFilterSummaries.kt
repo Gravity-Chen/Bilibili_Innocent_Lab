@@ -25,6 +25,7 @@ internal fun MainActivity.homeRecommendFilterValues(): Map<String, Boolean> = ma
     FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS to removeHomeRecommendGamePromotions,
     FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE to removeHomeRecommendLive,
     FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC to removeHomeRecommendPgc,
+    FeaturePreferences.REMOVE_HOME_RECOMMEND_COMIC to removeHomeRecommendComic,
     FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS to removeHomeRecommendSpecialCards,
     FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES to removeHomeRecommendCourses,
     FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE to removeHomeRecommendLarge
@@ -46,6 +47,7 @@ internal fun MainActivity.homeRecommendFilterLabel(preferenceKey: String): Int =
         R.string.remove_home_recommend_game_promotions
     FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE -> R.string.remove_home_recommend_live
     FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC -> R.string.remove_home_recommend_pgc
+    FeaturePreferences.REMOVE_HOME_RECOMMEND_COMIC -> R.string.remove_home_recommend_comic
     FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS -> R.string.remove_home_recommend_special_cards
     FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES -> R.string.remove_home_recommend_courses
     FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE -> R.string.remove_home_recommend_large

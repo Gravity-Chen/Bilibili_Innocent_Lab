@@ -1291,7 +1291,7 @@ private fun MainActivity.setModalSectionVisible(
     child.visibility = targetVisibility
 }
 
-private fun MainActivity.applyHomeRecommendFilterValue(preferenceKey: String, enabled: Boolean) {
+internal fun MainActivity.applyHomeRecommendFilterValue(preferenceKey: String, enabled: Boolean) {
     when (preferenceKey) {
         FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS -> removeHomeRecommendAds = enabled
         FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES -> removeHomeRecommendPictures = enabled
@@ -1299,6 +1299,7 @@ private fun MainActivity.applyHomeRecommendFilterValue(preferenceKey: String, en
             removeHomeRecommendGamePromotions = enabled
         FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE -> removeHomeRecommendLive = enabled
         FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC -> removeHomeRecommendPgc = enabled
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_COMIC -> removeHomeRecommendComic = enabled
         FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS -> removeHomeRecommendSpecialCards = enabled
         FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES -> removeHomeRecommendCourses = enabled
         FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE -> removeHomeRecommendLarge = enabled

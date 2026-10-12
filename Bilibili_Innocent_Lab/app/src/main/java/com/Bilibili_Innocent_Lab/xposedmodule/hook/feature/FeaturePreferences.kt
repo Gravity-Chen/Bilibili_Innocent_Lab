@@ -8,6 +8,7 @@ internal object FeaturePreferences {
     const val HOME_VERTICAL_OPEN_DETAIL = "home_vertical_open_detail"
     const val REMOVE_HOME_RECOMMEND_ADS = "remove_home_recommend_ads"
     const val REMOVE_HOME_RECOMMEND_PGC = "remove_home_recommend_pgc"
+    const val REMOVE_HOME_RECOMMEND_COMIC = "remove_home_recommend_comic"
     const val REMOVE_HOME_RECOMMEND_SPECIAL_CARDS = "remove_home_recommend_special_cards"
     const val REMOVE_HOME_RECOMMEND_CM_V2 = "remove_home_recommend_cm_v2"
     const val REMOVE_HOME_RECOMMEND_PICTURES = "remove_home_recommend_pictures"

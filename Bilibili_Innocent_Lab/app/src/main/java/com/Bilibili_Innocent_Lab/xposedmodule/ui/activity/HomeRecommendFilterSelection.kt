@@ -10,6 +10,7 @@ internal object HomeRecommendFilterCatalog {
         FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS,
         FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE,
         FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC,
+        FeaturePreferences.REMOVE_HOME_RECOMMEND_COMIC,
         FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS,
         FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES,
         FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE

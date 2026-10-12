@@ -336,6 +336,7 @@ class MainActivity : SkinnedActivity() {
     internal var removeHomeRecommendVertical = false
     internal var removeHomeRecommendLarge = false
     internal var removeHomeRecommendPgc = false
+    internal var removeHomeRecommendComic = false
     internal var removeHomeRecommendSpecialCards = false
     private var homeTabHiddenRules = ""
     private var homeComponentHiddenRules = ""
@@ -4342,10 +4343,10 @@ class MainActivity : SkinnedActivity() {
         hideHomeGameMenu = uiSettings.bool(FeaturePreferences.HIDE_HOME_GAME_MENU)
         hideHomeSearchDefaultWord = uiSettings.bool(FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD)
         homeVerticalOpenDetail = uiSettings.bool(FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL)
-        removeHomeRecommendAds = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_ADS)
+        HomeRecommendFilterCatalog.preferenceKeys.forEach { key ->
+            applyHomeRecommendFilterValue(key, uiSettings.bool(key))
+        }
         removeHomeRecommendCmV2 = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_CM_V2)
-        removeHomeRecommendPictures = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_PICTURES)
-        removeHomeRecommendGamePromotions = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_GAME_PROMOTIONS)
         homeRecommendTitleFilterEnabled = uiSettings.bool(FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED)
         homeRecommendTitleKeywords = uiSettings.string(FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS)
         homeRecommendBlockedTids = uiSettings.string(FeaturePreferences.HOME_RECOMMEND_BLOCKED_TIDS)
@@ -4359,12 +4360,7 @@ class MainActivity : SkinnedActivity() {
         blockAiDeclaredVideosPrecheck = uiSettings.bool(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS_PRECHECK)
         videoRelateBlockedAuthors = uiSettings.string(FeaturePreferences.VIDEO_RELATE_BLOCKED_AUTHORS)
         videoRelateBlockedTags = uiSettings.string(FeaturePreferences.VIDEO_RELATE_BLOCKED_TAGS)
-        removeHomeRecommendLive = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE)
-        removeHomeRecommendCourses = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES)
         removeHomeRecommendVertical = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_VERTICAL)
-        removeHomeRecommendLarge = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_LARGE)
-        removeHomeRecommendPgc = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC)
-        removeHomeRecommendSpecialCards = uiSettings.bool(FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS)
         homeTabHiddenRules = uiSettings.string(FeaturePreferences.HOME_TAB_HIDDEN_RULES)
         homeComponentHiddenRules = uiSettings.string(FeaturePreferences.HOME_COMPONENT_HIDDEN_RULES)
         componentPoolBlockedRules = uiSettings.string(FeaturePreferences.COMPONENT_POOL_BLOCKED_RULES)
@@ -9824,6 +9820,7 @@ class MainActivity : SkinnedActivity() {
             init = {
                 homeRecommendFilterEntryView = this
                 settingsDestinations.bind("home.recommend.pgc.removed",this)
+                settingsDestinations.bind("home.recommend.comic.removed",this)
                 settingsDestinations.bind("home.recommend.special_cards.removed",this)
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL

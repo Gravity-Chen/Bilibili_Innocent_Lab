@@ -3012,6 +3012,7 @@ class HookEntry : XposedModule() {
                             false
                         ),
                         removePgc = prefs.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC, false),
+                        removeComic = prefs.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_COMIC, false),
                         removeSpecialCards = prefs.getBoolean(FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS, false),
                         removeCourses = prefs.getBoolean(
                             FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES,

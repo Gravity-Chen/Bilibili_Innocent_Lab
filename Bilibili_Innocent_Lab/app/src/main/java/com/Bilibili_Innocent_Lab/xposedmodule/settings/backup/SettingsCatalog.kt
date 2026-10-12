@@ -33,7 +33,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRende
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 51
+    const val CATALOG_VERSION = 52
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -310,6 +310,8 @@ internal object SettingsCatalog {
         bool("home.recommend.live.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_LIVE, R.string.remove_home_recommend_live),
         bool("home.recommend.pgc.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_PGC,
             R.string.remove_home_recommend_pgc, introducedCatalogVersion = 14),
+        bool("home.recommend.comic.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_COMIC,
+            R.string.remove_home_recommend_comic, introducedCatalogVersion = 52),
         bool("home.recommend.special_cards.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_SPECIAL_CARDS,
             R.string.remove_home_recommend_special_cards, introducedCatalogVersion = 14),
         bool("home.recommend.courses.removed", FeaturePreferences.REMOVE_HOME_RECOMMEND_COURSES, R.string.remove_home_recommend_courses),
@@ -993,7 +995,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 232) { "Expected 232 catalog settings, found ${specs.size}" }
+        check(specs.size == 233) { "Expected 233 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"
