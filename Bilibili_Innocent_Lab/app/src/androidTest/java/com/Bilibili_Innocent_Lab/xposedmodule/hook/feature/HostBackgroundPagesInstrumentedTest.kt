@@ -32,6 +32,7 @@ class HostBackgroundPagesInstrumentedTest {
     @Test fun splashAndPinnedSelectionHeaderKeepTheirOccludingSurfaces() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 val context = InstrumentationRegistry.getInstrumentation().context
                 val decor = activity.window.decorView as ViewGroup
                 val root = FrameLayout(context)
@@ -81,6 +82,7 @@ class HostBackgroundPagesInstrumentedTest {
     @Test fun commentHeaderContentAndInputShareOneWallpaperInEitherAttachOrder() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 val decor = activity.window.decorView as ViewGroup
                 for (childFirst in listOf(false, true)) {
                     val root = FrameLayout(activity)
@@ -125,6 +127,7 @@ class HostBackgroundPagesInstrumentedTest {
     @Test fun embeddedVideoTabsMoveTheHeaderWithTheirScrollAndInterpolateDuringPaging() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 val decor = activity.window.decorView as ViewGroup
                 val testResources = InstrumentationRegistry.getInstrumentation().context.resources
                 val context = object : ContextWrapper(activity) {
@@ -236,6 +239,7 @@ class HostBackgroundPagesInstrumentedTest {
     @Test fun homeFeedsShareTheWindowWallpaperAndKeepTheirOwnScrollPositions() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 val decor = activity.window.decorView as ViewGroup
                 val window = FrameLayout(activity)
                 val feeds = List(2) {
@@ -303,6 +307,7 @@ class HostBackgroundPagesInstrumentedTest {
     @Test fun emptyDynamicPageKeepsCardLayerAndRestoresWallpaperAfterReattach() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 val testContext = InstrumentationRegistry.getInstrumentation().context
                 val root = FrameLayout(activity)
                 val container = FrameLayout(activity).apply { setBackgroundColor(Color.WHITE) }

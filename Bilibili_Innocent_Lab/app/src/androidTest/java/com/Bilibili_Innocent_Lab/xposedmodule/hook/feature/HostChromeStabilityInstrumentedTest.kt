@@ -56,6 +56,7 @@ class HostChromeStabilityInstrumentedTest {
             lateinit var surface: View
             lateinit var window: Window
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 window = activity.window
                 val root = FrameLayout(activity)
                 content = Stripes(activity)
@@ -123,6 +124,7 @@ class HostChromeStabilityInstrumentedTest {
             lateinit var window: Window
             lateinit var dialog: Dialog
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 window = activity.window
                 val root = FrameLayout(activity)
                 content = Stripes(activity)
@@ -184,6 +186,7 @@ class HostChromeStabilityInstrumentedTest {
             lateinit var surface: View
             lateinit var window: Window
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 window = activity.window
                 root = FrameLayout(activity).apply { background = StripeBackdrop() }
                 val container = FrameLayout(activity)

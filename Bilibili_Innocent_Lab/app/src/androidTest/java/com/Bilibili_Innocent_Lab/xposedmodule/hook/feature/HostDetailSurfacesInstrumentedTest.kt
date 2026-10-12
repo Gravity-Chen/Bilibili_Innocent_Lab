@@ -61,6 +61,7 @@ class HostDetailSurfacesInstrumentedTest {
     @Test fun backgroundPassesKeepSurfaceBoundariesAndLeaveThePlaybackWindowAlone() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 val decor = activity.window.decorView as ViewGroup
                 val window = FrameLayout(activity)
                 val originalWindow = ColorDrawable(Color.BLUE)
@@ -113,6 +114,7 @@ class HostDetailSurfacesInstrumentedTest {
     @Test fun detachRestoresOnlyOwnedBackgroundsAndThemeChangesKeepTextAndClicks() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 val decor = activity.window.decorView as ViewGroup
                 val panel = Panel(activity)
                 decor.addView(panel.round, ViewGroup.LayoutParams(320, 640))

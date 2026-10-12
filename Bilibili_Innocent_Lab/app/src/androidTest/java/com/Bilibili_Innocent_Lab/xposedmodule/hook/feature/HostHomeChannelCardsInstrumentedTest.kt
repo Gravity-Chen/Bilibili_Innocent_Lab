@@ -31,6 +31,7 @@ class HostHomeChannelCardsInstrumentedTest {
         val hostContext = InstrumentationRegistry.getInstrumentation().targetContext.createPackageContext("tv.danmaku.bili", 0)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
                 val context = object : ContextWrapper(activity) { override fun getResources() = hostContext.resources }
                 fun hostId(name: String) = context.resources.getIdentifier(name, "id", "tv.danmaku.bili")
                     .also { assertTrue("Missing host ID $name", it != 0) }
