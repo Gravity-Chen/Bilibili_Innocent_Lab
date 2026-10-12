@@ -1,4 +1,9 @@
 <resources>
+    <item name="splash_layout" type="id" />
+    <item name="splash_container" type="id" />
+    <item name="head_layout" type="id" />
+    <item name="top_layout" type="id" />
+    <item name="select_list" type="id" />
     <item name="loading" type="id" />
     <item name="tv_left" type="id" />
     <item name="tv_right" type="id" />
@@ -6,4 +11,9 @@
     <item name="video_area" type="id" />
     <item name="main_top_layout" type="id" />
     <item name="fake_input_layout" type="id" />
+    <item name="content_container" type="id" />
+    <item name="round_container" type="id" />
+    <item name="tabs_back_board" type="id" />
+    <item name="shadow_dig" type="id" />
+    <item name="pager" type="id" />
 </resources>
