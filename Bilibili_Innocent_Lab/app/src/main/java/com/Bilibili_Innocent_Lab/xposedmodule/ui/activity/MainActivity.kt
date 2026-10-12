@@ -1669,6 +1669,15 @@ class MainActivity : SkinnedActivity() {
     internal fun createSelectionIndicator(radiusDp: Float = 14f): View =
         View(this).also { skinSelectionControl(it, radiusDp, selected = true) }
 
+    internal fun createSkinSlidingSelection(radiusDp: Float = 14f):
+        com.lumen.coacervation.engine.widget.LumenSlidingSelection {
+        val appearance = createSelectionIndicator(radiusDp)
+        return com.lumen.coacervation.engine.widget.LumenSlidingSelection(
+            this, appearance.background ?: android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT),
+            notifyPositionChanged = { notifyPreparedSkinPositionChanged() }
+        ).apply { indicator.foreground = appearance.foreground }
+    }
+
     internal fun createGitHubMenuRow(
         title: CharSequence,
         subtitle: CharSequence,

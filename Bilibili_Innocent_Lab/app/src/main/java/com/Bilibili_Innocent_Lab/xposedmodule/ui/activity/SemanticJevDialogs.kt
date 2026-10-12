@@ -1,11 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
-import com.lumen.coacervation.engine.motion.LumenAnimator
-
-import com.highcapable.betterandroid.ui.extension.view.firstChildOrNull
 import com.highcapable.betterandroid.ui.extension.view.childOrNull
-import android.animation.ArgbEvaluator
-import android.animation.ValueAnimator
 import android.app.Dialog
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -14,10 +9,8 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.animation.PathInterpolator
 import androidx.core.content.edit
 import androidx.core.graphics.ColorUtils
-import androidx.core.view.doOnLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.JevBackend
@@ -98,10 +91,6 @@ internal fun parseTimeoutSeconds(raw: String): Int? {
 /** 兼容区入口行：标题 + 摘要两行，与规则入口行同一结构。 */
 internal fun MainActivity.semanticJevEntryText(): String =
     getString(R.string.semantic_jev_settings) + "\n" + semanticJevSummaryText()
-
-/** 选中框滑动：与气泡取消同一条强调减速曲线。 */
-private const val SELECTION_SLIDE_MS = 260L
-private val selectionSlideCurve = PathInterpolator(0.2f, 0f, 0f, 1f)
 
 private val semanticProviders = listOf(
     SemanticBackend.JEV to R.string.semantic_jev_provider_jev,
@@ -712,82 +701,19 @@ private fun MainActivity.createSlidingChoice(
     selectedIndex: Int,
     onSelected: (Int) -> Unit
 ): View {
-    val frame = NativeFrameLayout(this)
-    val indicator = createSelectionIndicator()
-    frame.addView(indicator, NativeFrameLayout.LayoutParams(-1, 0))
-    val rows = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.VERTICAL }
-    frame.addView(rows, NativeFrameLayout.LayoutParams(-1, -2))
+    val frame = createSkinSlidingSelection()
     val selectedColor = monetColors.primary
     val normalColor = getColor(R.color.colorTextGray)
-    val density = resources.displayMetrics.density
-    var current = selectedIndex.coerceIn(0, labels.lastIndex)
-    var animator: ValueAnimator? = null
-
-    fun titleOf(index: Int) = rows.childOrNull<ViewGroup>(index)?.firstChildOrNull<NativeTextView>()
-
-    fun place(top: Float, height: Int) {
-        indicator.translationY = top
-        if (indicator.layoutParams.height != height) {
-            indicator.layoutParams = indicator.layoutParams.apply { this.height = height }
+    labels.forEach { label ->
+        frame.addOption(createGitHubMenuRow(label, "", highlight = false) {})
+    }
+    frame.onSelect = onSelected
+    frame.setOnHighlightListener { index, weight ->
+        (frame.options.getChildAt(index) as? ViewGroup)?.getChildAt(0)?.let { title ->
+            (title as? NativeTextView)?.textColor = ColorUtils.blendARGB(normalColor, selectedColor, weight)
         }
     }
-
-    fun select(index: Int, animate: Boolean) {
-        val target = rows.childOrNull<View>(index) ?: return
-        val previous = current
-        current = index
-        animator?.cancel()
-        if (!animate || !frame.isLaidOut) {
-            place(target.top.toFloat(), target.height)
-            labels.indices.forEach { titleOf(it)?.textColor = if (it == index) selectedColor else normalColor }
-            return
-        }
-        val fromTop = indicator.translationY
-        val fromHeight = indicator.height.takeIf { it > 0 } ?: target.height
-        val fromColor = titleOf(previous)?.currentTextColor ?: normalColor
-        val intoColor = titleOf(index)?.currentTextColor ?: normalColor
-        val evaluator = ArgbEvaluator()
-        animator = LumenAnimator.ofFloat(0f, 1f).apply {
-            duration = SELECTION_SLIDE_MS
-            interpolator = selectionSlideCurve
-            addUpdateListener { anim ->
-                val t = anim.animatedValue as Float
-                place(fromTop + (target.top - fromTop) * t, (fromHeight + (target.height - fromHeight) * t).toInt())
-                if (previous != index) titleOf(previous)?.textColor = evaluator.evaluate(t, fromColor, normalColor) as Int
-                titleOf(index)?.textColor = evaluator.evaluate(t, intoColor, selectedColor) as Int
-            }
-            start()
-        }
-    }
-
-    labels.forEachIndexed { index, label ->
-        rows.addView(
-            createGitHubMenuRow(label, "", highlight = false) {
-                if (index != current) {
-                    select(index, animate = true)
-                    onSelected(index)
-                }
-            },
-            NativeLinearLayout.LayoutParams(-1, -2).apply { if (index > 0) topMargin = (4 * density).toInt() }
-        )
-    }
-    rows.doOnLayout { select(current, animate = false) }
-    // 选中框按行的位置与高度摆放。行高会在首帧之后变化（长文字折行、面板形变展开时宽度还在变、
-    // 列表增删），只在首帧摆一次就会错位（2026-09-30 用户反馈）。之后每次重新布局都重新对齐；动画进行中不打断。
-    rows.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-        if (animator?.isRunning == true) return@addOnLayoutChangeListener
-        val target = rows.childOrNull<View>(current) ?: return@addOnLayoutChangeListener
-        // 只在选中框与当前行不再重合时重摆（位置或高度变了）；post 到下一帧，避免在布局回调里再触发布局。
-        if (indicator.translationY != target.top.toFloat() || indicator.height != target.height) {
-            rows.post { if (animator?.isRunning != true) select(current, animate = false) }
-        }
-    }
-    frame.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) = Unit
-        override fun onViewDetachedFromWindow(v: View) {
-            animator?.cancel()
-        }
-    })
+    frame.select(selectedIndex, animate = false)
     return frame
 }
 

@@ -10,6 +10,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiquidMotionMappingContractTest {
+    @Test fun modalControlsUseSharedSelectionAndStretchGeometry() {
+        val main = SourceContract.read("ui/activity/MainActivity.kt")
+            .after("internal fun createSkinSlidingSelection(").before("internal fun createGitHubMenuRow(")
+        assertTrue(main.contains("LumenSlidingSelection("))
+        assertTrue(main.contains("notifyPreparedSkinPositionChanged()"))
+        val choice = SourceContract.read("ui/activity/SemanticJevDialogs.kt")
+            .after("private fun MainActivity.createSlidingChoice(").before("/** 各过滤面的开关键")
+        assertTrue(choice.contains("createSkinSlidingSelection()"))
+        assertTrue(choice.contains("frame.onSelect = onSelected"))
+        assertFalse(choice.contains("ValueAnimator") || choice.contains("translationY ="))
+        val renderer = SourceContract.read("ui/skin/liquid/LiquidActivityRenderer.kt")
+        assertTrue(renderer.contains("com.lumen.coacervation.engine.liquid.LiquidStretchSampling()"))
+        assertTrue(renderer.contains("stretchCoordinates.resolve(host, root, stretchSampling)"))
+    }
+
     @Test fun preparedModalsDelegateBoundedScrollAndStretchToTheEngine() {
         val presenter = SourceContract.read("ui/activity/MainActivity.kt")
             .after("stylePreparedSkinControls(container)").before("val density = resources.displayMetrics.density")
