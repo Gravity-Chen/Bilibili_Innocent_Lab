@@ -236,7 +236,8 @@ class LiquidFeedbackIsolationTest {
         val handler = renderer.after("private fun onStretchDistanceChanged(")
             .substringBefore("@MainThread", "MISSING")
         assertNotEquals("MISSING", handler)
-        assertTrue(handler.contains("if (distance > 0f) suppressRealtimeSamplingWhileScrolling()"))
+        assertTrue(handler.contains("stretchWindows.updateForScrollHost(scrollHost, distance, next, nextDir)"))
+        assertTrue(handler.contains("if (state.distance > 0f) suppressRealtimeSamplingWhileScrolling()"))
         assertFalse(handler.contains("drawOpticalRegion("))
 
         val settle = renderer.after("private fun onScrollSettleCheck()")
