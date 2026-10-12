@@ -1398,4 +1398,27 @@
     <string name="agent_account_changed">Account changed. Start a new task.</string>
     <string name="agent_native_unavailable">This app interface is unavailable. A new screen observation is required.</string>
     <string name="agent_goal_incomplete">The requested information has not been verified.</string>
+    <string name="player_buffer_strategy">Video buffering (experimental)</string>
+    <string name="player_buffer_tip">Experimental read-ahead settings and bounded whole-video prefetch on supported paths. Defaults to the host policy. Restart Bilibili after changes; unsupported paths keep the host policy.</string>
+    <string name="player_buffer_follow_host">Follow host</string>
+    <string name="player_buffer_low">Minimum buffering</string>
+    <string name="player_buffer_custom">Custom forward buffering</string>
+    <string name="player_buffer_whole">Whole-video prefetch (experimental)</string>
+    <string name="player_buffer_follow_tip">Keep the original buffering and cache policy.</string>
+    <string name="player_buffer_low_tip">Reduce read-ahead while retaining a short decoding buffer. Slow or unstable networks may cause more stalls; this does not mean zero buffering.</string>
+    <string name="player_buffer_custom_tip">Try to adjust read-ahead on the video timeline. Active playback may use a separate buffer policy; the selected duration is not a guarantee of a continuous buffer. The memory budget can limit read-ahead.</string>
+    <string name="player_buffer_whole_tip">Try to prefetch only an already playing ordinary single-stream, single-segment video. DASH, HLS, DRM, unknown sizes, insufficient budgets and cache creation before the supported hook keep bounded caching. Prefetch covers content after the current position; earlier content skipped by seeking is not filled in. Offline playback is not guaranteed.</string>
+    <string name="player_buffer_seconds">Forward target (seconds, custom mode)</string>
+    <string name="player_buffer_memory_mb">Total compressed packet queue budget (MiB)</string>
+    <string name="player_buffer_disk_mb">Disk prefetch budget (MiB, whole-video mode)</string>
+    <string name="player_buffer_wifi_only">Start whole-video prefetch only on Wi-Fi</string>
+    <string name="player_buffer_range">Range: %1$d–%2$d</string>
+    <string name="player_buffer_invalid">Enter an integer from %1$d to %2$d</string>
+    <string name="player_buffer_current">Current: %1$s</string>
+    <string name="player_buffer_custom_current">Target: %1$d s; packet queue budget: %2$d MiB</string>
+    <string name="player_buffer_save_failed">Could not save the strategy. The panel remains open.</string>
+    <string name="player_buffer_restart_tip">Saved. Restart Bilibili to apply the strategy.</string>
+    <string name="player_buffer_mode">Buffer mode</string>
+    <string name="player_buffer_memory_tip">The read-ahead item queue and playback consumer queue each receive half of this budget. Decoded frames and other native allocations are separate; this does not cap total process memory.</string>
+    <string name="player_buffer_wifi_tip">A network change after prefetch starts is handled by the host. This option does not independently stop an existing prefetch task.</string>
 </resources>

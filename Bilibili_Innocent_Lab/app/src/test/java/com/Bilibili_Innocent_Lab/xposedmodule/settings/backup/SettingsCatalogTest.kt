@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.settings.backup
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -209,11 +210,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 227 settings`() {
-        assertEquals(227, SettingsCatalog.specs.size)
-        assertEquals(227, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(227, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(222, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 232 settings`() {
+        assertEquals(232, SettingsCatalog.specs.size)
+        assertEquals(232, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(232, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(227, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(5, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -444,7 +445,7 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(50, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(51, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -743,8 +744,8 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(139, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
-        assertEquals(19, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
+        assertEquals(140, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(23, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(69, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 
         val roaming = requireNotNull(SettingsCatalog.byId["compat.roaming.enabled"])
@@ -962,6 +963,43 @@ class SettingsCatalogTest {
             assertTrue(it.accepts(SettingValue.IntValue(40)))
             assertFalse(it.accepts(SettingValue.IntValue(41)))
         }
+    }
+
+    @Test
+    fun `catalog v51 adds bounded experimental buffer settings with host defaults`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v51.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 51 }.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 51 }.associateBy { it.storageKey }
+        assertEquals(setOf(FeaturePreferences.PLAYER_BUFFER_MODE, FeaturePreferences.PLAYER_BUFFER_SECONDS,
+            FeaturePreferences.PLAYER_BUFFER_MEMORY_MB, FeaturePreferences.PLAYER_BUFFER_DISK_MB,
+            FeaturePreferences.PLAYER_BUFFER_WIFI_ONLY), added.keys)
+        assertTrue(added.values.all {
+            it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects
+        })
+        val mode = added.getValue(FeaturePreferences.PLAYER_BUFFER_MODE)
+        assertEquals(SettingValue.IntValue(0), mode.defaultValue)
+        PlayerBufferConfig.supportedModes.forEach { assertTrue(mode.accepts(SettingValue.IntValue(it))) }
+        listOf(-1, 4, Int.MAX_VALUE).forEach { assertFalse(mode.accepts(SettingValue.IntValue(it))) }
+        val ranges = listOf(
+            Triple(FeaturePreferences.PLAYER_BUFFER_SECONDS, PlayerBufferConfig.DEFAULT_SECONDS,
+                PlayerBufferConfig.MIN_SECONDS..PlayerBufferConfig.MAX_SECONDS),
+            Triple(FeaturePreferences.PLAYER_BUFFER_MEMORY_MB, PlayerBufferConfig.DEFAULT_MEMORY_MB,
+                PlayerBufferConfig.MIN_MEMORY_MB..PlayerBufferConfig.MAX_MEMORY_MB),
+            Triple(FeaturePreferences.PLAYER_BUFFER_DISK_MB, PlayerBufferConfig.DEFAULT_DISK_MB,
+                PlayerBufferConfig.MIN_DISK_MB..PlayerBufferConfig.MAX_DISK_MB)
+        )
+        ranges.forEach { (key, default, range) ->
+            val spec = added.getValue(key)
+            assertEquals(SettingValue.IntValue(default), spec.defaultValue)
+            assertEquals(range, spec.integerRange)
+            assertTrue(spec.accepts(SettingValue.IntValue(range.first)))
+            assertTrue(spec.accepts(SettingValue.IntValue(range.last)))
+            assertFalse(spec.accepts(SettingValue.IntValue(range.first - 1)))
+            assertFalse(spec.accepts(SettingValue.IntValue(range.last + 1)))
+            assertFalse(spec.accepts(SettingValue.Text(default.toString())))
+        }
+        assertEquals(SettingValue.Bool(true), added.getValue(FeaturePreferences.PLAYER_BUFFER_WIFI_ONLY).defaultValue)
     }
 
     @Test

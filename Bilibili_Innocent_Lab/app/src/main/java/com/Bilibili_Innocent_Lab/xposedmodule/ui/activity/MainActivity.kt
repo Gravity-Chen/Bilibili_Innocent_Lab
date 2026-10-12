@@ -117,6 +117,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.RuleSetCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TidBlocklistCodec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCodecPreference
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferMode
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerDecodeMode
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.AndroidUserSpace
@@ -400,6 +402,11 @@ class MainActivity : SkinnedActivity() {
     internal var playerDefaultQualityQn = 0
     internal var playerCodecPreference = PlayerCodecPreference.FOLLOW_HOST.value
     internal var playerDecodeMode = PlayerDecodeMode.FOLLOW_HOST.value
+    internal var playerBufferMode = PlayerBufferMode.FOLLOW_HOST.value
+    internal var playerBufferSeconds = PlayerBufferConfig.DEFAULT_SECONDS
+    internal var playerBufferMemoryMb = PlayerBufferConfig.DEFAULT_MEMORY_MB
+    internal var playerBufferDiskMb = PlayerBufferConfig.DEFAULT_DISK_MB
+    internal var playerBufferWifiOnly = PlayerBufferConfig.DEFAULT_WIFI_ONLY
     private var playerDisableLongPress = false
     internal var playerLongPressSpeedPercent = 0
     internal var playerDefaultSpeedPercent = 0
@@ -489,6 +496,7 @@ class MainActivity : SkinnedActivity() {
     internal var playerQualitySummaryView: NativeTextView? = null
     internal var playerCodecPreferenceSummaryView: NativeTextView? = null
     internal var playerDecodeModeSummaryView: NativeTextView? = null
+    internal var playerBufferSummaryView: NativeTextView? = null
     private var playerLongPressSpeedSummary: NativeTextView? = null
     private var playerDefaultSpeedSummary: NativeTextView? = null
     private var homeTabRulesSummaryView: NativeTextView? = null
@@ -4207,6 +4215,7 @@ class MainActivity : SkinnedActivity() {
         playerQualitySummaryView = null
         playerCodecPreferenceSummaryView = null
         playerDecodeModeSummaryView = null
+        playerBufferSummaryView = null
         playerLongPressSpeedSummary = null
         playerDefaultSpeedSummary = null
         homeTabRulesSummaryView = null
@@ -4417,6 +4426,11 @@ class MainActivity : SkinnedActivity() {
         playerDecodeMode = PlayerDecodeMode.fromValue(
             uiSettings.int(FeaturePreferences.PLAYER_DECODE_MODE)
         ).value
+        playerBufferMode = PlayerBufferMode.fromValue(uiSettings.int(FeaturePreferences.PLAYER_BUFFER_MODE)).value
+        playerBufferSeconds = PlayerBufferConfig.normalizeSeconds(uiSettings.int(FeaturePreferences.PLAYER_BUFFER_SECONDS))
+        playerBufferMemoryMb = PlayerBufferConfig.normalizeMemoryMb(uiSettings.int(FeaturePreferences.PLAYER_BUFFER_MEMORY_MB))
+        playerBufferDiskMb = PlayerBufferConfig.normalizeDiskMb(uiSettings.int(FeaturePreferences.PLAYER_BUFFER_DISK_MB))
+        playerBufferWifiOnly = uiSettings.bool(FeaturePreferences.PLAYER_BUFFER_WIFI_ONLY)
         playerDisableLongPress = uiSettings.bool(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS)
         playerLongPressSpeedPercent = PlayerSpeedConfig.normalize(
             uiSettings.int(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT)
@@ -10493,6 +10507,7 @@ class MainActivity : SkinnedActivity() {
                 textSize = 12f
             }
         }
+        playerBufferSettingsRows(this)
         TextView(
             lparams = LayoutParams(widthMatchParent = true) {
                 topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp

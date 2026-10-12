@@ -20,8 +20,14 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 21
+    const val VERSION = 22
     val definitions = listOf(
+        DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
+            setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
+            introducedCatalogVersion = 22),
+        DiagnosticCapabilityDefinition("player_buffer_preload", "player_buffer", R.string.player_buffer_whole,
+            setOf("player.buffer.mode", "player.buffer.disk_mb", "player.buffer.wifi_only"),
+            introducedCatalogVersion = 22),
         DiagnosticCapabilityDefinition("host_background", "host_background", R.string.host_background_title,
             setOf("host.background.preset", "host.background.blur", "host.background.saturation", "host.background.veil", "host.background.asset"),
             introducedCatalogVersion = 21),
@@ -279,6 +285,8 @@ internal object DiagnosticCapabilityCatalog {
         "player_capability_cast",
         "player_codec_preference",
         "player_decode_mode",
+        "player_buffer_strategy",
+        "player_buffer_preload",
         "block_component_library_download",
         "free_copy_comment_enabled",
         "free_copy_description_enabled"

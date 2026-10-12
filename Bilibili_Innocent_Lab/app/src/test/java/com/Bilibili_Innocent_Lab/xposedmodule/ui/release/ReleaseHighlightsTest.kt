@@ -9,6 +9,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReleaseHighlightsTest {
+    @Test fun experimentalBufferSettingsHaveOneManualAnnouncementAndAllCompanionIdsAreReviewed() {
+        val batch = ReleaseHighlightsCatalog.batches.single { batch ->
+            batch.entries.any { it.id == "player-buffer-strategy" }
+        }
+        assertFalse(batch.automatic)
+        val target = requireNotNull(batch.entries.single { it.id == "player-buffer-strategy" }.destination)
+        assertEquals("player.buffer.mode", target.settingId)
+        assertEquals(SettingsCatalog.specs.filter { it.introducedCatalogVersion == 51 }.map { it.id }.toSet(),
+            target.alsoCovers + target.settingId)
+    }
     @Test fun freshInstallEstablishesBaselineWithoutClaimingItWasShown() {
         val state = ReleaseHighlightsPolicy.bootstrap(5,false)
         assertEquals(5,state.baseline); assertEquals(0,state.presented)

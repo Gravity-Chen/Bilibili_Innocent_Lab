@@ -49,6 +49,19 @@ class DiagnosticCapabilityCatalogTest {
         assertEquals(2, DiagnosticCapabilityCatalog.runtimeSupport(decode.id))
     }
 
+    @Test fun bufferStrategyAndPreloadRemainSeparateRuntimeCapabilities() {
+        val strategy = DiagnosticCapabilityCatalog.byId.getValue("player_buffer_strategy")
+        val preload = DiagnosticCapabilityCatalog.byId.getValue("player_buffer_preload")
+        assertEquals("player_buffer", strategy.parentId)
+        assertEquals("player_buffer", preload.parentId)
+        assertEquals(setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"), strategy.settingIds)
+        assertEquals(setOf("player.buffer.mode", "player.buffer.disk_mb", "player.buffer.wifi_only"), preload.settingIds)
+        assertEquals(22, strategy.introducedCatalogVersion)
+        assertEquals(22, preload.introducedCatalogVersion)
+        assertEquals(2, DiagnosticCapabilityCatalog.runtimeSupport(strategy.id))
+        assertEquals(2, DiagnosticCapabilityCatalog.runtimeSupport(preload.id))
+    }
+
     /**
      * VERSION 涨了就必须有条目标在这个新版本上。
      *
