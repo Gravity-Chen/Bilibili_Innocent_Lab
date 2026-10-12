@@ -40,8 +40,8 @@ rootProject.name = "Bilibili_Innocent_Lab"
 include(":app")
 
 // Build the reviewed release source; core and motion always come from the same tag.
-// The three original parity extensions are included upstream in 1.2.3.
-val lumenRevision = "1.4.0"
+// Original parity extensions are upstream since 1.2.3; surface continuity since 1.4.1.
+val lumenRevision = "1.4.1"
 val hostVersionCatalog = file("gradle/libs.versions.toml").readText()
 check(hostVersionCatalog.contains("lumen-engine = \"$lumenRevision\"")) {
     "Update the Lumen source pin and archive checksum together with the catalog."
@@ -56,9 +56,7 @@ val lumenHostVersions = listOf("agp", "kotlin", "androidx-core-ktx", "androidx-a
             ?: error("Missing host version for Lumen: $name")
     }
 val lumenVersionFingerprint = lumenHostVersions.entries.joinToString("\n") { "${it.key}=${it.value}" }.toByteArray()
-val lumenContinuityPatch = file("gradle/lumen/surface-continuity.patch")
-val lumenPatchBytes = lumenContinuityPatch.readBytes()
-val lumenSourceKey = digest(lumenVersionFingerprint + lumenPatchBytes + "strict-single-hunk-v1".toByteArray())
+val lumenSourceKey = digest(lumenVersionFingerprint)
 val lumenCache = file(".gradle/lumen-source").apply { mkdirs() }
 val lumenDevelopmentSource = providers.gradleProperty("innocentLab.lumenDevelopmentSource").orNull?.let(::file)
 val lumenSource = lumenDevelopmentSource ?: lumenCache.resolve("${lumenRevision.take(12)}-${lumenSourceKey.take(12)}")
@@ -70,7 +68,7 @@ if (lumenDevelopmentSource != null) {
         channel.lock().use {
             if (!lumenSource.resolve(".prepared").isFile) {
                 val archive = lumenCache.resolve("$lumenRevision.zip")
-                val archiveHash = "37686a1249d77f1dc4f07b6242b2936aec56317ca13dcc080dfff2a58b8eb8f7"
+                val archiveHash = "b21b1d98a0d83584492f996d78e391d57979c7d10ede392b24c94eb39d37d71f"
                 if (!archive.isFile) {
                     check(!gradle.startParameter.isOffline) {
                         "Lumen source is not cached. Run Gradle once without --offline to fetch the pinned archive."
@@ -98,30 +96,6 @@ if (lumenDevelopmentSource != null) {
                         }
                     }
                 }
-                // This patch intentionally contains one hunk for one pinned source file. Verify
-                // the complete old fragment rather than let Git silently skip an ignored checkout.
-                val patchLines = lumenPatchBytes.toString(Charsets.UTF_8).trimEnd('\n').lines()
-                val sessionPath = "lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenSurfaceSession.kt"
-                check(patchLines.count { it.startsWith("@@ ") } == 1 &&
-                    patchLines[1] == "--- a/$sessionPath" && patchLines[2] == "+++ b/$sessionPath") {
-                    "Unexpected Lumen continuity patch structure."
-                }
-                val hunk = patchLines.dropWhile { !it.startsWith("@@ ") }.drop(1)
-                check(hunk.all { it.startsWith(" ") || it.startsWith("+") || it.startsWith("-") })
-                fun fragment(prefix: String) = hunk.filter { it.startsWith(" ") || it.startsWith(prefix) }
-                    .joinToString("\n", postfix = "\n") { it.drop(1) }
-                val before = fragment("-")
-                val after = fragment("+")
-                val sessionSource = lumenSource.resolve(sessionPath)
-                val sessionText = sessionSource.readText().replace("\r\n", "\n")
-                check(Regex(Regex.escape(before)).findAll(sessionText).count() == 1) {
-                    "Pinned Lumen source does not match the continuity patch."
-                }
-                sessionSource.writeText(sessionText.replace(before, after))
-                val sourceProperties = lumenSource.resolve("gradle.properties")
-                sourceProperties.writeText(sourceProperties.readText().replace(
-                    "lumen.version=$lumenRevision", "lumen.version=$lumenRevision-host.${digest(lumenPatchBytes).take(12)}"
-                ))
                 val sourceCatalog = lumenSource.resolve("gradle/libs.versions.toml")
                 var alignedCatalog = sourceCatalog.readText()
                 for ((name, version) in lumenHostVersions) {
