@@ -18,14 +18,15 @@ internal class BrandSplashImageCache(
     private val model: BrandSplashModelAccess,
     private val storage: BrandSplashStorageAccess,
     private val state: BrandSplashSelectionState<Any>,
-    private val environment: HookEnvironment
+    private val environment: HookEnvironment,
+    decoderPoint: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
 ) {
     class Photo(val bitmap: Bitmap, val image: BrandSplashModelAccess.Image, val signature: String) {
         val shown = AtomicBoolean(false)
         val exitRequested = AtomicBoolean(false)
     }
     private data class Scope(val owner: WeakReference<Any>, val invalidate: Method)
-    private val decoder = BrandSplashBitmapDecoder(environment).also { it.install() }
+    private val decoder = BrandSplashBitmapDecoder(environment, decoderPoint).also { it.install() }
     private val executor = ScheduledThreadPoolExecutor(1) { task ->
         Thread(task, "BIL-BrandImage").apply { isDaemon = true }
     }.apply { removeOnCancelPolicy = true }

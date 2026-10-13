@@ -121,7 +121,14 @@ internal class DynamicPurifyFeatureInstaller(
             semanticLogDir?.let { SemanticDebugLog.append(it, "${System.currentTimeMillis()} install $state") }
         }
 
-        val feeds = FEED_METHODS.mapNotNull { spec -> resolveFeed(loader, mossClass, spec) }.filter { feed ->
+        val kotlinMoss = KavaMemberLookup.classOrNull(loader, KotlinDynamicMossWatch.K_MOSS_CLASS)
+        val kotlinNames = kotlinMoss?.let { owner -> KavaMemberLookup.declaredMethods(owner).map { it.name }.toSet() }.orEmpty()
+        val rootApplicable = plan.hasAnyItemJudgement && ROOT_FEED_METHODS.any { spec ->
+            KavaMemberLookup.classOrNull(loader, spec.replyClassName) != null || spec.asyncName in kotlinNames
+        }
+        val specs = FEED_METHODS + if (rootApplicable) ROOT_FEED_METHODS else emptyList()
+        val kotlinExpected = specs.filter { it.asyncName in kotlinNames }.map { it.asyncName }.toSet()
+        val feeds = specs.mapNotNull { spec -> resolveFeed(loader, mossClass, spec) }.filter { feed ->
             (plan.hasAnyItemJudgement && feed.listBuilder != null) ||
                 (hideTopicList && feed.clearTopicList != null) || (removeLiveUpEntries && feed.upList != null) ||
                 (hideFrequentVisits && feed.wholeUpList != null)
@@ -148,8 +155,18 @@ internal class DynamicPurifyFeatureInstaller(
             }
             pathsByFeed[feed] = installed - before
         }
+        val covered = installKotlinMoss(environment, loader, feeds, itemMembers, plan, specs)
+        feeds.forEach { feed ->
+            val rpc = specs.first { it.replyClassName == feed.replyClass.name }.asyncName
+            if (rpc in covered) {
+                installed++
+                pathsByFeed[feed] = (pathsByFeed[feed] ?: 0) + 1
+            }
+        }
         if (installed == 0) return missing(environment, "registration-failed")
-        val sharedExpected = FEED_METHODS.size * 2
+        val sharedExpected = specs.size * 2 + kotlinExpected.size
+        val mainFeeds = feeds.filterNot { it.rootList }
+        val mainExpected = FEED_METHODS.size * 2 + FEED_METHODS.count { it.asyncName in kotlinExpected }
         for (capability in capabilityIds) {
             val compatibleFeeds = feeds.filter { feed -> when (capability) {
                 "dynamic_frequent_visits_hidden" -> feed.wholeUpList != null
@@ -169,14 +186,15 @@ internal class DynamicPurifyFeatureInstaller(
                 else -> false
             }
             val completeData = when (capability) {
-                "dynamic_frequent_visits_hidden" -> feeds.size == FEED_METHODS.size && feeds.all { it.wholeUpList != null }
-                "dynamic_topic_list_hidden" -> feeds.size == FEED_METHODS.size && feeds.all { it.clearTopicList != null }
-                "dynamic_up_list_live_removed" -> feeds.size == FEED_METHODS.size && feeds.all { it.upList != null }
-                else -> feeds.size == FEED_METHODS.size && feeds.all { it.listBuilder != null } &&
+                "dynamic_frequent_visits_hidden" -> mainFeeds.size == FEED_METHODS.size && mainFeeds.all { it.wholeUpList != null }
+                "dynamic_topic_list_hidden" -> mainFeeds.size == FEED_METHODS.size && mainFeeds.all { it.clearTopicList != null }
+                "dynamic_up_list_live_removed" -> mainFeeds.size == FEED_METHODS.size && mainFeeds.all { it.upList != null }
+                else -> feeds.size == specs.size && feeds.all { it.listBuilder != null } &&
                     (capability != "dynamic_author_filter_enabled" || plan.authorRules == authorRules)
             }
+            val capabilityExpected = if (capability in TOP_CAPABILITIES) mainExpected else sharedExpected
             environment.reportCapabilityCoverage(capability, usable && compatibleFeeds.isNotEmpty(), compatibleFeeds.sumOf { pathsByFeed[it] ?: 0 },
-                sharedExpected + if (completeData) 0 else 1)
+                capabilityExpected + if (completeData) 0 else 1)
         }
         expected = sharedExpected
 
@@ -197,7 +215,7 @@ internal class DynamicPurifyFeatureInstaller(
         account(removeLockedChargeOnly, plan.removeLockedChargeOnly, "charge-only")
         account(hideTopicList, feeds.any { it.clearTopicList != null }, "topic-list")
         account(removeLiveUpEntries && !hideFrequentVisits, feeds.any { it.upList != null }, "up-live")
-        account(hideFrequentVisits, feeds.size == FEED_METHODS.size && feeds.all { it.wholeUpList != null }, "frequent-visits")
+        account(hideFrequentVisits, mainFeeds.size == FEED_METHODS.size && mainFeeds.all { it.wholeUpList != null }, "frequent-visits")
         if (degraded.isNotEmpty()) {
             environment.logError(
                 "dynamic_purify_degraded",
@@ -208,10 +226,8 @@ internal class DynamicPurifyFeatureInstaller(
         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
         // 9.14.0 新增 Compose 动态列表，走 Kotlin KDynamicMoss。优先直接在它的响应上复用同一套过滤
         // （经 protobuf 线格式往返到 Java 响应）；装不上时退回"只观测并留证据"，不再静默失效。
-        val covered = installKotlinMoss(environment, loader, feeds, itemMembers, plan)
-        // 只接上一部分页签时，剩下的入口仍要观测：否则没覆盖上的那条通道一条错误证据都不会有，
-        // 而 status 只按 Java 通道算，照样报 success——正是这里要消灭的静默失效。
-        if (covered.size == FEED_METHODS.size) {
+        // 普通两页仍观察未覆盖入口；所有适用的 Kotlin 入口失败均保留在安装分母。
+        if (kotlinExpected.isNotEmpty() && covered.containsAll(kotlinExpected)) {
             environment.logInfo("dynamic_kmoss_filter", "[BIL] 已接入动态页新通道 KDynamicMoss 过滤，entries=${covered.size}")
         } else {
             val kotlinWatch = KotlinDynamicMossWatch.install(
@@ -299,7 +315,7 @@ internal class DynamicPurifyFeatureInstaller(
     /**
      * 9.14.0 起动态页新列表的数据通道 `KDynamicMoss`：响应是 Kotlin 序列化数据类（字段被混淆），
      * 这里不解析它，而是经 protobuf 线格式往返到同一 proto 的 Java 响应上，**原样复用 [purify]**，
-     * 见 [KotlinMossReplyBridge]。Kotlin 版所有请求（suspend / 回调）汇入同一个回调形态泛型入口，
+     * 见 [KotlinMossReplyBridge]。已核实的 suspend 消费者汇入同一个回调形态泛型入口，
      * 每个页签挂一处即可。任何一步装不上都不进这个集合，调用方据此退回观测措施；运行期任何异常都放行原响应。
      *
      * @return 已经接住过滤的入口名（[KotlinDynamicMossWatch] 据此只观测没接上的那些）。
@@ -309,7 +325,8 @@ internal class DynamicPurifyFeatureInstaller(
         loader: ClassLoader,
         feeds: List<FeedMembers>,
         itemMembers: ItemMembers?,
-        plan: DynamicPurifyPolicy.Plan
+        plan: DynamicPurifyPolicy.Plan,
+        specs: List<FeedSpec>
     ): Set<String> {
         val kotlinMoss = KavaMemberLookup.classOrNull(loader, KotlinDynamicMossWatch.K_MOSS_CLASS) ?: return emptySet()
         val members = KotlinMossBridgeMembers.resolve(loader)
@@ -319,7 +336,7 @@ internal class DynamicPurifyFeatureInstaller(
         }
         if (!KotlinMossBridgeSelfTest.allows(environment, loader, members, "动态页")) return emptySet()
         val installed = mutableSetOf<String>()
-        FEED_METHODS.forEach { spec ->
+        specs.forEach { spec ->
             // 装不上不能再静默：每个页签只在缺东西时记一条原因（有界：页签个数）。
             fun skip(reason: String) = environment.logInfo(
                 "dynamic_kmoss_filter_skip_${spec.asyncName}",
@@ -348,27 +365,22 @@ internal class DynamicPurifyFeatureInstaller(
                         val delegate = args.getOrNull(3) ?: return@before
                         val bridge = members.bridgeFor(args.getOrNull(4), args.getOrNull(2), codec)
                             ?: return@before
-                        val proxy = MossResponseHandlerProxy.wrapTransform(handlerClass, delegate) { reply ->
-                            if (reported.compareAndSet(false, true)) {
-                                environment.logInfo(
-                                    "dynamic_kmoss_active",
-                                    "[BIL] 动态页新通道 KDynamicMoss#${entry.name} 已收到响应并进入过滤" +
-                                        "（javaPathObserved=${javaPathObserved.get()}）"
-                                )
-                            }
-                            runCatching {
-                                bridge.transform(reply) { javaReply ->
-                                    purify(environment, javaReply, feed, itemMembers, plan)
-                                }
-                            }.getOrElse { throwable ->
+                        val key = KotlinMossResponseHandlerProxy.Key(entry, feed.replyClass, args[4]!!, args[2]!!)
+                        val proxy = KotlinMossResponseHandlerProxy.wrap(handlerClass, delegate, key, bridge,
+                            failed = { throwable ->
                                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
                                 environment.logError(
                                     "dynamic_kmoss_filter_failed",
                                     "[BIL] 动态页新通道过滤失败，已放行原响应(${entry.name}): $throwable"
                                 )
-                                reply
-                            }
-                        } ?: return@before
+                            }, transform = { it }, confirmedTransform = { javaReply ->
+                                if (reported.compareAndSet(false, true)) {
+                                    environment.logInfo("dynamic_kmoss_active",
+                                        "[BIL] 动态页新通道 KDynamicMoss#${entry.name} 已收到响应并进入过滤" +
+                                            "（javaPathObserved=${javaPathObserved.get()}）")
+                                }
+                                confirmedReply(environment, javaReply, feed, itemMembers, plan)
+                            }) ?: return@before
                         args[3] = proxy
                     }
                 }
@@ -390,6 +402,26 @@ internal class DynamicPurifyFeatureInstaller(
         feed: FeedMembers,
         itemMembers: ItemMembers?,
         plan: DynamicPurifyPolicy.Plan
+    ): Any = purifyDeferred(environment, reply, feed, itemMembers, plan) { capability ->
+        environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.APPLIED)
+    }
+
+    private fun confirmedReply(environment: HookEnvironment, reply: Any, feed: FeedMembers,
+        itemMembers: ItemMembers?, plan: DynamicPurifyPolicy.Plan): KotlinMossResponseHandlerProxy.ConfirmedReply {
+        val pending = ArrayList<String>(2)
+        val updated = purifyDeferred(environment, reply, feed, itemMembers, plan) { pending += it }
+        return KotlinMossResponseHandlerProxy.ConfirmedReply(updated) {
+            pending.forEach { environment.reportRuntimeEvidence(it, FeatureRuntimeStage.APPLIED) }
+        }
+    }
+
+    private fun purifyDeferred(
+        environment: HookEnvironment,
+        reply: Any,
+        feed: FeedMembers,
+        itemMembers: ItemMembers?,
+        plan: DynamicPurifyPolicy.Plan,
+        applied: (String) -> Unit
     ): Any {
         if (!feed.replyClass.isInstance(reply)) return reply
         // 字段未设置时宿主拿到的是进程级单例，改它会污染整个进程。
@@ -399,6 +431,10 @@ internal class DynamicPurifyFeatureInstaller(
         var removingWhole = false
         return runCatching {
             val items = purifyItems(reply, feed, itemMembers, plan)
+            if (feed.rootList) {
+                if (items != null) applied(ID)
+                return@runCatching items ?: reply
+            }
             val clearTopic = hideTopicList && feed.clearTopicList != null &&
                 feed.hasTopicList?.let { invoke(it, reply) as? Boolean } == true
             val whole = feed.wholeUpList
@@ -415,9 +451,9 @@ internal class DynamicPurifyFeatureInstaller(
             }
             if (clearWhole) {
                 check(invoke(whole!!.has, updated) == false) { "UP container clear verification failed" }
-                environment.reportRuntimeEvidence("dynamic_frequent_visits_hidden", FeatureRuntimeStage.APPLIED)
+                applied("dynamic_frequent_visits_hidden")
             }
-            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
+            applied(ID)
             updated
         }.getOrElse {
             if (removingWhole) environment.reportRuntimeEvidence("dynamic_frequent_visits_hidden", FeatureRuntimeStage.ERROR)
@@ -437,7 +473,7 @@ internal class DynamicPurifyFeatureInstaller(
         val listBuilder = feed.listBuilder ?: return null
         val clearList = feed.clearList ?: return null
         val addAllList = feed.addAllList ?: return null
-        val dynamicList = invoke(feed.dynamicListGetter, reply) ?: return null
+        val dynamicList = if (feed.rootList) reply else invoke(feed.dynamicListGetter, reply) ?: return null
         val items = invoke(feed.listGetter, dynamicList) as? List<*> ?: return null
         if (items.isEmpty()) return null
         val semantic = if (plan.semanticEnabled) semanticVerdicts(items, itemMembers) else null
@@ -664,20 +700,20 @@ internal class DynamicPurifyFeatureInstaller(
     ): FeedMembers? {
         val replyClass = KavaMemberLookup.classOrNull(loader, spec.replyClassName) ?: return null
         val builder = ProtobufBuilderPlan.resolve(replyClass) ?: return null
-        val dynamicListGetter = objectGetter(replyClass, "getDynamicList")
+        val dynamicListGetter = if (spec.rootList) null else objectGetter(replyClass, "getDynamicList")
         // 容器类名两个页签不同（综合 DynamicList / 视频 CardVideoDynList），所以按返回类型取，
         // 不写死类名。但**必须验证元素类型确实是 DynamicItem**：否则条目判据会因为
         // declaringClass 不匹配而全部读成 null，表现为"装上了却一条都不删"的静默无效。
-        val listClass = dynamicListGetter?.returnType
+        val listClass = if (spec.rootList) replyClass else dynamicListGetter?.returnType
         val listBuilder = listClass?.let(ProtobufBuilderPlan::resolve)
-        val setDynamicList = listClass?.let { builder.method("setDynamicList", it) }
+        val setDynamicList = if (spec.rootList) null else listClass?.let { builder.method("setDynamicList", it) }
         val itemClass = KavaMemberLookup.classOrNull(loader, DYNAMIC_ITEM_CLASS)
-        val indexedGetter = listClass?.let { KavaMemberLookup.methodOrNull(it, "getList", classOf<Int>()) }
-        val listGetter = listClass?.let { listGetter(it, "getListList") }
-        val clearList = listBuilder?.method("clearList")
-        val addAllList = listBuilder?.method("addAllList", classOf<Iterable<*>>())
+        val indexedGetter = listClass?.let { KavaMemberLookup.methodOrNull(it, "get${spec.listField}", classOf<Int>()) }
+        val listGetter = listClass?.let { listGetter(it, "get${spec.listField}List") }
+        val clearList = listBuilder?.method("clear${spec.listField}")
+        val addAllList = listBuilder?.method("addAll${spec.listField}", classOf<Iterable<*>>())
         val itemCarrierReady = itemClass != null && indexedGetter?.returnType == itemClass &&
-            setDynamicList != null && listGetter != null && clearList != null && addAllList != null
+            (spec.rootList || setDynamicList != null) && listGetter != null && clearList != null && addAllList != null
 
         val syncMethod = KavaMemberLookup.declaredMethods(mossClass, makeAccessible = true) {
             !it.isStatic && it.name == spec.syncName && it.parameterCount == 1 &&
@@ -690,13 +726,14 @@ internal class DynamicPurifyFeatureInstaller(
         }.singleOrNull()
         if (syncMethod == null && asyncMethod == null) return null
 
-        val hasTopic = booleanNoArg(replyClass, "hasTopicList")
+        val hasTopic = if (spec.rootList) null else booleanNoArg(replyClass, "hasTopicList")
         val clearTopic = builder.method("clearTopicList")
-        val upList = if (removeLiveUpEntries && !hideFrequentVisits) resolveUpList(loader, replyClass, builder) else null
-        val wholeUpList = if (hideFrequentVisits) resolveWholeUpList(replyClass, builder) else null
+        val upList = if (!spec.rootList && removeLiveUpEntries && !hideFrequentVisits) resolveUpList(loader, replyClass, builder) else null
+        val wholeUpList = if (!spec.rootList && hideFrequentVisits) resolveWholeUpList(replyClass, builder) else null
 
         return FeedMembers(
             replyClass = replyClass,
+            rootList = spec.rootList,
             builder = builder,
             listBuilder = listBuilder?.takeIf { itemCarrierReady },
             setDynamicList = setDynamicList,
@@ -906,10 +943,15 @@ internal class DynamicPurifyFeatureInstaller(
         val replyClassName: String,
         val syncName: String,
         val asyncName: String
-    )
+    ) {
+        val rootList: Boolean = asyncName == "dynAllPersonal" || asyncName == "dynVideoPersonal" ||
+            asyncName == "feedFilter" || asyncName == "dynFriend"
+        val listField: String = if (asyncName == "dynFriend") "DynList" else "List"
+    }
 
     private class FeedMembers(
         val replyClass: Class<*>,
+        val rootList: Boolean,
         val builder: ProtobufBuilderPlan,
         val listBuilder: ProtobufBuilderPlan?,
         val setDynamicList: Method?,
@@ -999,5 +1041,12 @@ internal class DynamicPurifyFeatureInstaller(
             FeedSpec("$DYNAMIC_PACKAGE.DynAllReply", "executeDynAll", "dynAll"),
             FeedSpec("$DYNAMIC_PACKAGE.DynVideoReply", "executeDynVideo", "dynVideo")
         )
+        private val ROOT_FEED_METHODS = listOf(
+            FeedSpec("$DYNAMIC_PACKAGE.DynAllPersonalReply", "executeDynAllPersonal", "dynAllPersonal"),
+            FeedSpec("$DYNAMIC_PACKAGE.DynVideoPersonalReply", "executeDynVideoPersonal", "dynVideoPersonal"),
+            FeedSpec("$DYNAMIC_PACKAGE.FeedFilterReply", "executeFeedFilter", "feedFilter"),
+            FeedSpec("$DYNAMIC_PACKAGE.DynFriendReply", "executeDynFriend", "dynFriend")
+        )
+        private val TOP_CAPABILITIES = setOf("dynamic_frequent_visits_hidden", "dynamic_topic_list_hidden", "dynamic_up_list_live_removed")
     }
 }

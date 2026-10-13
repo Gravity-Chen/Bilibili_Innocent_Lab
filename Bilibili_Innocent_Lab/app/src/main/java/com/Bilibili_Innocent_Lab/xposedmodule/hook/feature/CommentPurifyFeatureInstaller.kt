@@ -505,12 +505,12 @@ internal class CommentPurifyFeatureInstaller(
     }
 
     /**
-     * Kotlin 新通道（KMP 评论页的 `KReplyMoss.mainList/detailList/dialogList`）：见 [CommentKotlinPurifier]。
+     * Kotlin 评论列表、折叠/热点页与广播补插通道：见 [CommentKotlinPurifier]。
      * 搜索跳转开着时，`mainList` 的请求也往返一次，在 `extra` 里声明 `disable_underline=true`（第 0 道防线）。
      */
     private fun installKotlinChannel(environment: HookEnvironment) {
         if (!removeSearchLinks && !removeEmptyGuide && !removeQoe && !removeOperations) return
-        // 装不上要留下原因（有界：四条）；否则末尾那句"N 个"读起来像"不适用"，而不是"类没找到"。
+        // 装不上要留下原因（按 RPC 有界）；否则末尾那句"N 个"读起来像"不适用"，而不是"类没找到"。
         fun skip(reason: String) {
             environment.logInfo("comment_purify_kmoss_skip", "[BIL] 评论净化新通道未接入: $reason")
         }
@@ -525,6 +525,7 @@ internal class CommentPurifyFeatureInstaller(
                 put("OperationV2", "comments_operations_removed")
             }
         }
+        val appliedSink = ThreadLocal<MutableList<Pair<String, Int>>>()
         val purifier = CommentKotlinPurifier(
             replyInfoClass,
             isSearchUrl = if (removeSearchLinks) ::isSearchUrlValue else null,
@@ -534,7 +535,11 @@ internal class CommentPurifyFeatureInstaller(
             logSkip = { reason ->
                 environment.logInfo("comment_purify_kmoss_shape", "[BIL] 评论净化新通道：读不到 $reason，对应子项不生效")
             }
-        ) { capability, stage, count -> environment.reportRuntimeEvidence(capability, stage, count) }
+        ) { capability, stage, count ->
+            val sink = appliedSink.get()
+            if (stage == FeatureRuntimeStage.APPLIED && sink != null) sink += capability to count
+            else environment.reportRuntimeEvidence(capability, stage, count)
+        }
         val mainListReq = KavaMemberLookup.classOrNull(loader, "$REPLY_PACKAGE.MainListReq")
         // 请求侧那道防线读不到也要说一声，否则"搜索跳转已关"看上去是生效了的。
         if (mainListReq == null && removeSearchLinks) skip("no-main-list-request")
@@ -567,8 +572,19 @@ internal class CommentPurifyFeatureInstaller(
                 logKey = KMOSS_LOG_KEY,
                 javaRequestClass = mainListReq?.takeIf { rewriteRequest },
                 transformRequest = requestTransform?.takeIf { rewriteRequest },
-                shareUnchangedReply = true
-            ) { javaReply -> purifier.purify(javaReply) }
+                shareUnchangedReply = true,
+                confirmedTransform = { javaReply ->
+                    val pending = ArrayList<Pair<String, Int>>(4)
+                    val previous = appliedSink.get()
+                    appliedSink.set(pending)
+                    val updated = try { purifier.purify(javaReply) } finally {
+                        if (previous == null) appliedSink.remove() else appliedSink.set(previous)
+                    }
+                    KotlinMossResponseHandlerProxy.ConfirmedReply(updated) {
+                        pending.forEach { (capability, count) -> environment.reportRuntimeEvidence(capability, FeatureRuntimeStage.APPLIED, count) }
+                    }
+                }
+            ) { it }
             if (installed) hooks += 1
         }
         environment.logInfo("comment_purify_kmoss", "[BIL] 评论净化：Kotlin 新通道 $hooks 个")
@@ -723,7 +739,10 @@ internal class CommentPurifyFeatureInstaller(
         private val KMOSS_RPCS = listOf(
             "mainList" to "MainListReply",
             "detailList" to "DetailListReply",
-            "dialogList" to "DialogListReply"
+            "dialogList" to "DialogListReply",
+            "foldList" to "FoldListResp",
+            "hotspotPage" to "HotspotPageResp",
+            "replyInfo" to "ReplyInfoReply"
         )
 
         /**

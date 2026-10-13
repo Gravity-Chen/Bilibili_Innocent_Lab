@@ -8,6 +8,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CommentSurfaceWiringContractTest {
+    @Test fun additionalCommentRpcResponsesUseTheSharedBridgeWithScopedSingleRemoval() {
+        for (file in listOf("CommentFilterFeatureInstaller.kt", "CommentPurifyFeatureInstaller.kt")) {
+            val source = SourceContract.read("hook/feature/$file")
+            for (mapping in listOf(
+                "\"foldList\" to \"FoldListResp\"",
+                "\"hotspotPage\" to \"HotspotPageResp\"",
+                "\"replyInfo\" to \"ReplyInfoReply\""
+            )) assertTrue(mapping, source.contains(mapping))
+            assertTrue(source.contains("shareUnchangedReply = true"))
+        }
+        val filter = SourceContract.read("hook/feature/CommentFilterFeatureInstaller.kt")
+            .after("private fun installKotlinChannel").before("private fun prewarmSemantic")
+        assertTrue(filter.contains("if (rpc == \"replyInfo\") singleRewriter else rewriter"))
+        assertTrue(filter.contains("val result = rpcRewriter.rewrite(javaReply)"))
+        assertTrue(filter.contains("confirmedTransform ="))
+        val purify = SourceContract.read("hook/feature/CommentPurifyFeatureInstaller.kt")
+            .after("private fun installKotlinChannel").before("private fun installAbsentPayload")
+        assertTrue(purify.contains("rpc == \"mainList\" && requestTransform != null"))
+    }
+
     @Test fun fullTreeLoadingSwitchesBudgetBeforeInspectingAnInFlightRequest() {
         val source = SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
         val open = source.after("override fun onFullTreeRequested()").before("override fun onOpacityCommitted")

@@ -978,7 +978,7 @@
     <string name="highlights_host_compat">Hiding bottom-bar items, home tabs and home components works again in tablet mode. Bottom-bar choices now survive icon changes on the Bilibili side. Adapted to Bilibili 9.13.0.</string>
     <string name="component_snapshot_cached_notice">Showing the last saved scan. The current Bilibili state could not be confirmed.</string>
     <string name="hide_player_popup_promotion">Hide player popup promotions</string>
-    <string name="hide_player_popup_promotion_tip">Hide common floating promotion cards in the player, including mini program promotions. Other interactive components and regular danmaku are preserved.</string>
+    <string name="hide_player_popup_promotion_tip">Hide automatic free data offers and floating commerce or mini program promotions in the player. Network status alerts, manually opened service panels, other interactive components and regular danmaku are preserved.</string>
     <string name="recommendation_blocklist_manage">Manage recommendation blocks</string>
     <string name="recommendation_blocklist_manage_tip">Confirm feedback selections or remove accidental blocks.</string>
     <string name="block_ai_declared_videos">Block videos declared as AI-generated</string>

@@ -2647,6 +2647,11 @@ class HookEntry : XposedModule() {
             val featureInstallCoordinator = FeatureInstallCoordinator(hookEnvironment)
             val sponsorClassesRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.sponsorPlayer)
             val classicPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.commentClassicStyle)
+            val popupPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerPopupPromotion)
+            val popupInstaller = PlayerPopupPromotionFeatureInstaller(
+                enabled = hookConfig.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false),
+                cachedPoints = { popupPointsRef.get() }
+            )
             val classicInstaller = CommentClassicStyleFeatureInstaller(
                 enabled = hookConfig.getBoolean(FeaturePreferences.COMMENT_CLASSIC_STYLE, false),
                 cachedPoints = { classicPointsRef.get() }
@@ -3152,7 +3157,8 @@ class HookEntry : XposedModule() {
                         ).normalized()
                     ).toTypedArray(),
                     FollowFeedFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false)
+                        enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
+                        points = hostAdaptResult?.followFeedStyle
                     )
                 )
             )
@@ -3247,9 +3253,7 @@ class HookEntry : XposedModule() {
                     PlayerEndPageRecommendFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND, false)
                     ),
-                    PlayerPopupPromotionFeatureInstaller(
-                        enabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false)
-                    )
+                    popupInstaller
                 )
             )
 
@@ -3614,7 +3618,8 @@ class HookEntry : XposedModule() {
                     BrandSplashCustomFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_CUSTOM, false),
                         context = attachedContext,
-                        renderEnabled = !prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false)
+                        renderEnabled = !prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
+                        decoderPoint = hostAdaptResult?.brandSplashDecoder
                     ),
                     BvToAvFeatureInstaller(
                         enabled = prefs.getBoolean(
@@ -4764,6 +4769,15 @@ class HookEntry : XposedModule() {
 
                             override fun onAdaptFinished(ok: Boolean) {
                                 if (ok) {
+                                    if (popupInstaller.requiresAdaptationRetry) {
+                                        popupPointsRef.set(VersionAdapter.loadCached(attachedContext,
+                                            versionAdapterResetTimestamp)?.playerPopupPromotion)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (popupInstaller.requiresAdaptationRetry) {
+                                                featureInstallCoordinator.installAll(listOf(popupInstaller))
+                                            }
+                                        }
+                                    }
                                     if (classicInstaller.requiresAdaptationRetry) {
                                         classicPointsRef.set(VersionAdapter.loadCached(attachedContext,
                                             versionAdapterResetTimestamp)?.commentClassicStyle)
@@ -4799,7 +4813,11 @@ class HookEntry : XposedModule() {
                         startupCache = startupCache,
                         kotlinDefaultWordsEnabled = prefs.getBoolean(FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD, false),
                         sponsorBlockEnabled = prefs.getBoolean(FeaturePreferences.SPONSORBLOCK_ENABLED, false),
-                        commentClassicStyleEnabled = prefs.getBoolean(FeaturePreferences.COMMENT_CLASSIC_STYLE, false)
+                        commentClassicStyleEnabled = prefs.getBoolean(FeaturePreferences.COMMENT_CLASSIC_STYLE, false),
+                        playerPopupPromotionEnabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false),
+                        brandSplashCustomEnabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_CUSTOM, false) &&
+                            !prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
+                        followFeedStyleEnabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false)
                     )
                 }.onFailure { throwable ->
                     logError(

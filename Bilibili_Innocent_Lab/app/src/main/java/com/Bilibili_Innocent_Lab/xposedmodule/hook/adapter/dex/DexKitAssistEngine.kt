@@ -9,6 +9,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLoc
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 
 /**
  * DexKit 后台实现：只在常规 KavaRef 定位缺失时创建桥，并在每个代码 APK 查询后立即关闭。
@@ -81,7 +84,14 @@ internal object DexKitAssistEngine : DexAssistEngine {
                                     failed[query] = DexAssistResult.Reason.TOO_MANY_MATCHES
                                 } else {
                                     matches.forEach { data ->
-                                        if (query == DexAssistQuery.COMMENT_CLASSIC_NATIVE || query == DexAssistQuery.COMMENT_CLASSIC_KOTLIN) {
+                                        if (query == DexAssistQuery.PLAYER_POPUP_ADVERT_FLOAT) {
+                                            // getValidPanelData 同时收集普通弹幕，不能把它当成纯浮层入口。
+                                            val invokes = data.invokes
+                                            if (invokes.size > 128) { failed[query] = DexAssistResult.Reason.TOO_MANY_MATCHES; return@forEach }
+                                            if (invokes.any { it.declaredClassName == PlayerPopupPromotionAdapter.CARD_CLASS && it.name == "isValidDanmaku" }) return@forEach
+                                            runCatching { data.getMethodInstance(classLoader) }.getOrNull()
+                                                ?.takeIf(PlayerPopupPromotionAdapter::verifiedAdvertFloat)?.let { found += it }
+                                        } else if (query == DexAssistQuery.COMMENT_CLASSIC_NATIVE || query == DexAssistQuery.COMMENT_CLASSIC_KOTLIN) {
                                             // R8 会把实验 lambda 与其它业务合并；只挂其调用的 key 参数读取器。
                                             val invokes = data.invokes
                                             if (invokes.size > 128) { failed[query] = DexAssistResult.Reason.TOO_MANY_MATCHES; return@forEach }
@@ -142,6 +152,41 @@ internal object DexKitAssistEngine : DexAssistEngine {
     }
 
     private fun find(bridge: DexKitBridge, query: DexAssistQuery) = when (query) {
+        DexAssistQuery.FOLLOW_FEED_STYLE -> bridge.findMethod {
+            matcher {
+                name = "getItemOffsets"; returnType = "void"
+                paramTypes("android.graphics.Rect", "android.view.View", "androidx.recyclerview.widget.RecyclerView",
+                    "androidx.recyclerview.widget.RecyclerView\$State")
+                usingStrings(listOf(FollowFeedAdapter.DECORATION_SOURCE, FollowFeedAdapter.OFFSETS_MARK), StringMatchType.Equals)
+            }
+        }
+        DexAssistQuery.BRAND_SPLASH_DECODER -> bridge.findMethod {
+            matcher {
+                returnType = BrandSplashDecoderAdapter.BITMAP
+                paramTypes(BrandSplashDecoderAdapter.INFO)
+                modifiers(Modifier.STATIC, MatchType.Contains)
+                usingStrings(listOf(BrandSplashDecoderAdapter.MARK), StringMatchType.Equals)
+                addInvoke { declaredClass = BrandSplashDecoderAdapter.INFO; name = "getThumbHash"; paramCount(0) }
+                addInvoke { declaredClass = "android.graphics.BitmapFactory"; name = "decodeFile"; paramTypes("java.lang.String") }
+            }
+        }
+        DexAssistQuery.PLAYER_POPUP_FREE_DATA_GUIDE -> bridge.findMethod {
+            searchPackages(PlayerPopupPromotionAdapter.NETWORK_PACKAGE)
+            matcher {
+                returnType = "java.lang.Object"; paramCount(1)
+                // 8.97–9.2 的 BLog 将业务句与前缀合并；仍要求整句语义、完整 ABI 和唯一 owner。
+                usingStrings(listOf(PlayerPopupPromotionAdapter.GUIDE_FLOW_MARK), StringMatchType.Contains)
+            }
+        }
+        DexAssistQuery.PLAYER_POPUP_ADVERT_FLOAT -> bridge.findMethod {
+            searchPackages(PlayerPopupPromotionAdapter.MODEL_PACKAGE)
+            matcher {
+                returnType = "java.util.List"; paramCount(0)
+                addInvoke { declaredClass = PlayerPopupPromotionAdapter.CARD_CLASS; name = "isValidCommon"; paramCount(0) }
+                addInvoke { declaredClass = PlayerPopupPromotionAdapter.CARD_CLASS; name = "isValidCommerce"; paramCount(0) }
+                addInvoke { declaredClass = PlayerPopupPromotionAdapter.CARD_CLASS; name = "isValidGuide"; paramCount(0) }
+            }
+        }
         DexAssistQuery.COMMENT_CLASSIC_NATIVE, DexAssistQuery.COMMENT_CLASSIC_KOTLIN -> bridge.findMethod {
             matcher {
                 usingStrings(listOf(if (query == DexAssistQuery.COMMENT_CLASSIC_NATIVE)

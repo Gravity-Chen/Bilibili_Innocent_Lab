@@ -28,7 +28,9 @@ class KotlinDefaultWordsDexWiringContractTest {
         val hook = SourceContract.read("hook/HookEntry.kt").after("VersionAdapter.ensureAdapted(").before("}.onFailure")
         assertTrue(hook.contains("kotlinDefaultWordsEnabled = prefs.getBoolean(FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD, false)"))
         val adapter = SourceContract.read("hook/VersionAdapter.kt")
-        val cached = adapter.after("val cached = startup.usableCache").before("if (cached != null)")
+        // 相同宿主的快照先被保留给其它家族；默认词 refresh 仍只能拒绝已经 usable 的快照。
+        val cached = adapter.after("val usable = startup.usableCache(highCandidateExists)")
+            .after("val cached = usable?.takeUnless { value ->").before("if (cached != null)")
         assertTrue(cached.contains("kotlinDefaultWordsEnabled && KotlinDefaultWordsLocator.refreshCache"))
         assertTrue(cached.contains("it.state == AdaptState.MISSING"))
         val installer = SourceContract.read("hook/feature/HomeTopBarFeatureInstaller.kt")

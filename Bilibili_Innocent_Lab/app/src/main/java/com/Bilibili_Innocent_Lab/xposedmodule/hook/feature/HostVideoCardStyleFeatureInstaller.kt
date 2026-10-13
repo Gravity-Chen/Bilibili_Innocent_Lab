@@ -6,6 +6,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardSty
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyleSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostOgvCardHooks
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostCardHookCoverage
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundTheme
@@ -72,10 +73,10 @@ internal class HostVideoCardStyleFeatureInstaller(
                     environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
                     environment.logInfo("${id}_applied", "[BIL] 追番/影视卡片表面已生效")
                 }
-            } else 0
+            } else HostCardHookCoverage.NONE
             val spacingHooks = if (homeSpacing.enabled) HostHomeCardSpacingHooks.install(environment, style::markHome) else 0
             if (backgroundConfig.enabled) pageHookCount = HostBackgroundPageHooks.install(backgroundEnvironment ?: environment, pages)
-            val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators) else 0
+            val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators) else HostCardHookCoverage.NONE
             var scrollHooks = 0
             if (backgroundConfig.enabled && backgroundConfig.preset != HostBackgroundPreset.CUSTOM) {
                 val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView")
@@ -121,9 +122,13 @@ internal class HostVideoCardStyleFeatureInstaller(
                     style.bind(root, feedback = styleHost.isDislikeHolder(bound))
                 }
             }
-            environment.logInfo("${id}_installed", "[BIL] 视频列表美化安装成功（测量前留白=${grid != null}）")
-            FeatureInstallResult.Installed((if (grid != null) 3 else 1) + scrollHooks + dividerHooks + pageHookCount + spacingHooks + ogvHooks,
-                complete = (!(enabled || homeSpacing.enabled) || grid != null) && (!homeSpacing.enabled || spacingHooks > 0))
+            val complete = (!(enabled || homeSpacing.enabled) || grid != null) &&
+                (!homeSpacing.enabled || spacingHooks > 0) && ogvHooks.complete && dividerHooks.complete
+            val layers = "grid=${grid != null},spacing=$spacingHooks,ogv=${ogvHooks.label},divider=${dividerHooks.label}"
+            environment.reportStatus("${ID}_layers", "$layers;ogv-families=${ogvHooks.states};divider-families=${dividerHooks.states}")
+            environment.logInfo("${id}_installed", "[BIL] 视频列表美化${if (complete) "完整" else "部分"}安装（$layers）")
+            FeatureInstallResult.Installed((if (grid != null) 3 else 1) + scrollHooks + dividerHooks.hooks + pageHookCount + spacingHooks + ogvHooks.hooks,
+                complete = complete)
         }.getOrElse {
             environment.logError("${id}_error", "[BIL] 视频列表美化安装失败: $it")
             FeatureInstallResult.Skipped("registration-failed")

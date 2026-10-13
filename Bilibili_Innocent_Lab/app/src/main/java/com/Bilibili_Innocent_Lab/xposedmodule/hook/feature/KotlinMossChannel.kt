@@ -71,6 +71,8 @@ internal object KotlinMossChannel {
         shareUnchangedReply: Boolean = false,
         /** 适配器缓存的 DEX 定位结果；传入前后都复核 ABI，不在这里做 DEX 查询。 */
         resolvedEntry: Method? = null,
+        /** 可选确认回执：只在改写往返验真且宿主成功收到最终新响应后执行。 */
+        confirmedTransform: ((Any) -> KotlinMossResponseHandlerProxy.ConfirmedReply)? = null,
         transformJava: (Any) -> Any
     ): Boolean {
         fun skip(reason: String): Boolean {
@@ -120,9 +122,9 @@ internal object KotlinMossChannel {
                                 "[BIL] $what 新通道过滤失败，已放行原响应(${entry.name}): $throwable")
                         }
                     }
-                    val proxy = if (shareUnchangedReply) {
+                    val proxy = if (shareUnchangedReply || confirmedTransform != null) {
                         val key = KotlinMossResponseHandlerProxy.Key(entry, javaReplyClass, args[4]!!, args[2]!!)
-                        KotlinMossResponseHandlerProxy.wrap(handlerClass, delegate, key, bridge, failed, transformJava)
+                        KotlinMossResponseHandlerProxy.wrap(handlerClass, delegate, key, bridge, failed, transformJava, confirmedTransform)
                     } else MossResponseHandlerProxy.wrapTransform(handlerClass, delegate) { reply ->
                         runCatching { bridge.transform(reply, transformJava) }.getOrElse { throwable ->
                             failed(throwable)

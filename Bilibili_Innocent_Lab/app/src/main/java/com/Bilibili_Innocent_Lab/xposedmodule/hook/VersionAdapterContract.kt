@@ -45,7 +45,9 @@ internal object VersionAdapterContract {
     /** 65 → 66：搜索默认词 K 回调增加语义 DEX 兜底及 home_top.kotlin_words 可选缓存键；外层 JSON 形状不变。 */
     /** 66 → 67：SponsorBlock 增加后台语义 DEX 兜底及可选类名缓存，旧启用状态缓存需重定位。 */
     /** 67 → 68：旧版评论增加 KMP 容器配置读取与后台语义 DEX 兜底、可选成员缓存。 */
-    const val RULE_VERSION = 68
+    /** 68 → 69：播放器推广增加后台语义 DEX 兜底和可选专用入口缓存；旧缓存缺键可读。 */
+    /** 69 → 70：双 9.15.0 入口更新及可选开屏/关注流 DEX 结果；旧键继续兼容。 */
+    const val RULE_VERSION = 70
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

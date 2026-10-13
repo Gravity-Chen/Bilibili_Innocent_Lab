@@ -1,7 +1,15 @@
 package com.bapis.bilibili.app.dynamic.v2
 
-class DynamicItem
-class DynamicList(val items: List<DynamicItem> = emptyList()) {
+data class DynamicItem(val text: String = "") {
+    private val modules = listOf(Module(ModuleDesc(text)))
+    fun getModulesList() = modules
+}
+class Module(private val description: ModuleDesc) {
+    fun hasModuleDesc() = true
+    fun getModuleDesc() = description
+}
+class ModuleDesc(private val text: String) { fun getText() = text }
+data class DynamicList(val items: List<DynamicItem> = emptyList()) {
     fun getListList() = items
     fun getList(index: Int) = items[index]
     class Builder(original: DynamicList) {
@@ -12,7 +20,7 @@ class DynamicList(val items: List<DynamicItem> = emptyList()) {
     }
     companion object { @JvmStatic fun newBuilder(original: DynamicList) = Builder(original) }
 }
-class UpListItem(val live: Int, val position: Long, val fail: Boolean = false) {
+data class UpListItem(val live: Int, val position: Long, val fail: Boolean = false) {
     fun getLiveStateValue() = live
     class Builder(private val original: UpListItem) {
         private var position = original.position
@@ -21,7 +29,7 @@ class UpListItem(val live: Int, val position: Long, val fail: Boolean = false) {
     }
     companion object { @JvmStatic fun newBuilder(original: UpListItem) = Builder(original) }
 }
-class CardVideoUpList(
+data class CardVideoUpList(
     val first: List<UpListItem> = emptyList(), val second: List<UpListItem> = emptyList(),
     val failSecond: Boolean = false
 ) {
@@ -40,7 +48,7 @@ class CardVideoUpList(
     }
     companion object { @JvmStatic fun newBuilder(original: CardVideoUpList) = Builder(original) }
 }
-class DynAllReply(
+data class DynAllReply(
     val items: DynamicList = DynamicList(), val ups: CardVideoUpList = CardVideoUpList(),
     val topic: Boolean = true, val unrelated: Any = Any(), val failBuild: Boolean = false,
     val upPresent: Boolean = true, val failClear: Boolean = false
@@ -69,7 +77,7 @@ class DynAllReply(
         @JvmStatic fun newBuilder(original: DynAllReply) = Builder(original)
     }
 }
-class DynVideoReply(val ups: CardVideoUpList = CardVideoUpList(), val upPresent: Boolean = true,
+data class DynVideoReply(val ups: CardVideoUpList = CardVideoUpList(), val upPresent: Boolean = true,
     val items: DynamicList = DynamicList(), val unrelated: Any = Any()) {
     fun getVideoUpList() = ups
     fun hasVideoUpList() = upPresent
@@ -77,8 +85,10 @@ class DynVideoReply(val ups: CardVideoUpList = CardVideoUpList(), val upPresent:
     class Builder(private val original: DynVideoReply) {
         private var present = original.upPresent
         private var ups = original.ups
+        private var items = original.items
         fun clearVideoUpList() = apply { present = false; ups = CardVideoUpList() }
-        fun build() = DynVideoReply(ups, present, original.items, original.unrelated)
+        fun setDynamicList(value: DynamicList) = apply { items = value }
+        fun build() = DynVideoReply(ups, present, items, original.unrelated)
     }
     companion object {
         private val DEFAULT = DynVideoReply(upPresent = false)
@@ -92,4 +102,12 @@ class DynamicMoss {
     fun executeDynVideo(request: Any): DynVideoReply = DynVideoReply(unrelated = request)
     fun dynAll(request: Any, handler: com.bilibili.lib.moss.api.MossResponseHandler) = Unit
     fun dynVideo(request: Any, handler: com.bilibili.lib.moss.api.MossResponseHandler) = Unit
+    fun executeDynAllPersonal(request: Any): DynAllPersonalReply = DynAllPersonalReply()
+    fun executeDynVideoPersonal(request: Any): DynVideoPersonalReply = DynVideoPersonalReply()
+    fun dynAllPersonal(request: Any, handler: com.bilibili.lib.moss.api.MossResponseHandler) = Unit
+    fun dynVideoPersonal(request: Any, handler: com.bilibili.lib.moss.api.MossResponseHandler) = Unit
+    fun executeFeedFilter(request: Any): FeedFilterReply = FeedFilterReply()
+    fun feedFilter(request: Any, handler: com.bilibili.lib.moss.api.MossResponseHandler) = Unit
+    fun executeDynFriend(request: Any): DynFriendReply = DynFriendReply()
+    fun dynFriend(request: Any, handler: com.bilibili.lib.moss.api.MossResponseHandler) = Unit
 }

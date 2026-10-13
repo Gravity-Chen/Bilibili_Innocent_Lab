@@ -26,10 +26,7 @@ class FollowFeedHostAccessTest {
     private fun access(): FollowFeedHostAccess {
         val module = Module::class.java
         val item = Item::class.java
-        return FollowFeedHostAccess::class.java.declaredConstructors.single { !it.isSynthetic }.apply { isAccessible = true }
-            .newInstance(module, module.getMethod("M"), item.getMethod("f"), module.getMethod("d0"),
-                module.getMethod("g0"), module.getMethod("O"), module.getMethod("f0"), item.getMethod("i"),
-                module.getMethod("T"), Video::class.java) as FollowFeedHostAccess
+        return requireNotNull(FollowFeedHostAccess.legacy(module, item, Video::class.java))
     }
 
     @Test fun quotedVideoAndDynamicUseTheirOwnBoundariesInsideTheParent() {

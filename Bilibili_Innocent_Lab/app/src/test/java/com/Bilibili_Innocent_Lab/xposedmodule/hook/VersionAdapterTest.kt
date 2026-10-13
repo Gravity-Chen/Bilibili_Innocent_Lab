@@ -10,6 +10,80 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VersionAdapterTest {
+    @Test fun `follow optional descriptor and failure history remain within the same host snapshot`() {
+        val point = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints("iU.d", "f", "tS.G", "tS.H",
+            "com.bilibili.bplus.followinglist.home.Q", "current")
+        val id = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter.DIAGNOSTIC
+        val failed = VersionAdapter.AdaptDiagnostic(id, VersionAdapter.AdaptState.MISSING, "no_match")
+        val stored = result().copy(followFeedStyle = point, diagnostics = listOf(failed))
+        assertEquals(point, VersionAdapter.AdaptResult.fromJson(stored.toJson())?.followFeedStyle)
+        assertNull(VersionAdapter.AdaptResult.fromJson(result().toJson())?.followFeedStyle)
+        assertNull(VersionAdapter.AdaptResult.fromJson(stored.toJson().put("follow_feed_style", point.copy(modelFamily = "guess").toJson())))
+        val live = result().copy(diagnostics = listOf(failed.copy(state = VersionAdapter.AdaptState.NOT_APPLICABLE, detail = "quick-locate")))
+        val merged = VersionAdapter.mergeRuntimeWithCached(live, stored)!!
+        assertEquals(point, merged.followFeedStyle)
+        assertEquals(failed, merged.diagnostics.single { it.id == id })
+        val snapshot = VersionAdapter.StartupCacheSnapshot(VersionAdapter.HostIdentity(stored.biliVersionCode, stored.hostFingerprint), stored.ts, stored)
+        assertEquals(point, snapshot.usableCache(false)?.followFeedStyle)
+        assertNull(snapshot.copy(identity = snapshot.identity.copy(versionCode = stored.biliVersionCode + 1)).usableCache(false))
+        assertNull(snapshot.copy(resetTimestamp = stored.ts + 1).usableCache(false))
+    }
+
+    @Test fun `brand decoder optional cache preserves validated snapshot and completed failure independently`() {
+        val point = VersionAdapter.HookPoint("Nr1.a", "a", listOf(com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter.INFO))
+        val id = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter.DIAGNOSTIC
+        val failed = VersionAdapter.AdaptDiagnostic(id, VersionAdapter.AdaptState.MISSING, "no_match")
+        val stored = result().copy(brandSplashDecoder = point, diagnostics = listOf(failed))
+        assertEquals(point, VersionAdapter.AdaptResult.fromJson(stored.toJson())?.brandSplashDecoder)
+        assertNull(VersionAdapter.AdaptResult.fromJson(result().toJson())?.brandSplashDecoder)
+        assertNull(VersionAdapter.AdaptResult.fromJson(stored.toJson().put("brand_splash_decoder", point.copy(paramClassNames = emptyList()).toJson())))
+        val live = result().copy(diagnostics = listOf(failed.copy(state = VersionAdapter.AdaptState.NOT_APPLICABLE, detail = "quick-locate")))
+        val merged = VersionAdapter.mergeRuntimeWithCached(live, stored)!!
+        assertEquals(point, merged.brandSplashDecoder)
+        assertEquals(failed, merged.diagnostics.single { it.id == id })
+        val snapshot = VersionAdapter.StartupCacheSnapshot(VersionAdapter.HostIdentity(stored.biliVersionCode, stored.hostFingerprint), stored.ts, stored)
+        assertEquals(point, snapshot.usableCache(false)?.brandSplashDecoder)
+        assertNull(snapshot.copy(identity = snapshot.identity.copy(fingerprint = "different-host")).usableCache(false))
+        assertNull(snapshot.copy(resetTimestamp = stored.ts + 1).usableCache(false))
+    }
+
+    @Test fun `popup failed diagnostics survive quick merge independently without retaining other missing families`() {
+        val families = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter.Family.entries
+        val preserved = families.map { VersionAdapter.AdaptDiagnostic(it.diagnostic, VersionAdapter.AdaptState.MISSING, "no_match") }
+        val other = VersionAdapter.AdaptDiagnostic("dex.assist.other", VersionAdapter.AdaptState.MISSING, "unrelated")
+        val stored = result().copy(diagnostics = preserved + other)
+        val live = result().copy(diagnostics = (preserved + other).map { it.copy(state = VersionAdapter.AdaptState.NOT_APPLICABLE, detail = "quick-locate") })
+        val merged = VersionAdapter.mergeRuntimeWithCached(live, stored)!!
+        for (failure in preserved) assertEquals(failure, merged.diagnostics.single { it.id == failure.id })
+        assertEquals(VersionAdapter.AdaptState.NOT_APPLICABLE, merged.diagnostics.single { it.id == other.id }.state)
+        val found = live.copy(diagnostics = live.diagnostics.map { it.copy(state = VersionAdapter.AdaptState.FOUND, detail = "direct") })
+        assertTrue(VersionAdapter.mergeRuntimeWithCached(found, stored)!!.diagnostics.all { it.state == VersionAdapter.AdaptState.FOUND })
+    }
+
+    @Test fun `popup inheritance uses only the same fingerprint version and reset snapshot`() {
+        val point = VersionAdapter.HookPoint("com.bilibili.adcommon.data.model.DmAdvert", "getFloatLayers", emptyList())
+        val stored = result().copy(commentHigh = null, playerPopupPromotion = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionPoints(advertFloat = point))
+        val snapshot = VersionAdapter.StartupCacheSnapshot(VersionAdapter.HostIdentity(stored.biliVersionCode, stored.hostFingerprint), stored.ts, stored)
+        assertNull(snapshot.usableCache(highCandidateExists = true))
+        assertEquals(stored.playerPopupPromotion, snapshot.usableCache(false)?.playerPopupPromotion)
+        assertNull(snapshot.copy(resetTimestamp = stored.ts + 1).usableCache(false))
+        assertNull(snapshot.copy(identity = snapshot.identity.copy(fingerprint = "changed-host")).usableCache(false))
+        assertNull(snapshot.copy(identity = snapshot.identity.copy(versionCode = stored.biliVersionCode + 1)).usableCache(false))
+        assertNull(snapshot.copy(cached = null).usableCache(false))
+    }
+
+    @Test fun `popup promotion cache is optional rejects malformed members and merges missing families`() {
+        val points = com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionPoints(
+            VersionAdapter.HookPoint("com.bilibili.ship.theseus.united.player.mediaplay.network.Guide", "f", listOf("kotlin.coroutines.jvm.internal.ContinuationImpl")),
+            VersionAdapter.HookPoint("com.bilibili.adcommon.data.model.DmAdvert", "getFloatLayers", emptyList()))
+        val sample = result().copy(playerPopupPromotion = points)
+        assertEquals(points, VersionAdapter.AdaptResult.fromJson(sample.toJson())?.playerPopupPromotion)
+        assertNull(VersionAdapter.AdaptResult.fromJson(result().toJson())?.playerPopupPromotion)
+        assertNull(VersionAdapter.AdaptResult.fromJson(sample.toJson().put("player_popup_promotion", JSONObject().put("free_data_guide", "bad"))))
+        val live = sample.copy(playerPopupPromotion = points.copy(advertFloat = null))
+        assertEquals(points, VersionAdapter.mergeRuntimeWithCached(live, sample)?.playerPopupPromotion)
+    }
+
     @Test fun `classic comment cache is optional verified and merged per family`() {
         val native = VersionAdapter.HookPoint("com.bilibili.lib.dd.DeviceDecision", "getBoolean", listOf("java.lang.String", "boolean"))
         val kotlin = VersionAdapter.HookPoint("kntr.base.dd.IDeviceDecisionKt", "getBool", listOf("kntr.base.dd.IDeviceDecision", "java.lang.String", "boolean", "kntr.base.dd.IDeviceDecision\$Context"))

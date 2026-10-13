@@ -6,14 +6,17 @@ import java.lang.reflect.Constructor
 import java.lang.reflect.Executable
 
 /** 通过真实 Modern DSL 调用测试链，覆盖参数复制、原方法异常和 before/after 顺序。 */
-internal class PlayerPortTestRegistrar(private val failId: String? = null) : HookRegistrar by TestHookRegistrar {
+internal class PlayerPortTestRegistrar(var failId: String? = null) : HookRegistrar by TestHookRegistrar {
     data class Entry(val member: Executable, val callback: ModernMemberHookCreator)
     val hooks = linkedMapOf<String, Entry>()
+    // Map 会覆盖相同 id；另存实际尝试次数，避免重复注册被测试记录掩盖。
+    val registrationAttempts = mutableListOf<Pair<String, Executable>>()
     override fun exact(id: String, owner: Class<*>, methodName: String, vararg parameterTypes: Class<*>,
         block: ModernMemberHookCreator.() -> Unit) = record(id, owner.getDeclaredMethod(methodName, *parameterTypes), block)
     override fun constructor(id: String, constructor: Constructor<*>, block: ModernMemberHookCreator.() -> Unit) =
         record(id, constructor, block)
     private fun record(id: String, member: Executable, block: ModernMemberHookCreator.() -> Unit) {
+        registrationAttempts += id to member
         check(id != failId) { "simulated registration failure" }
         hooks[id] = Entry(member, ModernMemberHookCreator(member).apply(block))
     }
