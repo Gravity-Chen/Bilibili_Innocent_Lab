@@ -50,7 +50,36 @@ internal object HostBackgroundPageHooks {
             }
             count++
         }
-        return count + installCommentLayers(environment, pages) + installComposeTheme(environment, pages) + installCompose(environment)
+        return count + installCommentLayers(environment, pages) + installCommentSectionBackground(environment) + installComposeTheme(environment, pages) + installCompose(environment)
+    }
+
+    private fun installCommentSectionBackground(environment: HookEnvironment): Int {
+        val loader = environment.classLoader ?: return 0
+        val layer = KavaMemberLookup.classOrNull(loader, "com.bilibili.app.comment3.ui.view.CommentDetailLayer") ?: return 0
+        val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView") ?: return 0
+        val decoration = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView\$ItemDecoration") ?: return 0
+        val comment = KavaMemberLookup.classOrNull(loader, "com.bilibili.app.comment3.data.model.CommentItem") ?: return 0
+        val header = KavaMemberLookup.classOrNull(loader, "com.bilibili.app.comment3.data.model.r") ?: return 0
+        // 从内容层字段取得当前版本的装饰器类型，不绑定混淆后的装饰器类名。
+        val type = layer.declaredFields.map { it.type }.distinct().singleOrNull { decoration.isAssignableFrom(it) } ?: return 0
+        val methods = type.declaredMethods.filter {
+            val parameters = it.parameterTypes
+            java.lang.reflect.Modifier.isPrivate(it.modifiers) && it.returnType == Void.TYPE && parameters.size == 5 &&
+                parameters[0] == Canvas::class.java && parameters[1] == recycler && parameters[2] == View::class.java &&
+                parameters[3] == parameters[4] && parameters[3].isAssignableFrom(comment) && parameters[4].isAssignableFrom(header)
+        }
+        for (method in methods) {
+            environment.registrar.exact("host_background.comment_section.${method.name}", type, method.name, *method.parameterTypes) {
+                before {
+                    val list = argOrNull(1) as? View ?: return@before
+                    if (HostBackgroundPages.kind(list) != HostBackgroundPagePolicy.Kind.COMMENT) return@before
+                    // 仅主评论 → 相关回复标题的分区：宿主直接画 10dp Bg3 矩形，间距由 getItemOffsets 保留。
+                    // 相同形状的细线助手在该分区不执行；其他行的细线、楼中楼圆角与高亮仍走宿主绘制。
+                    if (comment.isInstance(argOrNull(3)) && header.isInstance(argOrNull(4))) result = null
+                }
+            }
+        }
+        return methods.size
     }
 
     private fun installComposeTheme(environment: HookEnvironment, pages: HostBackgroundPages): Int = runCatching {
