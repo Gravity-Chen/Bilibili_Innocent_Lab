@@ -565,8 +565,8 @@ internal class DanmakuPurifyFeatureInstaller(
 
         /** 每个分段最多判定的不同文本数；超出部分只走规则。 */
         const val SEMANTIC_MAX_UNIQUE = 300
-        /** 弹幕短文本，希望一个请求多放题；实际还受后端上限约束（JEV 32 题，被拒时自动对半拆分）。 */
-        const val SEMANTIC_BATCH_SIZE = 100
+        /** 弹幕短文本，希望一个请求多放题（一题 = 一条 × 一条规则）；实际还受后端上限约束（JEV 中转 32 题、官方 200 题，被拒时自动对半拆分）。 */
+        const val SEMANTIC_BATCH_SIZE = 200
         const val SEMANTIC_TIMEOUT_MS = 3_000
     }
 }

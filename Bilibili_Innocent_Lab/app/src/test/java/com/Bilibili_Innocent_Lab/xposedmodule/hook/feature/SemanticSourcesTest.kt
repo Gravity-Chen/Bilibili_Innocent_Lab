@@ -15,7 +15,8 @@ import org.junit.Test
 
 class SemanticSourcesTest {
 
-    private val rules = SemanticPresets.COMMENT.take(2)
+    /** 批量/补发类断言假设一题一文本；拆题后一题 = 一条 × 一条规则，取一条规则保持题数 = 条目数。 */
+    private val rules = SemanticPresets.COMMENT.take(1)
 
     @get:Rule val temp = TemporaryFolder()
 
@@ -437,14 +438,14 @@ class SemanticSourcesTest {
 
     @Test
     fun `thread pools grow with the number of sources and stay capped`() {
-        assertEquals(2, SemanticJudge.networkThreads(1))
-        assertEquals(4, SemanticJudge.networkThreads(2))
-        assertEquals(6, SemanticJudge.networkThreads(4))
-        assertEquals(6, SemanticJudge.networkThreads(8))
-        assertEquals(4, SemanticJudge.waitThreads(1))
-        assertEquals(6, SemanticJudge.waitThreads(2))
-        assertEquals(8, SemanticJudge.waitThreads(4))
-        assertEquals(8, SemanticJudge.waitThreads(8))
+        assertEquals(4, SemanticJudge.networkThreads(1))
+        assertEquals(8, SemanticJudge.networkThreads(2))
+        assertEquals(8, SemanticJudge.networkThreads(4))
+        assertEquals(8, SemanticJudge.networkThreads(8))
+        assertEquals(8, SemanticJudge.waitThreads(1))
+        assertEquals(10, SemanticJudge.waitThreads(2))
+        assertEquals(10, SemanticJudge.waitThreads(4))
+        assertEquals(10, SemanticJudge.waitThreads(8))
     }
 
     @Test

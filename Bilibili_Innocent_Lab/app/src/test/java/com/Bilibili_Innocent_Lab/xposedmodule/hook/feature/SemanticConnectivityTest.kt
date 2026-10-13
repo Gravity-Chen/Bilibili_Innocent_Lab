@@ -60,7 +60,7 @@ class SemanticConnectivityTest {
         assertEquals(JevBackend.OPENROUTER_DECISIONS, respan.endpoint)
         val result = SemanticConnectivity.probe(respan, transport = { body, _, _ ->
             val json = JSONObject(String(body))
-            val type = json.getJSONObject("questions").getJSONObject("item_0").getString("type")
+            val type = json.getJSONObject("questions").getJSONObject("item_0_0").getString("type")
             if (json.opt("state") !is String || type != "noul") 400 to "{}" else 200 to answer(body)
         })
         assertTrue(result.ok)

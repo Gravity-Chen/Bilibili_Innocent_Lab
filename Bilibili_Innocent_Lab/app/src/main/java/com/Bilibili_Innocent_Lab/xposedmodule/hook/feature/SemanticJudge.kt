@@ -15,8 +15,10 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
 /**
- * 语义判定：把若干条文本交给 TypeSafe Jev（官方或兼容的第三方中转），按"一句话规则"逐条给出
- * keep/block。配置来自设置页（实验性功能 → 兼容），见 `development_experience.md` 2026-09-29。
+ * 语义判定：把若干条文本交给 TypeSafe Jev（官方或兼容的第三方中转），按"一句话规则"**逐条规则**给出
+ * keep/block——每条文本 × 每条规则一个原子问题，绝不把多种违规判定塞进一个问题（官方反例，见
+ * [JevRequestCodec]），答案按条目取最大还原成屏蔽概率。配置来自设置页（实验性功能 → 兼容），
+ * 见 `development_experience.md` 2026-09-29。
  *
  * 纪律：
  * - **fail-open**：冷却中、超时、HTTP 错误、解析失败一律 [SemanticVerdict.UNKNOWN]，调用方按原有规则
@@ -460,7 +462,7 @@ internal class SemanticJudge(
     val endpoint: String = ENDPOINT,
     /** true：首屏阻塞等判定；false：首屏放行，判定在后台进缓存，下次加载生效。 */
     val waitFirstScreen: Boolean = false,
-    /** 每个请求最多放几题；Jev 的并行题目同享 state，弹幕这种短文本可以放大。 */
+    /** 每个请求最多放几题；一题 = 一条文本 × 一条规则（见 [JevRequestCodec]），Jev 的并行题目同享 state，弹幕这种短文本可以放大。 */
     private val batchSize: Int = MAX_BATCH,
     /** 判定后端；默认 JEV。 */
     private val backend: SemanticBackend = JevBackend(),
@@ -586,13 +588,15 @@ internal class SemanticJudge(
 
     private class PendingItem(val text: String, val key: String)
 
-    /** 当前分批上限：调用方设定、后端上限、以及对这个服务探明的上限（被拒后对半拆分学到的）。 */
-    private fun chunkLimit(): Int =
-        minOf(
-            batchSize,
-            MAX_BATCH_LIMIT,
-            slots.minOf { minOf(it.source.backend.maxBatch, learnedBatchLimits[it.source.learnKey] ?: Int.MAX_VALUE) }
-        ).coerceAtLeast(1)
+    /**
+     * 当前分批上限（**条目数**）：调用方设定与后端上限都按"题数"（一题 = 一条文本 × 一条规则），
+     * 除以规则数换算成条目，再和探明的条目上限（被拒后对半拆分学到的）取小。
+     */
+    private fun chunkLimit(): Int {
+        val questions = minOf(batchSize, MAX_BATCH_LIMIT, slots.minOf { it.source.backend.maxBatch(it.source.endpoint) })
+        val learned = slots.minOf { learnedBatchLimits[it.source.learnKey] ?: Int.MAX_VALUE }
+        return minOf(questions / rules.size.coerceAtLeast(1), learned).coerceAtLeast(1)
+    }
 
     /**
      * 每条文本只算一次摘要键。[onReport] 只在真的发出请求时回调（WAIT 在当前线程，PREFETCH 在后台线程）。
@@ -1160,8 +1164,8 @@ internal class SemanticJudge(
         /** 单个请求的最短网络超时（连接、读取各一半）。 */
         const val MIN_REQUEST_TIMEOUT_MS = 12_000
         const val MAX_BATCH = 24
-        /** 官方文档单请求上下文 64k；100 题短文本约 5k token，留足余量。 */
-        const val MAX_BATCH_LIMIT = 100
+        /** 官方文档单请求上下文 64k（state + 最长一题 ≤ 32k）；200 题（一题 = 一条 × 一条规则）短文本约 12k token，留足余量。 */
+        const val MAX_BATCH_LIMIT = 200
         const val MAX_TEXT_CHARS = 600
         const val MAX_API_KEY_LENGTH = 512
         const val MAX_ENDPOINT_LENGTH = 512
@@ -1170,15 +1174,17 @@ internal class SemanticJudge(
         /** 模块网络池：并发上限与排队上限；满了直接拒绝（这批只走规则），绝不无界堆积。 */
         /**
          * 预取池（后台判定、落盘、启动清理）与等待池（WAIT）分开，各自有界。
-         * 等待池 4 线程：一个弹幕分段去重后最多 300 条 ÷ 每批 32 ≈ 10 个请求，2 线程在 3 s 内跑不完（2026-09-30 压测）。
+         * 队列按"整段突发"设容量：拆题后一题 = 一条 × 一条规则，弹幕一段 300 条 ≈ 50 个分批任务
+         * （JEV 中转 32 题、默认 5 条规则 ≈ 每批 6 条），旧容量 16 会当场拒掉约 2/3 的分批、那一轮只走规则。
+         * 等待池 8 线程按 3 s 首屏预算取（约 50 个请求 × 每请求 0.4 s）；超出预算的分批按规则放行、后台补判。
          */
-        private const val NETWORK_THREADS = 2
-        private const val BACKGROUND_QUEUE = 16
-        private const val WAIT_THREADS = 4
-        private const val WAIT_QUEUE = 12
+        private const val NETWORK_THREADS = 4
+        private const val BACKGROUND_QUEUE = 48
+        private const val WAIT_THREADS = 8
+        private const val WAIT_QUEUE = 48
         /** 多来源时线程数随来源数增加（每多一个来源，后台 +2、等待 +2），封顶如下。 */
-        private const val MAX_NETWORK_THREADS = 6
-        private const val MAX_WAIT_THREADS = 8
+        private const val MAX_NETWORK_THREADS = 8
+        private const val MAX_WAIT_THREADS = 10
         /** 对冲 / 并行尝试的线程上限（只在 ≥2 个来源且用户在等时用）。 */
         private const val MAX_HEDGE_THREADS = 8
 
@@ -1226,7 +1232,7 @@ internal class SemanticJudge(
 
         /**
          * 硬盘文件头 / 缓存键指纹：来源组合（后端 + 模型 + 地址，按身份排序）+ 规则（含自定义类型的全部字段）
-         * + 判定口径；任一变化旧判定整份作废。Key 不参与（换 Key 不改变判定）。
+         * + 判定口径 + 题面结构版本；任一变化旧判定整份作废。Key 不参与（换 Key 不改变判定）。
          */
         fun fingerprintOf(rules: List<SemanticRule>, sources: List<SemanticSource>, guidance: String = ""): String =
             fingerprintOfIdentities(rules, sources.map { it.identity }, guidance)
@@ -1239,9 +1245,16 @@ internal class SemanticJudge(
             guidance: String = ""
         ): String = fingerprintOfIdentities(rules, listOf("${backend.id}\u0000${backend.model}\u0000$endpoint"), guidance)
 
+        /**
+         * 题面结构版本：换了"问题怎么出"（如 2026-10-13 从"一题问遍所有规则"拆成每规则一题，同日题面等义缩写）后，
+         * 旧写法的判定分数不可比，进指纹让旧判定整份作废。
+         */
+        private const val QUESTION_SCHEMA = "per-rule-v3"
+
         private fun fingerprintOfIdentities(rules: List<SemanticRule>, identities: List<String>, guidance: String): String =
             digest128(
-                identities.sorted().joinToString("\u0005") + "\u0000" +
+                QUESTION_SCHEMA + "\u0000" +
+                    identities.sorted().joinToString("\u0005") + "\u0000" +
                     rules.joinToString("\u0001") { it.identity } + "\u0000" + SemanticGuidance.normalize(guidance)
             )
 
@@ -1413,7 +1426,7 @@ internal class SemanticJudge(
             (WAIT_THREADS + 2 * (sources.coerceAtLeast(1) - 1)).coerceAtMost(MAX_WAIT_THREADS)
 
         /**
-         * 按来源数调整线程池：单来源保持原来的 2 / 4 线程；多来源时每个来源都能同时接活，
+         * 按来源数调整线程池：单来源 4 / 8 线程；多来源时每个来源都能同时接活，
          * 否则第二个来源只是"备胎"，吞吐不涨。池已建好时就地调整。
          */
         fun configureConcurrency(sources: Int) {
@@ -1527,6 +1540,16 @@ internal class SemanticJudge(
 /**
  * Jev `/v1/systemone` 的请求编码与响应解析；纯函数，便于单测。
  *
+ * **每条文本 × 每条规则各出一题**（键 `item_{条目}_{规则}`），一题只判一种违规：官方把"一题问遍所有违规"
+ * 明确列为反例——docs.typesafe.ai《How to build with TypeSafe》"Decompose the questions" 的
+ * "One broad question (bad)"（`is_spam: "Is `message` spam?"`）对应 "Decomposed questions (good)"
+ * 的每规则一题，原文 "Broad questions hide several judgments behind one answer. Atomic questions
+ * expose those judgments so you can inspect, tune, and combine them in code."；《Models》亦要求
+ * "Decompose broad judgments into atomic questions and combine the outputs in code."。
+ * 同一请求里各题并行作答、互不影响（官方 "Ask multiple questions together"），拆题几乎不增加时延。
+ * 结论由 [decodeBlockScores] 按条目取各规则的最大值，还原成"命中任一规则"的屏蔽概率再过门槛；
+ * 不用 1-Π(1-p)：同一条文本同时命中多条规则高度正相关，连乘会把正常内容的分数抬过门槛。
+ *
  * 规则与说明放在共享的 `state` 里只写一次，每题只用反引号引用：2026-09-29 真机 A/B（14 条标注样本 × 3 轮）
  * 输入 token 4044 → 2201，三档门槛均 14/14；逐题重复规则的写法会把正常讨论的屏蔽概率抬到 0.54–0.63。
  */
@@ -1534,8 +1557,12 @@ internal object JevRequestCodec {
     /** 默认判定说明（防注入前缀 + 默认口径）；用户可改口径，见 [SemanticGuidance]。 */
     internal val GUIDANCE: String get() = SemanticGuidance.of(null)
 
-    private const val BLOCK_MEANING = "The entry matches at least one blocking rule."
-    private const val KEEP_MEANING = "The entry does not clearly match any blocking rule, or only fits a rule's `not_for`."
+    /**
+     * 判定口径两档含义（2026-10-13 等义缩写，见 QUESTION_SCHEMA）：保留"只判这一条规则"与
+     * "只命中 `not_for` 排除项 = 保留"两层护栏语义，只去掉冗长句式；含义不可再删。
+     */
+    private const val BLOCK_MEANING = "Matches this one rule."
+    private const val KEEP_MEANING = "No clear match, or fits only the rule's `not_for`."
 
     fun encode(
         texts: List<String>,
@@ -1566,24 +1593,27 @@ internal object JevRequestCodec {
         }
         val questions = JSONObject()
         texts.indices.forEach { index ->
-            val instructions = if (textState) {
-                "Should entry [$index] be hidden because it matches any of the blocking rules? " +
-                    "Follow the guidance. Judge only that entry."
-            } else {
-                "Should `entries[$index]` be hidden because it matches any of `rules`? " +
-                    "Follow `guidance`. Judge only that entry."
+            rules.forEachIndexed { ruleIndex, rule ->
+                // 一题只判一种违规（官方反例见本文件头注）：只指到这一条规则，不再问"是否命中任一规则"。
+                // 指令等义缩写（2026-10-13）：去掉规则名复述（`rules[r]` 自带 type/covers），保留
+                // "只判这一条目、只判这一条规则"的防串扰护栏与"Follow `guidance`"的用户口径生效点。
+                val instructions = if (textState) {
+                    "Does entry [$index] match rule [$ruleIndex]? Only that entry, only that rule. Follow the guidance."
+                } else {
+                    "Does `entries[$index]` match `rules[$ruleIndex]`? Only that entry, only that rule. Follow `guidance`."
+                }
+                // 官方 schema：三种题型都是 type + instructions + criteria，criteria 形状各不相同。
+                val criteria: Any = when (format) {
+                    JevQuestionFormat.CHOICE -> JSONObject().put("block", BLOCK_MEANING).put("keep", KEEP_MEANING)
+                    JevQuestionFormat.NOUL -> JSONObject().put("true", BLOCK_MEANING).put("false", KEEP_MEANING)
+                    // 两级、按"保留 → 屏蔽"排序：加权值 0–1 即屏蔽概率。
+                    JevQuestionFormat.SCORE -> JSONArray().put(KEEP_MEANING).put(BLOCK_MEANING)
+                }
+                questions.put(
+                    "item_${index}_$ruleIndex",
+                    JSONObject().put("type", format.wire).put("instructions", instructions).put("criteria", criteria)
+                )
             }
-            // 官方 schema：三种题型都是 type + instructions + criteria，criteria 形状各不相同。
-            val criteria: Any = when (format) {
-                JevQuestionFormat.CHOICE -> JSONObject().put("block", BLOCK_MEANING).put("keep", KEEP_MEANING)
-                JevQuestionFormat.NOUL -> JSONObject().put("true", BLOCK_MEANING).put("false", KEEP_MEANING)
-                // 两级、按"保留 → 屏蔽"排序：加权值 0–1 即屏蔽概率。
-                JevQuestionFormat.SCORE -> JSONArray().put(KEEP_MEANING).put(BLOCK_MEANING)
-            }
-            questions.put(
-                "item_$index",
-                JSONObject().put("type", format.wire).put("instructions", instructions).put("criteria", criteria)
-            )
         }
         return JSONObject()
             .put("model", model)
@@ -1597,17 +1627,30 @@ internal object JevRequestCodec {
     internal fun rulesJson(rules: List<SemanticRule>): JSONArray =
         JSONArray().also { array -> rules.forEach { array.put(it.toJson()) } }
 
+    /** `item_{条目}_{规则}`：拆题后的原子问题；`item_{条目}`：整条式答案（个别模型/中转简化键名），按整条计。 */
+    private val PAIR_KEY = Regex("item_(\\d+)_(\\d+)")
+    private val ENTRY_KEY = Regex("item_(\\d+)")
+
     /**
      * 每条的屏蔽概率，按答案自己的 `type` 解析（不假设与请求题型一致）：
      * - `choice`：优先 `probabilities.block`；没有分布时按 `choice` 退化为 1/0；
      * - `noul`：`noul` 本身就是"是"的概率；
      * - `score`：优先最高级（屏蔽）的概率，否则 `score / (级数 - 1)`。
-     * 缺项、类型不认识、数值越界为 NaN（UNKNOWN）；整体结构不对、或一条都没判出时返回 null。
+     *
+     * 键 `item_{条目}_{规则}` 是按规则拆开的原子问题，同一条目各规则取**最大**（命中任一规则即屏蔽）；
+     * 只带条目号的 `item_{条目}` 与各题一起取最大。某条目一个答案都没有才是 NaN（UNKNOWN）——
+     * 部分规则漏答不算缺失（漏答补发按整条计）。缺项、类型不认识、数值越界不计分；
+     * 整体结构不对、或一条都没判出时返回 null。
      */
     fun decodeBlockScores(payload: String, count: Int): FloatArray? {
         val answers = runCatching { JSONObject(payload).getJSONObject("answers") }.getOrNull() ?: return null
-        val scores = FloatArray(count) { index ->
-            val answer = answers.optJSONObject("item_$index") ?: return@FloatArray Float.NaN
+        val scores = FloatArray(count) { Float.NaN }
+        answers.keys().forEach { key ->
+            val entry = PAIR_KEY.find(key)?.groupValues?.get(1)?.toIntOrNull()
+                ?: ENTRY_KEY.find(key)?.groupValues?.get(1)?.toIntOrNull()
+                ?: return@forEach
+            if (entry !in 0 until count) return@forEach
+            val answer = answers.optJSONObject(key) ?: return@forEach
             val value = when (answer.optString("type")) {
                 "choice" -> {
                     val probability = answer.optJSONObject("probabilities")?.optDouble("block", Double.NaN) ?: Double.NaN
@@ -1622,7 +1665,9 @@ internal object JevRequestCodec {
                 "score" -> scoreProbability(answer)
                 else -> Double.NaN
             }
-            if (!value.isNaN() && value in 0.0..1.0) value.toFloat() else Float.NaN
+            if (!value.isNaN() && value in 0.0..1.0 && (scores[entry].isNaN() || value > scores[entry])) {
+                scores[entry] = value.toFloat()
+            }
         }
         // 外壳认得出、却一条都没判出（题型全不认识、概率全是百分比……）与"结构不对"同义：返回 null
         // 让判定器换写法并冷却这个来源。不返回的话，阶梯走完后会被当成成功，判定静默失效。
