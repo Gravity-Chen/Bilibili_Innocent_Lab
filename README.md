@@ -11,7 +11,7 @@
 
 ### 面向 Android 哔哩哔哩客户端的界面净化与交互增强模块
 
-基于 **Xposed / LSPosed、YukiHookAPI 与 KavaRef** 构建，作用于官方 Android 客户端 `tv.danmaku.bili`。
+基于 **Xposed / LSPosed、libxposed Modern API 与 KavaRef** 构建，作用于官方 Android 客户端 `tv.danmaku.bili`。
 
 [下载 Release](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) · [提交问题](https://github.com/jichuo1/Bilibili_Innocent_Lab/issues) · [交流群组](https://t.me/Bilibili_Innocent_Lab)
 
@@ -93,17 +93,17 @@ Bilibili Innocent Lab 是一个面向 Android 哔哩哔哩客户端的 Xposed/LS
 - 可调整任务时间和步数，通过任务通知查看状态、日志或停止操作。通用操作在切换到其它应用或锁屏时停止，敏感操作由模块拦截。
 - 目标与授权的宿主内容会发送给所选模型，能力检测和任务执行会消耗 API 额度。任务日志只保留脱敏状态与用量，不保存目标、密钥、截图或原始响应。
 
-模块将功能拆分为独立开关，用户可以只启用自己需要的部分。界面按「净化」与「增强」分栏，各自末尾提供对应的进阶设置；自由复制及气泡外观集中在增强栏。分类调整保留已有开关值和生效方式，启用宿主功能后通常需要重启哔哩哔哩。若当前客户端版本没有找到足够可靠的适配入口，对应功能会跳过处理并保留宿主原有行为。
+模块将功能拆分为独立开关，用户可以只启用需要的部分。界面按「常用」「净化」「增强」「美化」「模块」组织，收藏与搜索可定位原有设置入口；自由复制在增强页，视觉配置集中在美化页。已有开关值和生效方式保持一致，启用宿主功能后通常需要重启哔哩哔哩。若当前客户端没有可靠的适配入口，对应功能会跳过处理并保留宿主行为。
 
 | 界面入口 | 内容 |
 | --- | --- |
-| 净化 → 净化进阶设置 | 首页、底栏与动态、我的页、播放页、评论区、启动提示；跨页面推荐时长规则单列 |
-| 增强 | 评论／简介自由复制，复制气泡自动跟随与手动亮色 |
-| 增强 → 增强进阶设置 | 首页与动态浏览、播放画质与状态栏、评论阅读与交互、完整数字显示 |
-| 实验性功能 → 外观 | 高级材质、高级材质背景、SPEC 配色规范、应用语言与桌面图标 |
-| 实验性功能 → 兼容 | 免 Root 与漫游兼容、预见式返回、重新适配当前版本 |
+| 常用 | 收藏的功能入口，复用原有开关值、权限和监听 |
+| 净化 | 各页面的内容、广告、组件与提示过滤；跨页面共享规则保留单一入口 |
+| 增强 | 评论／简介复制、阅读与浏览交互、播放和完整数字等能力 |
+| 美化 | 模块界面与宿主视觉、材质、背景及相关外观选项 |
+| 模块 | 激活、诊断、更新和模块管理，以及实验性兼容与任务助手入口 |
 
-完整的功能归属与范围见[设置分类说明](docs/settings_organization.md)。下文仍按功能主题介绍具体能力。
+下文按功能主题介绍具体能力。开发用分类与结构说明由本地技术档案维护，不作为公开发行内容。
 
 ### 🏠 首页与导航
 
@@ -260,6 +260,7 @@ Bilibili Innocent Lab 是一个面向 Android 哔哩哔哩客户端的 Xposed/LS
 | 隐藏评论关注按钮 | 隐藏评论区中的关注按钮，保留评论内容、用户徽章和其他交互 |
 | 关闭评论体验反馈 | 隐藏评论体验反馈、问卷等 QOE 内容 |
 | 隐藏评论区运营推广 | 过滤评论区数据中已识别的运营推广内容，不修改普通评论与回复正文 |
+| 隐藏评论回复按钮 | 默认关闭；只隐藏评论操作栏的回复按钮，保留共 N 条回复、输入栏和三点菜单，重启哔哩哔哩后生效 |
 | 关闭评论点击快速回复 | 短按评论正文或卡片时不再直接打开回复编辑器；显式回复按钮、底部输入栏、三点菜单和长按自由复制仍然可用 |
 
 #### 评论内容过滤
@@ -492,20 +493,20 @@ Windows PowerShell：
 
 ```powershell
 cd Bilibili_Innocent_Lab
-.\gradlew.bat assembleDebug --console=plain --daemon
+.\gradlew.bat assembleDebug --console=plain --no-daemon
 ```
 
 Linux / macOS：
 
 ```bash
 cd Bilibili_Innocent_Lab
-./gradlew assembleDebug --console=plain --daemon
+./gradlew assembleDebug --console=plain --no-daemon
 ```
 
 **运行 JVM 单元测试**
 
 ```powershell
-.\gradlew.bat testDebugUnitTest --console=plain --daemon
+.\gradlew.bat testDebugUnitTest --console=plain --no-daemon
 ```
 
 **运行 Lint**
@@ -513,18 +514,18 @@ cd Bilibili_Innocent_Lab
 日常迭代使用快速检查：
 
 ```powershell
-.\gradlew.bat :app:lintFast --console=plain --daemon
+.\gradlew.bat :app:lintFast --console=plain --no-daemon
 ```
 
 快速检查仅跳过明确列出的 32 条 BetterAndroid / KavaRef API 替换建议，仍检查测试源码并保留 Android 正确性、权限、API 兼容性和 Hikage 规则。它不是完整门禁；提交前和 CI 使用完整检查：
 
 ```powershell
-.\gradlew.bat :app:lintDebug --console=plain --daemon
+.\gradlew.bat :app:lintDebug --console=plain --no-daemon
 ```
 
 快速报告保存到 `app/build/reports/lint/fast/`，完整报告保存到 `app/build/reports/lint/full/`，HTML 文件均为 `lint-results-debug.html`。使用完整任务名；`lintFast` 仅允许与 `assembleDebug`、`assembleDebugAndroidTest`、`testDebugUnitTest` 同时运行，其他任务和完整门禁分开执行。Linux / macOS 使用 `./gradlew` 执行相同任务。
 
-保持相同 JDK 和 JVM 参数可复用 Gradle 守护进程与任务缓存；日常构建不必执行 `clean`。缓存完整时可添加 `--offline`；受限环境无法建立本地进程通信时再改用 `--no-daemon`。
+本项目构建统一使用 `--no-daemon`，保留任务与依赖缓存；日常不随意 `clean`。Hikage BOM 或插件签名变化后，在本次隔离工程执行 `clean`。缓存完整时可添加 `--offline`。
 
 **产物校验**
 
@@ -538,8 +539,7 @@ Bilibili_Innocent_Lab/app/build/outputs/apk/debug/app-debug.apk
 
 **延伸文档**
 
-- [运行架构](docs/architecture.md)
-- [回归验证](docs/verification.md)
+- 运行架构与回归验证由本地技术档案维护，开发工作从本地 `AGENTS.md` 进入。
 
 ---
 

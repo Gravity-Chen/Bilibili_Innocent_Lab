@@ -20,6 +20,8 @@
 
 ## 历史：1.2.2 的公共扩展
 
+以下补丁与诊断后缀仅保留发生背景，不是当前 settings 的应用清单。当前 1.4.1 已由引擎吸收这些能力。
+
 基线固定为上游 [1.2.2 发布版](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.2.2)。为保留迁移前的效果，在引擎原包名下应用小范围公共扩展；宿主适配只使用公开 API，不重新维护材质、探针或弹簧求解器。接入结构见 `app/src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/hook/hostui/README.md`。
 
 `linear-fade.patch` 是引擎原包名下的小范围公共扩展，增加 `LumenSurfaceSampling.fadeCurve` / `LumenSurfaceFadeCurve.LINEAR`；默认 `SMOOTH` 保持原行为。GPU、软件采样与静态承托共用同一策略。补丁包含引擎 API 文档、策略与后端接线测试，以及 sample 的 GPU 实际像素检查，不包含宿主业务代码。

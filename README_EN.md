@@ -11,7 +11,7 @@
 
 ### A UI cleanup and interaction enhancement module for the Android Bilibili client
 
-Built on **Xposed / LSPosed, YukiHookAPI and KavaRef**, targeting the official Android client `tv.danmaku.bili`.
+Built on **Xposed / LSPosed, libxposed Modern API and KavaRef**, targeting the official Android client `tv.danmaku.bili`.
 
 [Download releases](https://github.com/jichuo1/Bilibili_Innocent_Lab/releases) · [Report an issue](https://github.com/jichuo1/Bilibili_Innocent_Lab/issues) · [Telegram group](https://t.me/Bilibili_Innocent_Lab)
 
@@ -155,17 +155,17 @@ Output budgets and image challenges stay unchanged for reasoning-model and OCR c
 come from smaller repeated inputs, fewer auxiliary requests and fewer explicitly rejected compatibility
 attempts. Local byte reductions are not provider-billed token counts or monetary savings.
 
-The module splits its features into independent switches, so you can enable only the parts you need. The UI is split into "Cleanup" and "Enhancements", each ending with its own advanced settings; free copy and bubble appearance live in the Enhancements column. The reorganisation kept existing switch values and behaviour; after enabling a host feature you usually need to restart Bilibili. If the current client version has no reliable enough adaptation entry point, the feature skips processing and leaves the host's original behaviour untouched.
+The module uses independent switches so you can enable only the parts you need. Settings are organised into Favorites, Cleanup, Enhancements, Beautify, and Module pages; favorites and search lead to the original controls. Free copy lives in Enhancements, while visual configuration lives in Beautify. Existing values and behaviour remain consistent; host features usually require restarting Bilibili. If the current client has no reliable adaptation entry point, the feature leaves the host's behaviour intact.
 
 | UI entry | Contents |
 | --- | --- |
-| Cleanup → Cleanup advanced settings | Home, bottom bar & Dynamics, My page, playback page, comment section, launch prompts; the cross-page recommendation-duration rule is listed separately |
-| Enhancements | Free copy for comments / descriptions, copy bubble auto-follow and manual light theme |
-| Enhancements → Enhancements advanced settings | Home & Dynamics browsing, playback quality & status bar, comment reading & interaction, full number display |
-| Experimental features → Appearance | UI aesthetics, Liquid Glass background, SPEC colour scheme, app language & launcher icon |
-| Experimental features → Compatibility | Root-free & BiliRoaming compatibility, predictive back, re-adapt to the current version |
+| Favorites | Saved feature entries using the original values, permissions, and listeners |
+| Cleanup | Content, advertisement, component, and prompt filters; shared rules keep a single entry |
+| Enhancements | Comment / description copy, reading and browsing interactions, playback, and full number display |
+| Beautify | Module and host visuals, materials, backgrounds, and related appearance options |
+| Module | Activation, diagnostics, updates, module management, experimental compatibility, and the task assistant |
 
-See [Settings organisation](docs/settings_organization.md) for the complete feature-to-category mapping. The sections below still describe the capabilities by feature topic.
+The sections below describe capabilities by feature topic. Developer-facing category and architecture records are maintained locally and are not part of the public distribution.
 
 ### 🏠 Home and navigation
 
@@ -244,7 +244,7 @@ See [Settings organisation](docs/settings_organization.md) for the complete feat
 | Disable the client update prompt | Blocks the Bilibili client's own update reminder; it does not affect this module's Stable or Preview update checks |
 | Disable the teen mode prompt | Hides the teen mode notice page without changing teen mode's enabled state, restriction rules or system settings |
 | Show full numbers | Counts such as views and likes prefer the full value instead of abbreviations like "wan" and "yi"; only adapted number-formatting entry points are handled |
-| Floating video cards | Keeps the existing rounded recommendation covers, subtle shadows, and grid spacing. The Following feed uses a shared Lumen palette, complete static dynamic cards, an All/Video sliding selector, and compact frequent contacts while clearing the existing floating dock. Recommendation corners remain configurable from 0–40dp; dynamic cards use the 16dp preset. Available in advanced enhancement settings, off by default, requires restarting Bilibili. [Integration and validation](docs/follow-feed-integration.md) |
+| Floating video cards | Keeps the existing rounded recommendation covers, subtle shadows, and grid spacing. The Following feed uses a shared Lumen palette, complete static dynamic cards, an All/Video sliding selector, and compact frequent contacts while clearing the existing floating dock. Recommendation corners remain configurable from 0–40dp; dynamic cards use the 16dp preset. Available in advanced enhancement settings, off by default, requires restarting Bilibili. |
 | Show AV numbers instead of BV numbers | Bilibili shows either an AV number or a BV number at the same place; enabling this always shows the AV number. BV links in the body are still recognised and clickable |
 
 #### Sharing
@@ -319,6 +319,7 @@ Every category is judged precisely from the public structured type in the adapte
 | Hide the comment follow button | Hides the follow button in the comment section while keeping comment content, user badges and other interactions |
 | Disable comment experience feedback | Hides comment experience feedback, questionnaires and other QoE content |
 | Hide comment section promotions | Filters recognised promotional content in the comment section data without modifying ordinary comment and reply bodies |
+| Hide comment reply buttons | Off by default; hides only the Reply control in comment action bars, preserving the N replies entry, input bar and three-dot menu. Restart Bilibili to apply |
 | Disable tap-to-reply on comments | Briefly tapping a comment body or card no longer opens the reply editor directly; the explicit reply button, bottom input bar, three-dot menu and long-press free copy still work |
 
 #### Comment content filtering
@@ -542,20 +543,20 @@ Windows PowerShell:
 
 ```powershell
 cd Bilibili_Innocent_Lab
-.\gradlew.bat assembleDebug --console=plain --daemon
+.\gradlew.bat assembleDebug --console=plain --no-daemon
 ```
 
 Linux / macOS:
 
 ```bash
 cd Bilibili_Innocent_Lab
-./gradlew assembleDebug --console=plain --daemon
+./gradlew assembleDebug --console=plain --no-daemon
 ```
 
 **Run the JVM unit tests**
 
 ```powershell
-.\gradlew.bat testDebugUnitTest --console=plain --daemon
+.\gradlew.bat testDebugUnitTest --console=plain --no-daemon
 ```
 
 **Run lint**
@@ -563,18 +564,18 @@ cd Bilibili_Innocent_Lab
 Use the fast check during local iteration:
 
 ```powershell
-.\gradlew.bat :app:lintFast --console=plain --daemon
+.\gradlew.bat :app:lintFast --console=plain --no-daemon
 ```
 
 The fast check skips only an explicit list of 32 BetterAndroid / KavaRef API replacement suggestions. Test-source analysis and Android correctness, permission, API compatibility, and Hikage checks remain enabled. It does not replace the full gate. Before committing and in CI, run:
 
 ```powershell
-.\gradlew.bat :app:lintDebug --console=plain --daemon
+.\gradlew.bat :app:lintDebug --console=plain --no-daemon
 ```
 
 Fast reports are saved under `app/build/reports/lint/fast/`, and full reports under `app/build/reports/lint/full/`; both HTML files are named `lint-results-debug.html`. Use full task names. Only `assembleDebug`, `assembleDebugAndroidTest`, and `testDebugUnitTest` may accompany `lintFast`; run other tasks and full gates separately. On Linux / macOS, use `./gradlew` with the same tasks.
 
-Keep the JDK and JVM arguments consistent to reuse the Gradle daemon and task cache. Routine builds do not require `clean`. Add `--offline` when dependencies are cached; use `--no-daemon` as a fallback when a restricted environment blocks local process communication.
+Use `--no-daemon` consistently while retaining dependency and task caches. Avoid routine `clean`; clean the task's isolated build after Hikage BOM or plugin signature changes. Add `--offline` when dependencies are cached.
 
 **Verifying the artifact**
 
@@ -588,8 +589,7 @@ After a build, make sure the APK's modification time is later than the source mo
 
 **Further documentation**
 
-- [Runtime architecture](docs/architecture.md)
-- [Regression verification](docs/verification.md)
+- Architecture and regression records are maintained locally; developer work starts from the local `AGENTS.md`.
 
 ---
 

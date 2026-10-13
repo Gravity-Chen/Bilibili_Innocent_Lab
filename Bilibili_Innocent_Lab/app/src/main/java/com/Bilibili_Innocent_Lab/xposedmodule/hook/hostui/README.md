@@ -1,6 +1,6 @@
 # 宿主 UI 接入
 
-宿主视觉使用凝光 1.2.6 的公开 API，`lumen-engine` 与 `lumen-motion` 由同一正式标签的复合构建提供。`hook/feature` 只负责能力发现、Hook 安装和运行时诊断，具体 UI 装配放在本目录。模块自己的设置界面仍在 `ui/activity`；宿主视觉代码不再依赖那里的材质或导航实现。
+宿主视觉使用固定标签凝光 1.4.1 的公开 API，`lumen-engine` 与 `lumen-motion` 由同一正式标签的复合构建提供。`hook/feature` 只负责能力发现、Hook 安装和运行时诊断，具体 UI 装配放在本目录。模块自己的设置界面仍在 `ui/activity`；宿主视觉代码不再依赖那里的材质或导航实现。
 
 | 模块 | 宿主职责 | 引擎接口 |
 | --- | --- | --- |
@@ -37,13 +37,15 @@
 
 ## 更新与验证
 
+当前通用约束从本地 `docs/guides/ui.md` 进入；下面的日期、测试数和设备记录是历史快照。
+
 引擎版本、校验和与公共扩展的更新方法见根工程 `gradle/lumen/README.md`。先查看上游公开 API 和适配标准；版本变化集中处理 common/overlays 适配，再检查各功能模块的样式参数与布局契约。
 
 仍存在的视觉差异：卡片原 NinePatch 柔影改为系统 2dp 轮廓阴影，扩散边缘会随系统渲染变化。普通收岛保持单个圆角矩形，GPU 沿用展开胶囊的内容节点、模糊和透镜，在当前形状范围内绘制；软件兼容保留已有柔光采样并裁剪，避免切换首帧丢失背景。双形状与其他高级效果仍使用后台位图采样加 AGSL / 软件轮廓后端。普通展开胶囊的 GPU/软件柔光已分别对照原管线，不能据此宣称收岛也逐像素一致。
 
 2026-10-09 收起闪动回归：旧版在柔光 GPU、软件兼容和 Liquid 三种路径上均被新增首帧用例检出回退底色；修正后这三项通过，同时覆盖更换内容后首次收起与同位置重复收起。另有收起后 GPU / 软件实时背景及主题回归三项通过。模块 JVM 2538 项通过、1 项跳过，引擎 JVM 401 项通过，Debug APK / 测试 APK 构建与快速 Lint 通过（200 条警告，原有 3 个错误基线不变）。默认手机覆盖安装后冷启动宿主，复测推荐流上滑、下滑及重复收起；截图、首帧旧版失败日志、修正版测试结果和前后录屏保存在忽略目录 `captures/top-collapse-flash/`。实机宿主使用用户当前的 SOFT / AUTO，软件兼容和 Liquid 的首帧验证来自独立窗口用例，未更改用户材质设置。
 
-使用项目 JDK 17 和本地缓存执行 `:app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintFast --offline --daemon`。引擎执行 `:lumen:lumen-engine:testDebugUnitTest :lumen:lumen-motion:testDebugUnitTest`。宿主回归包含隐藏标签与发布外观、同页拖动、主题切换、收岛实时采样、列表位置不受视觉偏移影响、播放器排除、面板淡入后的窗口像素，以及会话释放/重绑定保留背景与 padding。最后覆盖安装并冷启动实际宿主，复测原路径；模块内测试不能代替宿主验证。
+使用项目 JDK 17 和本地缓存执行 `:app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintFast --offline --no-daemon`。引擎执行 `:lumen:lumen-engine:testDebugUnitTest :lumen:lumen-motion:testDebugUnitTest`。宿主回归包含隐藏标签与发布外观、同页拖动、主题切换、收岛实时采样、列表位置不受视觉偏移影响、播放器排除、面板淡入后的窗口像素，以及会话释放/重绑定保留背景与 padding。最后覆盖安装并冷启动实际宿主，复测原路径；模块内测试不能代替宿主验证。
 
 2026-10-08 初次迁移验证：默认手机针对上述范围的 27 个 Android 用例通过；宿主实测覆盖收岛/展开、关注页切换、复制气泡与系统文本选择、回复脉络面板和全屏回复树。一致性修正后的最终 JVM 回归为模块 2473 通过、1 跳过，引擎与 motion 730 通过。实机补充回归两批各 5 项（8 个不同用例）通过，覆盖 GPU/软件收岛采样、主题与背景归属、面板真实窗口像素、气泡短文限宽/独立文字层/关闭回调、深色亮图补偿和公开参数序列化。另补充并通过 GPU 绘制计数断言，确认自定义收岛外壳改变内容后继续执行 GPU 绘制，没有静默回退到软件采样。最终 Debug APK 和测试 APK 构建、快速 Lint 通过（193 条警告，原有 3 个错误基线未扩展）。
 
