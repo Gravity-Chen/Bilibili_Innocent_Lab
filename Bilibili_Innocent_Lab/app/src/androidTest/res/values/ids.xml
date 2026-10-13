@@ -1,4 +1,9 @@
 <resources>
+    <item name="filter_icon" type="id" />
+    <item name="filter_icon_container" type="id" />
+    <item name="container_strip" type="id" />
+    <item name="tab_box" type="id" />
+    <item name="history_manage" type="id" />
     <item name="splash_layout" type="id" />
     <item name="splash_container" type="id" />
     <item name="head_layout" type="id" />

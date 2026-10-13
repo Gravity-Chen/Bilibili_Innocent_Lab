@@ -201,6 +201,8 @@ internal class HostBackgroundPages(
             val nextLists = ArrayList<WeakReference<ViewGroup>>()
             val nextTexts = ArrayList<WeakReference<TextView>>()
             fun visit(node: View, depth: Int) {
+                // 标签末端的操作按钮也用页面底色；图片控件只登记背景，不触及图标内容。
+                if (nativeContainers && tabActionSurface(node)) nextContainers += WeakReference(node)
                 if (depth > (if (nativeContainers) 32 else 12) || node is ImageView) return
                 if (node !== root && kinds.containsKey(node)) return
                 if (node is TextView) {
@@ -320,6 +322,15 @@ internal class HostBackgroundPages(
     }
 
     private fun clearNeutral(view: View, page: ViewGroup, nativeContainers: Boolean) {
+        if (nativeContainers && tabActionSurface(view)) {
+            val drawable = view.background
+            if (drawable != null && neutralTabActionBackground(drawable)) {
+                val padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
+                view.background = null
+                view.setPadding(padding[0], padding[1], padding[2], padding[3])
+            }
+            return
+        }
         if (protected(view)) return
         if (detailBackgrounds[view]?.let { it === view.background } == true) return
         // 侧边中心会随标签切换，把同一容器从 Bg2 改成黑色。媒体页白色顶栏依赖这块黑底。
@@ -423,6 +434,17 @@ internal class HostBackgroundPages(
         drawable.cornerRadius == 0f && drawable.cornerRadii?.any { it != 0f } != true && drawable.colors == null &&
         drawable.color?.let { !it.isStateful && HostBackgroundPagePolicy.neutral(it.defaultColor) } == true
 
+    private fun neutralTabActionBackground(drawable: Drawable): Boolean = when (drawable) {
+        is ColorDrawable -> drawable.color ushr 24 == 0 || HostBackgroundPagePolicy.neutral(drawable.color)
+        is GradientDrawable -> drawable.shape == GradientDrawable.RECTANGLE && drawable.cornerRadius == 0f &&
+            drawable.cornerRadii?.any { it != 0f } != true && (drawable.colors?.let { colors ->
+                colors.isNotEmpty() && colors.all { it ushr 24 == 0 || HostBackgroundPagePolicy.neutral(it or (0xff shl 24)) }
+            } ?: drawable.color?.let { !it.isStateful && (it.defaultColor ushr 24 == 0 || HostBackgroundPagePolicy.neutral(it.defaultColor)) } == true)
+        is LayerDrawable -> drawable.numberOfLayers > 0 &&
+            (0 until drawable.numberOfLayers).all { neutralTabActionBackground(drawable.getDrawable(it)) }
+        else -> false
+    }
+
     companion object {
         private val kinds = WeakHashMap<ViewGroup, HostBackgroundPagePolicy.Kind>()
         fun owner(view: View): ViewGroup? {
@@ -480,6 +502,13 @@ internal class HostBackgroundPages(
 
         private fun name(view: View) = if (view.id == View.NO_ID) "" else
             runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+        private fun tabActionSurface(view: View): Boolean {
+            val parent = view.parent as? View ?: return false
+            if (view is ImageView) return name(view) == "filter_icon" && name(parent) == "filter_icon_container" &&
+                (parent.parent as? View)?.let(::name) == "container_strip"
+            return view is ViewGroup && name(parent) == "tab_box" && view.childCount == 1 &&
+                view.getChildAt(0) is ImageView && name(view.getChildAt(0)) == "history_manage"
+        }
         // 合集的吸顶信息栏遮住列表，固定标题栏遮住收起中的信息栏；两层都不能当作页面底板清空。
         private fun selectionChrome(view: View): Boolean {
             if (name(view) != "head_layout" && name(view) != "top_layout") return false

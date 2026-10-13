@@ -29,6 +29,68 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    @Test fun tabActionGradientsRevealWallpaperWithoutChangingIconsOrOtherImages() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = InstrumentationRegistry.getInstrumentation().context
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(context)
+                val strip = FrameLayout(context).apply { id = TestR.id.container_strip }
+                val filterContainer = FrameLayout(context).apply { id = TestR.id.filter_icon_container }
+                val filter = ImageView(context).apply { id = TestR.id.filter_icon; setImageDrawable(ColorDrawable(Color.GRAY)); setPadding(28, 0, 16, 0) }
+                val tabs = FrameLayout(context).apply { id = TestR.id.tab_box }
+                val manageContainer = FrameLayout(context)
+                val manage = ImageView(context).apply { id = TestR.id.history_manage; setImageDrawable(ColorDrawable(Color.GRAY)) }
+                val cover = ImageView(context)
+                fun gradient(color: Int) = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.TRANSPARENT, color))
+                cover.background = gradient(Color.WHITE)
+                val coverBackground = cover.background
+                val filterIcon = filter.drawable
+                val manageIcon = manage.drawable
+                root.addView(strip, FrameLayout.LayoutParams(-1, 60))
+                strip.addView(filterContainer, FrameLayout.LayoutParams(64, 60))
+                filterContainer.addView(filter, FrameLayout.LayoutParams(-1, -1))
+                root.addView(tabs, FrameLayout.LayoutParams(-1, 60).apply { topMargin = 60 })
+                tabs.addView(manageContainer, FrameLayout.LayoutParams(62, 34))
+                manageContainer.addView(manage, FrameLayout.LayoutParams(20, 20))
+                root.addView(cover, FrameLayout.LayoutParams(100, 100).apply { topMargin = 120 })
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, 320, 640)
+                val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it })
+                val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                for (color in listOf(Color.WHITE, Color.BLACK, Color.MAGENTA)) {
+                    filter.background = gradient(color)
+                    manageContainer.background = LayerDrawable(arrayOf(gradient(color), GradientDrawable().apply { setColor(color) })).apply {
+                        setLayerInset(0, 0, 0, 50, 0)
+                        setLayerInset(1, 12, 0, 0, 0)
+                    }
+                    val filterBackground = filter.background
+                    val manageBackground = manageContainer.background
+                    repeat(2) {
+                        root.viewTreeObserver.dispatchOnGlobalLayout()
+                        root.viewTreeObserver.dispatchOnPreDraw()
+                        if (color == Color.MAGENTA) {
+                            assertSame(filterBackground, filter.background)
+                            assertSame(manageBackground, manageContainer.background)
+                        } else {
+                            assertNull(filter.background)
+                            assertNull(manageContainer.background)
+                        }
+                        assertSame(filterIcon, filter.drawable)
+                        assertSame(manageIcon, manage.drawable)
+                        assertSame(coverBackground, cover.background)
+                        assertEquals(28, filter.paddingLeft)
+                        assertEquals(16, filter.paddingRight)
+                    }
+                }
+                decor.removeView(root)
+            }
+        }
+    }
+
     @Test fun splashAndPinnedSelectionHeaderKeepTheirOccludingSurfaces() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
