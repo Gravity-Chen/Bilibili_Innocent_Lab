@@ -991,6 +991,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             "bv_to_av" -> R.string.show_bv_as_av
             "comment_filter" -> R.string.diagnostics_host_feature_comment_filter
             "comment_purify" -> R.string.diagnostics_host_feature_comment_purify
+            "comment_reply_button" -> R.string.remove_comment_reply_button
             "comment_section" -> R.string.hide_comment_section
             "comment_topology" -> R.string.reply_topology_enabled
             "free_copy" -> R.string.free_copy_enable

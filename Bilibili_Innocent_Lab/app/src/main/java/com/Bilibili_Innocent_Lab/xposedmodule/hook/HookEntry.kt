@@ -53,6 +53,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostTopBarFxFeatureIn
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HostTouchGlowFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BvToAvFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentPurifyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentReplyButtonFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentTopologyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentSectionFeatureInstaller
@@ -3440,6 +3441,9 @@ class HookEntry : XposedModule() {
                             false
                         ),
                         points = hostAdaptResult?.commentSection
+                    ),
+                    CommentReplyButtonFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON, false)
                     ),
                     CommentPurifyFeatureInstaller(
                         removeSearchLinks = prefs.getBoolean(

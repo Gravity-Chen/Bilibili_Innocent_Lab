@@ -421,6 +421,8 @@
     <string name="remove_comment_qoe_tip">开启后，不再显示评论体验反馈和问卷，评论内容与交互不受影响。重启哔哩哔哩后生效。</string>
     <string name="remove_comment_operations">隐藏评论区运营推广</string>
     <string name="remove_comment_operations_tip">开启后，隐藏评论区中的运营推广，评论及回复内容不受影响。重启哔哩哔哩后生效。</string>
+    <string name="remove_comment_reply_button">隐藏评论回复按钮</string>
+    <string name="remove_comment_reply_button_tip">开启后，仅隐藏评论操作栏中的“回复”按钮；“共 N 条回复”入口、输入栏和三点菜单保持可用。重启哔哩哔哩后生效。</string>
     <string name="block_comment_quick_reply">关闭评论点击快速回复</string>
     <string name="block_comment_quick_reply_tip">开启后，短按评论正文或卡片不再打开回复编辑器；回复按钮、输入栏、三点菜单和长按自由复制保持可用。重启哔哩哔哩后生效。</string>
     <string name="comment_keyword_filter">按关键词过滤评论</string>

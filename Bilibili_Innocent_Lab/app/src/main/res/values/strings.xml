@@ -421,6 +421,8 @@
     <string name="remove_comment_qoe_tip">When enabled, comment experience feedback and surveys are no longer shown. Comment content and interactions remain unchanged. Restart Bilibili to apply.</string>
     <string name="remove_comment_operations">Hide comment promotions</string>
     <string name="remove_comment_operations_tip">When enabled, hides promotions in comment sections. Comment and reply content remain unchanged. Restart Bilibili to apply.</string>
+    <string name="remove_comment_reply_button">Hide comment reply buttons</string>
+    <string name="remove_comment_reply_button_tip">When enabled, hides only the Reply button in comment action bars. The N replies entry, input bar, and three-dot menu remain available. Restart Bilibili to apply.</string>
     <string name="block_comment_quick_reply">Disable tap-to-quick-reply</string>
     <string name="block_comment_quick_reply_tip">When enabled, tapping comment text or its card no longer opens the reply editor. Reply buttons, the input bar, the three-dot menu, and long-press free copy remain available. Restart Bilibili to apply.</string>
     <string name="comment_keyword_filter">Filter comments by keyword</string>

@@ -33,7 +33,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRende
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 52
+    const val CATALOG_VERSION = 53
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -837,6 +837,8 @@ internal object SettingsCatalog {
         bool("comments.follow_buttons.removed", FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS, R.string.remove_comment_follow_buttons),
         bool("comments.qoe.removed", FeaturePreferences.REMOVE_COMMENT_QOE, R.string.remove_comment_qoe),
         bool("comments.operations.removed", FeaturePreferences.REMOVE_COMMENT_OPERATIONS, R.string.remove_comment_operations),
+        bool("comments.reply_button.removed", FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON,
+            R.string.remove_comment_reply_button, introducedCatalogVersion = 53),
         bool("comments.quick_reply.blocked", FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY, R.string.block_comment_quick_reply),
         bool("comments.section.hidden", FeaturePreferences.HIDE_COMMENT_SECTION, R.string.hide_comment_section),
         bool("comments.reply_topology.enabled", FeaturePreferences.REPLY_TOPOLOGY_ENABLED, R.string.reply_topology_enabled),
@@ -995,7 +997,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 233) { "Expected 233 catalog settings, found ${specs.size}" }
+        check(specs.size == 234) { "Expected 234 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

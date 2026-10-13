@@ -1,10 +1,21 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 import org.junit.Assert.*
 import org.junit.Test
 
 /** Source contracts protect integration boundaries that are not exercised by JVM View stubs. */
 class SettingsHomeIntegrationTest {
+    @Test fun replyButtonVisibilitySwitchHasAHighlightDestinationOnThePurificationPage() {
+        val rows = SourceContract.read("ui/activity/CommentReplyButtonPresenter.kt")
+        val binding = rows.after("bindFavoriteSwitch(this, FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON, directToggle = true)")
+            .before("text = stringResource(R.string.remove_comment_reply_button)")
+        assertTrue(binding.contains("bindSettingDestination(this, FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON)"))
+        assertTrue(SettingsUiSource.function("purifyCommentsCategory").contains("commentReplyButtonSettingsRows(this, removeCommentReplyButton)"))
+    }
+
     @Test fun searchTraversesOriginalPagesAndSwitchesBeforeSchedulingCoordinates() {
         val collect = SettingsUiSource.function("collectSettingsSearchTargets")
         assertTrue(collect.contains("settingsHome?.searchRoots"))

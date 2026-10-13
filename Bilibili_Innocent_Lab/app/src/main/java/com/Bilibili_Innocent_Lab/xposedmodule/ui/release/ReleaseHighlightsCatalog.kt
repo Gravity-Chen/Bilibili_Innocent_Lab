@@ -297,6 +297,9 @@ internal object ReleaseHighlightsCatalog {
     ), automatic = false), ReleaseHighlightsBatch(18, listOf(
         ReleaseHighlight("home-comic-filter", HighlightKind.NEW, R.string.highlights_home_comic,
             HighlightDestination("home.recommend.comic.removed", homeFilterOption = true))
+    )), ReleaseHighlightsBatch(19, listOf(
+        ReleaseHighlight("comment-reply-button", HighlightKind.NEW, R.string.remove_comment_reply_button_tip,
+            HighlightDestination("comments.reply_button.removed"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

@@ -421,6 +421,8 @@
     <string name="remove_comment_qoe_tip">啟用後，不再顯示評論體驗回饋與問卷，評論內容及互動不受影響。重新啟動 Bilibili 後生效。</string>
     <string name="remove_comment_operations">隱藏評論區營運宣傳</string>
     <string name="remove_comment_operations_tip">啟用後，隱藏評論區中的營運宣傳，評論及回覆內容不受影響。重新啟動 Bilibili 後生效。</string>
+    <string name="remove_comment_reply_button">隱藏評論回覆按鈕</string>
+    <string name="remove_comment_reply_button_tip">啟用後，僅隱藏評論操作列中的「回覆」按鈕；「共 N 條回覆」入口、輸入列和三點選單保持可用。重新啟動 Bilibili 後生效。</string>
     <string name="block_comment_quick_reply">關閉點按評論快速回覆</string>
     <string name="block_comment_quick_reply_tip">啟用後，短按評論正文或卡片不再開啟回覆編輯器；回覆按鈕、輸入列、三點選單及長按自由複製仍可使用。重新啟動 Bilibili 後生效。</string>
     <string name="comment_keyword_filter">依關鍵字過濾評論</string>

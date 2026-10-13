@@ -222,6 +222,7 @@ internal object FeaturePreferences {
     const val REMOVE_COMMENT_FOLLOW_BUTTONS = "remove_comment_follow_buttons"
     const val REMOVE_COMMENT_QOE = "remove_comment_qoe"
     const val REMOVE_COMMENT_OPERATIONS = "remove_comment_operations"
+    const val REMOVE_COMMENT_REPLY_BUTTON = "remove_comment_reply_button"
     const val BLOCK_COMMENT_QUICK_REPLY = "block_comment_quick_reply"
     const val HIDE_COMMENT_SECTION = "hide_comment_section"
     const val COMMENT_CLASSIC_STYLE = "comment_classic_style"

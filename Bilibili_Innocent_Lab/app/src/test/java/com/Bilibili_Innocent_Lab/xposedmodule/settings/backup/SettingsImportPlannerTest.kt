@@ -6,6 +6,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsImportPlannerTest {
+    @Test fun `older backups preserve reply button visibility intent and current backups restore it`() {
+        val spec = SettingsCatalog.byId.getValue("comments.reply_button.removed")
+        val current = snapshot(spec to StoredSetting(true, SettingValue.Bool(true)))
+        val planner = SettingsImportPlanner(listOf(spec), 53)
+        for (version in 1..52) {
+            val older = planner.plan(document(version, emptyList()), current)
+            assertEquals(ImportStatus.NEW_IN_CURRENT, older.entries.single().status)
+            assertTrue(older.writes.isEmpty())
+        }
+        val restored = planner.plan(document(53, listOf(record(spec, true, SettingValue.Bool(false)))), current)
+        assertEquals(ImportStatus.EXACT, restored.entries.single().status)
+        assertEquals(SettingValue.Bool(false), restored.writes.single().value)
+    }
+
     @Test fun `older backups retain an existing experimental buffer strategy`() {
         val specs = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 51 }
         val current = snapshot(*specs.map { spec ->

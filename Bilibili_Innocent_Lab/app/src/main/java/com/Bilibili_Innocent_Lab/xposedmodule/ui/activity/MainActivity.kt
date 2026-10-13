@@ -418,6 +418,7 @@ class MainActivity : SkinnedActivity() {
     private var removeCommentFollowButtons = false
     private var removeCommentQoe = false
     private var removeCommentOperations = false
+    private var removeCommentReplyButton = false
     private var blockCommentQuickReply = false
     private var hideCommentSection = false
     private var replyTopologyEnabled = false
@@ -4449,6 +4450,7 @@ class MainActivity : SkinnedActivity() {
         removeCommentFollowButtons = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS)
         removeCommentQoe = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_QOE)
         removeCommentOperations = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_OPERATIONS)
+        removeCommentReplyButton = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON)
         blockCommentQuickReply = uiSettings.bool(FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY)
         hideCommentSection = uiSettings.bool(FeaturePreferences.HIDE_COMMENT_SECTION)
         replyTopologyEnabled = uiSettings.bool(FeaturePreferences.REPLY_TOPOLOGY_ENABLED)
@@ -7469,6 +7471,7 @@ class MainActivity : SkinnedActivity() {
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
+        commentReplyButtonSettingsRows(this, removeCommentReplyButton) { removeCommentReplyButton = it }
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {
                 topMargin = 12.dp

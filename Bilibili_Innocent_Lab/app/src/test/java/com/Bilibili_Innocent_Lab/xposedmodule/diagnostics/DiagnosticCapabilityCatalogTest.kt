@@ -15,6 +15,18 @@ import org.junit.Test
 import java.io.File
 
 class DiagnosticCapabilityCatalogTest {
+    @Test fun commentReplyButtonHasItsOwnRuntimeCapabilityAndSetting() {
+        val capability = DiagnosticCapabilityCatalog.byId.getValue("comments_reply_button_removed")
+        assertEquals("comment_reply_button", capability.parentId)
+        assertEquals(setOf("comments.reply_button.removed"), capability.settingIds)
+        assertEquals(24, capability.introducedCatalogVersion)
+        assertEquals(2, DiagnosticCapabilityCatalog.runtimeSupport(capability.id))
+        val descriptor = DiagnosticFeatureRegistry.descriptorOrNull(capability.id)!!
+        assertEquals(DiagnosticFeatureCategory.COMMENTS, descriptor.category)
+        assertTrue(descriptor.runtimeEvidenceExpected)
+        assertNotEquals("comment_purify", capability.parentId)
+    }
+
     @Test fun everySettingsEntryIsMappedOrExplicitlyLocalAndLeafIdsAreUnique() {
         val catalog = DiagnosticCapabilityCatalog
         assertEquals(catalog.definitions.size, catalog.leafIds.size)
