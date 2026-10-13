@@ -25,6 +25,7 @@ class HostBackgroundPagePolicyTest {
         assertEquals(Kind.PAGE, HostBackgroundPagePolicy.kind("tv.danmaku.bili.ui.rank.RankVideoListFragment"))
         assertEquals(Kind.DYNAMIC, HostBackgroundPagePolicy.kind("com.bilibili.bplus.followinglist.home.mediator.MediatorFragment"))
         assertEquals(Kind.DYNAMIC, HostBackgroundPagePolicy.kind("com.bilibili.bplus.followinglist.quick.consume.VideoQuickConsumeFragment"))
+        assertEquals(Kind.OPUS, HostBackgroundPagePolicy.kind("com.bilibili.bplus.followinglist.page.opus.OpusDetailFragment"))
         assertEquals(Kind.LIVE, HostBackgroundPagePolicy.kind("com.bilibili.bililive.biz.livehome.indexfeed.ui.LiveHomeFragment"))
         assertEquals(Kind.FEED, HostBackgroundPagePolicy.kind("com.bilibili.pegasus.PegasusFragment"))
         for (name in listOf("com.bilibili.ogv.operation2.PlayerFragment", "com.bilibili.bililive.room.LiveRoomFragment", "com.bilibili.ogv.misc.follow.BangumiFollowDialogFragment", "another.app.BangumiHomeFragment"))

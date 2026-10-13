@@ -141,12 +141,14 @@ internal class HostBackgroundPages(
         private var windowBackground = WeakReference<Drawable>(null)
         private val detailSurfaces = if (kind == HostBackgroundPagePolicy.Kind.NATIVE && videoPanel(root))
             HostDetailSurfaces(root, detailBackgrounds) else null
+        private var opusChrome: HostOpusChrome? = null
         private var mediaWindow = window?.context?.let { context ->
             HostBackgroundPagePolicy.mediaDetailActivity(generateSequence(context.javaClass as Class<*>?) { it.superclass }
                 .map { it.name }.toList())
         } == true
         private val wholePage = kind != HostBackgroundPagePolicy.Kind.FEED && kind != HostBackgroundPagePolicy.Kind.LIVE
-        private val nativeContainers = kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT
+        private val nativeContainers = kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT ||
+            kind == HostBackgroundPagePolicy.Kind.OPUS
 
         fun invalidate() { dirty = true }
 
@@ -185,6 +187,7 @@ internal class HostBackgroundPages(
             }
             observer = null
             detailSurfaces?.detach()
+            opusChrome?.close(); opusChrome = null
         }
 
         fun dispose() {
@@ -263,6 +266,8 @@ internal class HostBackgroundPages(
                 // 播放窗口只给前景面板铺壁纸，状态栏、播放器及其工具栏保留宿主材质。
                 if (mediaWindow) return@runCatching
                 val night = host.isNight(page.context) || background.requiresNight
+                if (kind == HostBackgroundPagePolicy.Kind.OPUS && opusChrome == null)
+                    opusChrome = HostOpusChrome.create(page, detailBackgrounds)
                 if (wallpaperSystemBars && kind == HostBackgroundPagePolicy.Kind.NATIVE && page === page.rootView) {
                     // 侧边中心默认使用白色状态栏文字；透明化后按壁纸主题同步对比度，覆盖晚到的 Compose 副作用。
                     val darkBars = night || (sideCenter?.get()?.background as? ColorDrawable)?.color == android.graphics.Color.BLACK
@@ -303,6 +308,7 @@ internal class HostBackgroundPages(
                     else wallpaperOffset()?.let { background.pageOffset(wallpaperOwner ?: page, it) }
                 }
                 detailSurfaces?.apply(night)
+                opusChrome?.apply(night)
             }.onFailure(onError)
             return true
         }
@@ -517,7 +523,7 @@ internal class HostBackgroundPages(
         }
         private fun videoPanel(view: View): Boolean = name(view) == "content_container" &&
             (view.parent as? View)?.let(::name) == "round_container"
-        private val listNames = setOf("recyclerView", "recycler_view", "dy_list", "recycler", "list")
+        private val listNames = setOf("recyclerView", "recycler_view", "dy_list", "recycler", "list", "opus_dy_list")
         private val sectionNames = setOf("sticky_container", "sub_sticky_container", "tab_recyclerView", "top_bar", "dy_app_bar", "dy_sticky_group")
         private val chromeNames = setOf("main_top_layout", "nav_top_bar", "top_bar", "mine_top_view", "fake_input_layout", "cmt3_page_title_container")
         private val protectedNames = setOf("splash_layout", "splash_container", "video_container", "video_area", "control_container", "player_wrapper", "video_cover_wrapper",

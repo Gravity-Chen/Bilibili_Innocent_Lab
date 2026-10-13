@@ -4,12 +4,13 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background
 internal object HostBackgroundPagePolicy {
     const val SIDE_CENTER_ACTIVITY = "com.bilibili.videoshortcut.sidecenter.SideCenterActivity"
     private const val VIDEO_DETAIL_ACTIVITY = "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
-    enum class Kind { FEED, LIVE, DYNAMIC, COMPOSE, PAGE, NATIVE, COMMENT }
+    enum class Kind { FEED, LIVE, DYNAMIC, OPUS, COMPOSE, PAGE, NATIVE, COMMENT }
 
     /** 视频详情仍接入内容面板，系统栏和播放器窗口由宿主负责。 */
     fun mediaDetailActivity(names: List<String>): Boolean = VIDEO_DETAIL_ACTIVITY in names
 
     fun kind(name: String): Kind? = when {
+        name == "com.bilibili.bplus.followinglist.page.opus.OpusDetailFragment" -> Kind.OPUS
         name.startsWith("com.bilibili.app.comment") && name.substringAfterLast('.').startsWith("Comment") && name.endsWith("Fragment") -> Kind.COMMENT
         name.startsWith("com.bilibili.ogv.operation") && name.substringAfterLast('.').startsWith("BangumiHome") -> Kind.COMPOSE
         name == "com.bilibili.ogv.misc.timeline.OgvTimelineFragment" -> Kind.COMPOSE
