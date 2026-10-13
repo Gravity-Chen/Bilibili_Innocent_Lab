@@ -512,6 +512,15 @@ internal class HostBackgroundPages(
             runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
         private fun tabActionSurface(view: View): Boolean {
             val parent = view.parent as? View ?: return false
+            // 收藏二级标签的渐变、按钮容器和图标各自持有 Bg1，需一起接到壁纸。
+            val favoriteStrip = when {
+                name(view) in setOf("right_button_start_bg", "right_button") -> parent
+                view is ImageView && name(view) in setOf("icon_1", "icon_2", "icon_3") && name(parent) == "right_button" -> parent.parent as? View
+                else -> null
+            } as? ViewGroup
+            if (favoriteStrip != null && name(favoriteStrip) == "top_container")
+                return (0 until favoriteStrip.childCount).any { name(favoriteStrip.getChildAt(it)) == "tab_layout" } &&
+                    (0 until favoriteStrip.childCount).any { name(favoriteStrip.getChildAt(it)) == "right_button" }
             if (view is ImageView) return name(view) == "filter_icon" && name(parent) == "filter_icon_container" &&
                 (parent.parent as? View)?.let(::name) == "container_strip"
             return view is ViewGroup && name(parent) == "tab_box" && view.childCount == 1 &&

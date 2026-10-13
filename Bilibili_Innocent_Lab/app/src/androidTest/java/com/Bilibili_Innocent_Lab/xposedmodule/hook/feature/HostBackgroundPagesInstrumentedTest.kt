@@ -29,6 +29,64 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    @Test fun favoriteTabActionShadeRevealsWallpaperAcrossHostReapplication() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = InstrumentationRegistry.getInstrumentation().context
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(context)
+                val tabs = FrameLayout(context).apply { id = TestR.id.top_container }
+                val shade = View(context).apply { id = TestR.id.right_button_start_bg; setPadding(2, 3, 4, 5) }
+                val button = FrameLayout(context).apply { id = TestR.id.right_button }
+                val icon = ImageView(context).apply { id = TestR.id.icon_2; setImageDrawable(ColorDrawable(Color.GRAY)) }
+                val iconDrawable = icon.drawable
+                button.addView(icon, FrameLayout.LayoutParams(-1, -1))
+                tabs.addView(View(context).apply { id = TestR.id.tab_layout }, FrameLayout.LayoutParams(240, 60))
+                tabs.addView(shade, FrameLayout.LayoutParams(12, 60).apply { leftMargin = 240 })
+                tabs.addView(button, FrameLayout.LayoutParams(68, 60).apply { leftMargin = 252 })
+                root.addView(tabs, FrameLayout.LayoutParams(-1, 60))
+                // 同名但不属于收藏标签栏的业务渐变必须保留。
+                val unrelated = View(context).apply {
+                    id = TestR.id.right_button_start_bg
+                    background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.TRANSPARENT, Color.WHITE))
+                }
+                val original = unrelated.background
+                root.addView(unrelated, FrameLayout.LayoutParams(12, 60).apply { topMargin = 60 })
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, 320, 640)
+                val pages = HostBackgroundPages(HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it }),
+                    HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                for (color in listOf(Color.WHITE, Color.BLACK, Color.MAGENTA)) {
+                    shade.background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.TRANSPARENT, color))
+                    button.background = ColorDrawable(color)
+                    icon.background = ColorDrawable(color)
+                    val background = shade.background
+                    val buttonBackground = button.background
+                    val iconBackground = icon.background
+                    repeat(2) {
+                        root.viewTreeObserver.dispatchOnGlobalLayout()
+                        root.viewTreeObserver.dispatchOnPreDraw()
+                        if (color == Color.MAGENTA) assertSame(background, shade.background) else assertNull(shade.background)
+                        if (color == Color.MAGENTA) {
+                            assertSame(buttonBackground, button.background)
+                            assertSame(iconBackground, icon.background)
+                        } else {
+                            assertNull(button.background)
+                            assertNull(icon.background)
+                        }
+                        assertSame(original, unrelated.background)
+                        assertSame(iconDrawable, icon.drawable)
+                        assertEquals(listOf(2, 3, 4, 5), listOf(shade.paddingLeft, shade.paddingTop, shade.paddingRight, shade.paddingBottom))
+                    }
+                }
+                decor.removeView(root)
+            }
+        }
+    }
+
     @Test fun storyMediaRootsAndControlsKeepTheirSurfacesAcrossLayoutChanges() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
