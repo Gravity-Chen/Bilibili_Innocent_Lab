@@ -5,6 +5,8 @@ import android.graphics.drawable.Drawable
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentComposeViewAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.reportRuntimeEvidence
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureRuntimeStage
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
@@ -15,27 +17,26 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** 追番/影视共用的 OperableCardUi；只替换首页内容卡片的 Modifier，不接管 Compose 页面。 */
 internal object HostOgvCardHooks {
     fun install(environment: HookEnvironment, host: HostVideoCardHostAccess, radiusDp: Int,
-        onApplied: () -> Unit): Int = runCatching {
-        val loader = environment.classLoader ?: return@runCatching 0
-        val access = CommentComposeViewAccess.resolve(loader) ?: return@runCatching 0
+        onApplied: () -> Unit): HostCardHookCoverage = runCatching {
+        val loader = environment.classLoader ?: return@runCatching HostCardHookCoverage.NONE
+        val resolution = HostOgvCardAdapter.resolve(loader)
+        val missing = resolution.families.filter { it.applicable }.associate { it.id to it.reason }
+        fun unavailable() = HostCardHookCoverage(0, resolution.expected, 0, missing)
+        val access = CommentComposeViewAccess.resolve(loader) ?: return@runCatching unavailable()
         val failed = AtomicBoolean(false)
-        val api = Api.resolve(loader) {
+        val api = Api.resolve(loader, onApplied) {
             if (failed.compareAndSet(false, true)) environment.logError("host_video_cards_ogv_draw_error", "[BIL] 追番/影视卡片表面绘制失败: $it")
-        } ?: return@runCatching 0
-        val owner = sequenceOf("com.bilibili.ogv.operation3.module.operablecard.OperableCardUi", "hf3.x")
-            .mapNotNull { KavaMemberLookup.classOrNull(loader, it) }.firstOrNull { type ->
-                type.declaredFields.any { it.type.name == "com.bilibili.ogv.operation3.module.operablecard.a" }
-            } ?: return@runCatching 0
-        val content = owner.declaredMethods.singleOrNull { method ->
-            method.returnType == Void.TYPE && method.parameterTypes.map { it.name } == listOf(
-                "androidx.compose.ui.Modifier", "float", "androidx.compose.runtime.Composer", "int", "int")
-        } ?: return@runCatching 0
+        } ?: return@runCatching unavailable()
         val styled = WeakHashMap<Any, Pair<Boolean, WeakReference<Any>>>()
         val caches = WeakHashMap<View, WeakHashMap<Any, Pair<Boolean, WeakReference<Any>>>>()
-        fun register(method: Method, modifierIndex: Int, composerIndex: Int, radiusIndex: Int? = null) {
+        fun register(point: HostOgvCardAdapter.Point) {
+            val method = point.method
+            val modifierIndex = point.modifierIndex
+            val composerIndex = point.composerIndex
             environment.registrar.exact("host_video_cards.ogv.${method.declaringClass.name}.${method.name}",
                 method.declaringClass, method.name, *method.parameterTypes) {
                 before {
+                    if (!point.accepts(instance, args)) return@before
                     val composer = argOrNull(composerIndex) ?: return@before
                     val view = access.read(composer) ?: return@before
                     if (!isHome(view)) return@before
@@ -50,42 +51,42 @@ internal object HostOgvCardHooks {
                         styled[it] = night to WeakReference(original)
                         cache[original] = night to WeakReference(it)
                     }
-                    args[modifierIndex] = modifier
-                    // 默认值掩码不能覆盖修改后的 Modifier/封面半径；清除对应 changed 位以正确重组。
-                    val changed = (14 shl (modifierIndex * 3)) or (radiusIndex?.let { 14 shl (it * 3) } ?: 0)
-                    val defaults = (1 shl modifierIndex) or (radiusIndex?.let { 1 shl it } ?: 0)
-                    if (radiusIndex != null) args[radiusIndex] = if (radiusDp == HostVideoCardStyleSpec.DEFAULT_RADIUS) 12f else radiusDp.toFloat()
-                    args[composerIndex + 1] = (argOrNull(composerIndex + 1) as? Int ?: 0) and changed.inv()
-                    args[composerIndex + 2] = (argOrNull(composerIndex + 2) as? Int ?: 0) and defaults.inv()
-                    onApplied()
+                    point.rewrite(args, modifier,
+                        if (radiusDp == HostVideoCardStyleSpec.DEFAULT_RADIUS) 12f else radiusDp.toFloat())
+                }
+                after {
+                    if (hasThrowable) return@after
+                    val composer = argOrNull(composerIndex) ?: return@after
+                    val view = access.read(composer) ?: return@after
+                    if (isHome(view) && styled[argOrNull(modifierIndex)] != null) {
+                        environment.reportRuntimeEvidence("host_video_cards", FeatureRuntimeStage.OBSERVED)
+                    }
                 }
             }
         }
-        register(content, 0, 2, 1)
-        var count = 1
-        // KMM 热播、双列推荐、即将上线和追番进度卡不经过 OperableCardUi。
-        // 用各自模型类型与完整尾部 ABI 校验，避免把同文件的整页/标签组件套成卡片。
-        val standalone = listOf(
-            Triple("ed3.r", "ed3.f\$c", "com.bilibili.ogv.operation3.module.feedback.v"),
-            Triple("sc3.n", "sc3.f\$c", "com.bilibili.ogv.operation3.module.feedback.v"),
-            Triple("rc3.l", "rc3.b\$c", "com.bilibili.ogv.operation3.module.followable.i"),
-            Triple("com.bilibili.ogv.kmm.operation.following.b",
-                "com.bilibili.ogv.kmm.operation.following.BangumiFollowing\$b", "wc3.o")
-        )
-        for ((className, model, helper) in standalone) {
-            val type = KavaMemberLookup.classOrNull(loader, className) ?: continue
-            val method = type.declaredMethods.singleOrNull { it.returnType == Void.TYPE &&
-                it.parameterTypes.map { parameter -> parameter.name } == listOf(model, helper,
-                    "androidx.compose.ui.Modifier", "androidx.compose.runtime.Composer", "int", "int")
-            } ?: continue
-            register(method, 2, 3)
-            count++
+        var count = 0
+        var ready = 0
+        val states = linkedMapOf<String, String>()
+        resolution.families.filter { it.applicable }.forEach { family ->
+            if (family.points.isEmpty()) {
+                states[family.id] = family.reason
+            } else {
+                var installed = 0
+                family.points.forEach { point ->
+                    runCatching { register(point) }.onSuccess { count++; installed++ }.onFailure {
+                        environment.logError("host_video_cards_ogv_${family.id}_register", "[BIL] OGV卡片入口注册失败: $it")
+                    }
+                }
+                if (installed == family.points.size) { ready++; states[family.id] = "installed" }
+                else states[family.id] = "registration-failed"
+            }
         }
-        environment.logInfo("host_video_cards_ogv_installed", "[BIL] 追番/影视卡片已接入（组件=$count）")
-        count
+        environment.logInfo("host_video_cards_ogv_installed", "[BIL] OGV卡片家族=$ready/${resolution.expected}: $states")
+        HostCardHookCoverage(count, resolution.expected, ready, states)
     }.getOrElse {
         environment.logError("host_video_cards_ogv_error", "[BIL] 追番/影视卡片接入失败: $it")
-        0
+        val expected = environment.classLoader?.let { HostOgvCardAdapter.resolve(it).expected } ?: 0
+        HostCardHookCoverage(0, expected, 0, mapOf("ogv" to "initialization-failed"))
     }
 
     private fun isHome(view: View): Boolean {
@@ -108,7 +109,7 @@ internal object HostOgvCardHooks {
         private val clip: Method, private val behind: Method, private val padding: Method,
         private val function: Class<*>, private val unit: Any, private val size: Method,
         private val context: Method, private val canvas: Method, private val nativeCanvas: Method,
-        private val onError: (Throwable) -> Unit
+        private val onError: (Throwable) -> Unit, private val onApplied: () -> Unit
     ) {
         fun decorate(original: Any, view: View, radiusDp: Int, night: Boolean): Any {
             val radius = (if (radiusDp == HostVideoCardStyleSpec.DEFAULT_RADIUS) 16 else radiusDp).toFloat()
@@ -147,11 +148,12 @@ internal object HostOgvCardHooks {
                 val target = nativeCanvas.invoke(null, canvas.invoke(context.invoke(scope))) as Canvas
                 drawable.setBounds(0, 0, width, height)
                 drawable.draw(target)
+                onApplied()
             }
         }
 
         companion object {
-            fun resolve(loader: ClassLoader, onError: (Throwable) -> Unit): Api? = runCatching {
+            fun resolve(loader: ClassLoader, onApplied: () -> Unit, onError: (Throwable) -> Unit): Api? = runCatching {
                 fun type(name: String) = requireNotNull(KavaMemberLookup.classOrNull(loader, name))
                 fun method(name: String, prefix: String, count: Int) = type(name).declaredMethods.single {
                     it.name.startsWith(prefix) && it.parameterCount == count && !it.name.endsWith("\$default")
@@ -166,7 +168,7 @@ internal object HostOgvCardHooks {
                     method("androidx.compose.ui.graphics.drawscope.DrawScope", "getSize-", 0),
                     method("androidx.compose.ui.graphics.drawscope.DrawScope", "getDrawContext", 0),
                     method("androidx.compose.ui.graphics.drawscope.DrawContext", "getCanvas", 0),
-                    method("androidx.compose.ui.graphics.AndroidCanvas_androidKt", "getNativeCanvas", 1), onError)
+                    method("androidx.compose.ui.graphics.AndroidCanvas_androidKt", "getNativeCanvas", 1), onError, onApplied)
             }.onFailure(onError).getOrNull()
         }
     }

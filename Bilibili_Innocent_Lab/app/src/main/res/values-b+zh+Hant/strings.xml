@@ -980,7 +980,7 @@
     <string name="highlights_host_compat">平板模式下的底部導覽列、首頁頂欄標籤與首頁元件隱藏恢復生效；底部導覽列隱藏不再因嗶哩嗶哩更換圖示而失效；適配嗶哩嗶哩 9.13.0。</string>
     <string name="component_snapshot_cached_notice">正在顯示上次儲存的掃描結果，尚未確認嗶哩嗶哩目前狀態。</string>
     <string name="hide_player_popup_promotion">隱藏播放器彈窗推廣</string>
-    <string name="hide_player_popup_promotion_tip">隱藏播放器內的小程式等通用懸浮推廣卡片，保留其他互動元件和一般彈幕。</string>
+    <string name="hide_player_popup_promotion_tip">隱藏播放器內自動出現的免流辦理、電商及小程式等懸浮推廣，保留網路狀態提醒、主動開啟的辦理面板、其他互動元件和一般彈幕。</string>
     <string name="recommendation_blocklist_manage">管理推薦封鎖</string>
     <string name="recommendation_blocklist_manage_tip">確認回饋面板中的封鎖項目，或取消誤封鎖。</string>
     <string name="block_ai_declared_videos">封鎖含 AI 生成聲明的影片</string>

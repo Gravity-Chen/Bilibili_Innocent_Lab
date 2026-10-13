@@ -364,7 +364,7 @@ internal class CommentFilterFeatureInstaller(
      * （主楼、子回复预览、置顶位），判据与 getter 层完全相同；智能过滤在回调里按"首屏等待"设置判定。
      */
     private fun installKotlinChannel(environment: HookEnvironment, accessors: Accessors, plan: JudgementPlan) {
-        // 装不上要留下原因，否则末尾那句"N 个"读起来像"不适用"，而不是"类没找到"（有界：四条）。
+        // 装不上要留下原因，否则末尾那句"N 个"读起来像"不适用"，而不是"类没找到"（按 RPC 有界）。
         fun skip(reason: String) {
             environment.logInfo("comment_filter_kmoss_skip", "[BIL] 评论过滤新通道未接入: $reason")
         }
@@ -372,12 +372,15 @@ internal class CommentFilterFeatureInstaller(
         val loader = replyInfoClass.classLoader ?: return skip("no-class-loader")
         val packageName = replyInfoClass.name.substringBeforeLast('.')
         val members = KotlinMossChannel.prepare(environment, loader, "评论过滤", KMOSS_LOG_KEY) ?: return skip("no-bridge")
-        val rewriter = ProtobufReplyTreeRewriter(replyInfoClass) { replies -> kotlinDecide(environment, replies, accessors, plan) }
+        val decide: (List<Any>) -> Set<Any> = { replies -> kotlinDecide(environment, replies, accessors, plan) }
+        val rewriter = kotlinRewriter(replyInfoClass, "mainList", decide)
+        val singleRewriter = kotlinRewriter(replyInfoClass, "replyInfo", decide)
         val readers = ConcurrentHashMap<Class<*>, List<Method>>()
         var hooks = 0
         KMOSS_RPCS.forEach { (rpc, replyName) ->
             val replyClass = KavaMemberLookup.classOrNull(loader, "$packageName.$replyName")
                 ?: return@forEach skip("no-reply-class:$rpc")
+            val rpcRewriter = if (rpc == "replyInfo") singleRewriter else rewriter
             val installed = KotlinMossChannel.install(
                 environment, loader, members,
                 javaMossClassName = "$packageName.ReplyMoss",
@@ -386,11 +389,15 @@ internal class CommentFilterFeatureInstaller(
                 hookId = "comment.filter.kmoss.$rpc",
                 what = "评论过滤",
                 logKey = KMOSS_LOG_KEY,
-                shareUnchangedReply = true
-            ) { javaReply ->
-                prewarmSemantic(javaReply, replyInfoClass, accessors, plan, readers)
-                rewriter.rewrite(javaReply).message
-            }
+                shareUnchangedReply = true,
+                confirmedTransform = { javaReply ->
+                    prewarmSemantic(javaReply, replyInfoClass, accessors, plan, readers)
+                    val result = rpcRewriter.rewrite(javaReply)
+                    KotlinMossResponseHandlerProxy.ConfirmedReply(result.message) {
+                        if (result.removed > 0) environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, result.removed)
+                    }
+                }
+            ) { it }
             if (installed) hooks += 1
         }
         environment.logInfo("comment_filter_kmoss", "[BIL] 评论过滤：Kotlin 新通道 $hooks 个")
@@ -431,7 +438,6 @@ internal class CommentFilterFeatureInstaller(
                 shouldRemove(readSignals(reply, accessors, plan), plan)
             ) drop += reply
         }
-        if (drop.isNotEmpty()) environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED, drop.size)
         return drop
     }
 
@@ -658,7 +664,17 @@ internal class CommentFilterFeatureInstaller(
         private val KMOSS_RPCS = listOf(
             "mainList" to "MainListReply",
             "detailList" to "DetailListReply",
-            "dialogList" to "DialogListReply"
+            "dialogList" to "DialogListReply",
+            "foldList" to "FoldListResp",
+            "hotspotPage" to "HotspotPageResp",
+            "replyInfo" to "ReplyInfoReply"
+        )
+        internal fun kotlinRewriter(replyInfoClass: Class<*>, rpc: String,
+            decide: (List<Any>) -> Set<Any>): ProtobufReplyTreeRewriter = ProtobufReplyTreeRewriter(
+            replyInfoClass,
+            removableSingles = if (rpc == "replyInfo") ProtobufReplyTreeRewriter.DEFAULT_REMOVABLE_SINGLES + "Reply"
+                else ProtobufReplyTreeRewriter.DEFAULT_REMOVABLE_SINGLES,
+            decide = decide
         )
         private const val KMOSS_LOG_KEY = "comment_filter_kmoss"
         /** 单次响应最多提取的不同正文数（主楼约 20 条 + 子回复预览）。 */

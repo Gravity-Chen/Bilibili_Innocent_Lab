@@ -1,8 +1,11 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import kpurifyfixture.Content
+import kpurifyfixture.FoldListResp
+import kpurifyfixture.HotspotPageResp
 import kpurifyfixture.MainListReply
 import kpurifyfixture.ReplyInfo
+import kpurifyfixture.ReplyInfoReply
 import kpurifyfixture.SubjectControl
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -99,6 +102,52 @@ class CommentKotlinPurifierTest {
         val message = MainListReply(listOf(ReplyInfo(content("词" to search))), true, false, SubjectControl(true))
         val rebuilt = purifier(links = false, emptyPage = false, payloads = emptyMap()).purify(message)
         assertSame(message, rebuilt)
+    }
+
+    @Test
+    fun `fold and hotspot purification keeps pagination opinions and unrelated links`() {
+        val pagination = Any()
+        val control = SubjectControl(true)
+        val reply = ReplyInfo(content("词" to search, "视频" to "bilibili://video/1"))
+        val fold = FoldListResp(listOf(reply), control, pagination)
+
+        val updatedFold = purifier(payloads = emptyMap()).purify(fold) as FoldListResp
+
+        assertEquals(setOf("视频"), updatedFold.repliesList.single().content.urlsMap.keys)
+        assertFalse(updatedFold.subjectControl.hasEmptyPage())
+        assertTrue(control.hasEmptyPage())
+        assertSame(pagination, updatedFold.paginationReply)
+        assertEquals(2, reply.content.urlsMap.size)
+
+        val opinion = Any()
+        val page = Any()
+        val hotspot = HotspotPageResp(listOf(reply), listOf(opinion), page)
+        val cleaner = purifier(emptyPage = false, payloads = emptyMap())
+        val updatedHotspot = cleaner.purify(hotspot) as HotspotPageResp
+        assertEquals(setOf("视频"), updatedHotspot.repliesList.single().content.urlsMap.keys)
+        assertSame(opinion, updatedHotspot.opinionsList.single())
+        assertSame(page, updatedHotspot.page)
+        assertSame(updatedHotspot, cleaner.purify(updatedHotspot))
+    }
+
+    @Test
+    fun `broadcast purification edits a present reply and preserves absent default and originals`() {
+        val child = ReplyInfo(content("子词" to search))
+        val reply = ReplyInfo(content("词" to search, "视频" to "bilibili://video/2"), child)
+        val source = ReplyInfoReply(reply)
+        val default = ReplyInfoReply.getDefaultInstance()
+        val cleaner = purifier(emptyPage = false, payloads = emptyMap())
+
+        val updated = cleaner.purify(source) as ReplyInfoReply
+
+        assertTrue(updated.hasReply())
+        assertEquals(setOf("视频"), updated.reply.content.urlsMap.keys)
+        assertTrue(updated.reply.repliesList.single().content.urlsMap.isEmpty())
+        assertEquals(2, reply.content.urlsMap.size)
+        assertEquals(1, child.content.urlsMap.size)
+        assertSame(default, cleaner.purify(default))
+        assertFalse(default.hasReply())
+        assertSame(updated, cleaner.purify(updated))
     }
 
     @Test

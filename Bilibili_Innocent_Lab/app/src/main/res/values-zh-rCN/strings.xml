@@ -980,7 +980,7 @@
     <string name="highlights_host_compat">平板模式下的底栏、首页顶栏标签与首页组件隐藏恢复生效；底栏隐藏不再因哔哩哔哩更换图标而失效；适配哔哩哔哩 9.13.0。</string>
     <string name="component_snapshot_cached_notice">正在显示上次保存的扫描结果，尚未确认哔哩哔哩当前状态。</string>
     <string name="hide_player_popup_promotion">隐藏播放器弹窗推广</string>
-    <string name="hide_player_popup_promotion_tip">隐藏播放器内的小程序等通用悬浮推广卡片，保留其他互动组件和普通弹幕。</string>
+    <string name="hide_player_popup_promotion_tip">隐藏播放器内自动出现的免流办理、电商及小程序等悬浮推广，保留网络状态提醒、主动打开的办理面板、其他互动组件和普通弹幕。</string>
     <string name="recommendation_blocklist_manage">管理推荐屏蔽</string>
     <string name="recommendation_blocklist_manage_tip">确认反馈面板中的屏蔽项，或取消误屏蔽。</string>
     <string name="block_ai_declared_videos">屏蔽含 AI 生成声明的视频</string>

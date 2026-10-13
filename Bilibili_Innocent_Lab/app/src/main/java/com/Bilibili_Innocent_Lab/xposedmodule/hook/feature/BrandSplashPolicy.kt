@@ -67,13 +67,19 @@ internal class BrandSplashSelectionState<T : Any> {
     private var modeKnown = false
 
     @Synchronized fun initialize(items: List<T>, customMode: Boolean): Snapshot<T> {
+        var changed = false
         if (!initialized) {
             initialized = true
             selected = items.toList()
-            if (!modeKnown) mode = customMode
-            modeKnown = true
-            revision++
+            changed = true
         }
+        // 选择写入可以先到；它只确定列表，不代表模式也已经从宿主读回。
+        if (!modeKnown) {
+            mode = customMode
+            modeKnown = true
+            changed = true
+        }
+        if (changed) revision++
         return snapshot()
     }
 
@@ -92,7 +98,7 @@ internal class BrandSplashSelectionState<T : Any> {
         return snapshot()
     }
 
-    @Synchronized fun isInitialized(): Boolean = initialized
+    @Synchronized fun isInitialized(): Boolean = initialized && modeKnown
     @Synchronized fun snapshot(): Snapshot<T> = Snapshot(revision, selected, mode)
     @Synchronized fun isCurrent(candidateRevision: Long): Boolean = candidateRevision == revision
 }

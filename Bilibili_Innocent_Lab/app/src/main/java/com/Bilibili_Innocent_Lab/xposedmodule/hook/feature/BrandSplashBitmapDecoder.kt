@@ -4,10 +4,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.kavaref.extension.classOf
-import java.lang.reflect.Modifier
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
 
 /** Follow the host's stagger/ResManager file lookup, then apply bounded decoding on our worker. */
-internal class BrandSplashBitmapDecoder(private val environment: HookEnvironment) {
+internal class BrandSplashBitmapDecoder(private val environment: HookEnvironment, point: HookPoint? = null) {
     private class Capture(var path: String? = null)
     private val captures = BrandSplashScopes<Capture>()
     private val loader = requireNotNull(environment.classLoader)
@@ -17,13 +18,8 @@ internal class BrandSplashBitmapDecoder(private val environment: HookEnvironment
     private val setHash = requireNotNull(KavaMemberLookup.methodOrNull(info, "setThumbHash", classOf<String>()))
     private val setThumb = requireNotNull(KavaMemberLookup.methodOrNull(info, "setThumb", classOf<String>()))
     private val setDefault = requireNotNull(KavaMemberLookup.methodOrNull(info, "setDefault", Boolean::class.javaPrimitiveType!!))
-    private val decoder = DECODER_OWNERS.mapNotNull { name ->
-        val owner = KavaMemberLookup.classOrNull(loader, name) ?: return@mapNotNull null
-        KavaMemberLookup.declaredMethods(owner).singleOrNull { method ->
-            method.name == "a" && Modifier.isStatic(method.modifiers) && method.returnType == classOf<Bitmap>() &&
-                method.parameterTypes.contentEquals(arrayOf(info))
-        }
-    }.distinct().singleOrNull() ?: error("ambiguous-brand-bitmap-decoder")
+    private val decoder = BrandSplashDecoderAdapter.direct(loader) ?: BrandSplashDecoderAdapter.resolve(loader, point)
+        ?: error("missing-or-ambiguous-brand-bitmap-decoder")
 
     fun install() {
         val parameters = listOf(arrayOf(classOf<String>()), arrayOf(classOf<String>(), classOf<BitmapFactory.Options>()))
@@ -61,12 +57,6 @@ internal class BrandSplashBitmapDecoder(private val environment: HookEnvironment
 
     companion object {
         internal const val MAX_PIXELS = 4_194_304L
-        /** Actual BaseBrandSplashFragment call targets, verified over all 31 original APKs. */
-        private val DECODER_OWNERS = listOf(
-            "Cg1.a", "Cq1.a", "Eg1.a", "Ip1.a", "Jc1.a", "Mp1.a", "Sa1.a", "Sl1.a", "Wg1.a", "Zq1.a",
-            "dc6.a", "eg1.a", "ep1.a", "fg1.a", "j46.a", "jd6.a", "ka1.a", "nb1.a", "nh6.a", "no1.a",
-            "on1.a", "qc6.a", "qj1.a", "rb6.a", "rg1.a", "sb6.a", "sm1.a", "v86.a", "wq1.a", "zk1.a"
-        )
     }
 }
 

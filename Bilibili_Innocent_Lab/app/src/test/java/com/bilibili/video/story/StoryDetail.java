@@ -1,6 +1,61 @@
 package com.bilibili.video.story;
 
+import com.alibaba.fastjson.annotation.JSONField;
+
 public final class StoryDetail {
+    @JSONField(name = "free_flow_toast")
+    private FreeDataToast freeDataToast;
+    private RuntimeException freeDataReadFailure;
+    private Object userData;
+    private Object mediaData;
+    private String title = "";
+    private int playbackState;
+
+    public FreeDataToast getFreeDataToast() {
+        if (freeDataReadFailure != null) throw freeDataReadFailure;
+        return freeDataToast;
+    }
+
+    public void setFreeDataToast(FreeDataToast freeDataToast) {
+        this.freeDataToast = freeDataToast;
+    }
+
+    public void setFreeDataReadFailure(RuntimeException freeDataReadFailure) {
+        this.freeDataReadFailure = freeDataReadFailure;
+    }
+
+    public Object getUserData() {
+        return userData;
+    }
+
+    public void setUserData(Object userData) {
+        this.userData = userData;
+    }
+
+    public Object getMediaData() {
+        return mediaData;
+    }
+
+    public void setMediaData(Object mediaData) {
+        this.mediaData = mediaData;
+    }
+
+    public String getFixtureTitle() {
+        return title;
+    }
+
+    public void setFixtureTitle(String title) {
+        this.title = title;
+    }
+
+    public int getPlaybackState() {
+        return playbackState;
+    }
+
+    public void setPlaybackState(int playbackState) {
+        this.playbackState = playbackState;
+    }
+
     public boolean isAd() {
         return false;
     }
@@ -48,4 +103,5 @@ public final class StoryDetail {
             return 0;
         }
     }
+
 }

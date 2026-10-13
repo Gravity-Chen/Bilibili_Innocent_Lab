@@ -45,7 +45,18 @@ internal enum class DexAssistQuery {
     /** 评论外观实验常量调用者 → 原生布尔读取方法，不替换合并 lambda。 */
     COMMENT_CLASSIC_NATIVE,
     /** KMP 评论容器实验常量调用者 → 带 key 参数的静态布尔读取边界。 */
-    COMMENT_CLASSIC_KOTLIN
+    COMMENT_CLASSIC_KOTLIN,
+
+    /** 免费流量购买推广专用协程边界；精确专用冷启动日志，不要求已拆分的 helper 常量。 */
+    PLAYER_POPUP_FREE_DATA_GUIDE,
+    /** 广告浮层列表消费边界；调用 Card 的通用/电商/引导三类语义判据。 */
+    PLAYER_POPUP_ADVERT_FLOAT,
+
+    /** 品牌开屏资源 helper：完整 Bitmap(BrandShowInfo) ABI + 专用日志 + 资源文件解码调用。 */
+    BRAND_SPLASH_DECODER,
+
+    /** 关注流专用背景装饰器：offsets 日志及源码常量，owner/model/home 关系二次验真。 */
+    FOLLOW_FEED_STYLE
 }
 
 internal sealed interface DexAssistResult {

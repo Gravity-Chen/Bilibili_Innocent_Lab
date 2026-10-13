@@ -12,7 +12,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class BrandSplashCustomFeatureInstaller(
     private val enabled: Boolean,
     private val context: Context,
-    private val renderEnabled: Boolean = true
+    private val renderEnabled: Boolean = true,
+    private val decoderPoint: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null
 ) : FeatureInstaller {
     override val id = ID
     private class UnlockFrame(var source: String? = null, val active: Boolean = true)
@@ -43,7 +44,7 @@ internal class BrandSplashCustomFeatureInstaller(
         if (renderEnabled && kntrPresent) {
             expected++
             if (runCatching {
-                    runtime.enableImages()
+                    runtime.enableImages(decoderPoint)
                     BrandSplashKntrRenderer(runtime, environment).install()
                 }.getOrElse {
                     environment.logError("brand_custom_kntr", "[BIL] 官方开屏 Compose 渲染未完整接入，保留原画面")
@@ -142,8 +143,8 @@ internal class BrandSplashSelectionRuntime(
     private val warmQueued = AtomicBoolean(false)
     private var images: BrandSplashImageCache? = null
 
-    fun enableImages() {
-        images = BrandSplashImageCache(context, model, storage, state, environment)
+    fun enableImages(decoderPoint: com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint? = null) {
+        images = BrandSplashImageCache(context, model, storage, state, environment, decoderPoint)
         images?.changed()
     }
     fun photo(): BrandSplashImageCache.Photo? = images?.current()

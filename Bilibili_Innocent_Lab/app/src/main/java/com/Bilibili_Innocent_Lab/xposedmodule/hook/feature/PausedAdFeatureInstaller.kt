@@ -2,14 +2,13 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
+import java.lang.reflect.Modifier
 
-/** 暂停页广告 P1 请求层 + P2 面板层 + P3 倒计时层安装器。 */
+/** 保留暂停协议中的正常配置，独立安装面板、倒计时和 Java/Kotlin 响应清理。 */
 internal class PausedAdFeatureInstaller(
     private val enabled: Boolean,
     private val points: VersionAdapter.PausePoints?
 ) : FeatureInstaller {
-
     override val id: String = ID
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
@@ -17,237 +16,113 @@ internal class PausedAdFeatureInstaller(
             environment.reportStatus(CHANNEL_STATUS, "disabled")
             return FeatureInstallResult.Skipped("disabled")
         }
+        if (environment.processName != "tv.danmaku.bili") return FeatureInstallResult.Skipped("non-main-process")
+        val loader = environment.classLoader ?: return FeatureInstallResult.Skipped("missing-class-loader")
 
+        // 9.15 两条旧请求及新的 RequestResult 都承载 bar。识别点保留作缺失诊断，
+        // 未证实纯广告的请求/Function0 不再一律 result=null，也不伪造 typed NO_AD。
+        val requestOwners = points?.requestMethods.orEmpty().map { it.className }.toMutableSet()
+        points?.legacyCallback?.let { requestOwners += it.className }
+        REQUEST_CARRIERS.forEach { if (KavaMemberLookup.classOrNull(loader, it) != null) requestOwners += it }
+        if (requestOwners.isNotEmpty()) environment.logInfo("paused_request_preserved",
+            "[BIL] 暂停请求载荷角色未证实为纯广告，保留正常 bar/取消语义；请求层未安装，转交响应层")
+        val requestFamilies = PauseCountdownAdapter.requestFamilies(requestOwners)
+        var expected = requestFamilies.size
         var hookCount = 0
-        var primaryCount = 0
-        points?.requestMethods.orEmpty().forEachIndexed { index, point ->
-            runCatching {
-                environment.registrar.adapted("paused.request.$index", point) {
-                    before { result = null }
-                }
-                primaryCount++
-                hookCount++
-                environment.logInfo(
-                    "paused_request_$index",
-                    "[BIL] 已注册暂停页请求拦截 ${point.className}#${point.methodName}"
-                )
-            }.onFailure { throwable ->
-                environment.logInfo(
-                    "paused_request_${index}_err",
-                    "[BIL] 暂停页请求入口注册失败: $throwable"
-                )
-            }
-        }
 
-        points?.legacyCallback?.let { point ->
-            runCatching {
-                environment.registrar.adapted("paused.legacy_callback", point) {
-                    before { result = null }
-                }
-                primaryCount++
-                hookCount++
-                environment.logInfo("paused_legacy", "[BIL] 已注册旧版暂停页 Function0 拦截")
-            }.onFailure { throwable ->
-                environment.logInfo(
-                    "paused_legacy_err",
-                    "[BIL] 旧版暂停页入口注册失败: $throwable"
-                )
-            }
-        }
-
-        if (points == null) {
-            listOf(REQUEST_CLASS_V2, REQUEST_CLASS_V3).forEachIndexed { index, className ->
-                if (KavaMemberLookup.classOrNull(environment.classLoader, className) != null) {
-                    runCatching {
-                        environment.registrar.first(
-                            "paused.request_fallback.$index",
-                            className,
-                            INVOKE_SUSPEND
-                        ) { before { result = null } }
-                        primaryCount++
-                        hookCount++
-                        environment.logInfo(
-                            "paused_fallback_$index",
-                            "[BIL] 已注册暂停页请求兜底 $className"
-                        )
-                    }
-                }
-            }
-        }
-
-        var panelRegistered = false
-        runCatching {
-            val panelPoint = points?.panelShow
-            if (panelPoint != null) {
-                environment.registrar.adapted("paused.panel_show", panelPoint) {
+        val panel = KavaMemberLookup.classOrNull(loader, PANEL_REPOSITORY_CLASS)
+        if (panel != null || points?.panelShow != null) {
+            expected++
+            val show = panel?.let { KavaMemberLookup.declaredMethods(it, makeAccessible = true) { method ->
+                !Modifier.isStatic(method.modifiers) && method.name == "showPanel" && method.returnType == Void.TYPE &&
+                    method.parameterTypes.map(Class<*>::getName) == listOf("int", PANEL_DATA_INTERFACE, PANEL_LISTENER)
+            }.singleOrNull() }
+            val dismiss = panel?.let { KavaMemberLookup.methodOrNull(it, "dismissPanel") }
+                ?.takeIf { !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 && it.returnType == Void.TYPE }
+            if (show != null && dismiss != null) runCatching {
+                environment.registrar.exact("paused.panel_show", show.declaringClass, show.name, *show.parameterTypes) {
                     after {
-                        val data = args.firstOrNull {
-                            it?.javaClass?.name?.contains(PANEL_DATA_NAME) == true
+                        if (hasThrowable) return@after
+                        val data = args.getOrNull(1) ?: return@after
+                        if (data.javaClass.simpleName != PANEL_DATA_NAME) return@after
+                        val receiver = instance ?: return@after
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        runCatching { dismiss.invoke(receiver) }.onFailure {
+                            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ERROR)
+                            environment.logError("paused_p2_dismiss", "[BIL] 暂停广告面板关闭失败: $it")
                         }
-                        if (data != null) {
-                            runCatching { ReflectAccess.callMethod(instance, "dismissPanel") }
-                                .onSuccess {
-                                    environment.logInfo(
-                                        "paused_p2_dismiss",
-                                        "[BIL] 已丢弃暂停页广告面板（P2 兜底）"
-                                    )
-                                }
-                        }
+                        // invoke 成功尚不证明窗口消失；APPLIED 由可回读的协议清理提供。
                     }
                 }
-            } else {
-                environment.registrar.all(
-                    "paused.panel_show_fallback",
-                    PANEL_REPOSITORY_CLASS,
-                    "showPanel"
-                ) {
-                    after {
-                        val data = args.firstOrNull {
-                            it?.javaClass?.name?.contains(PANEL_DATA_NAME) == true
-                        }
-                        if (data != null) runCatching {
-                            ReflectAccess.callMethod(instance, "dismissPanel")
-                        }
+            }.onSuccess { hookCount++ }.onFailure {
+                environment.logError("paused_p2_register", "[BIL] 暂停广告面板入口注册失败: $it")
+            }
+        }
+
+        val countdownOwner = KavaMemberLookup.classOrNull(loader, COUNTDOWN_CLASS)
+        if (countdownOwner != null || points?.countdown != null ||
+            KavaMemberLookup.classOrNull(loader, PAUSED_SERVICE) != null) {
+            expected++
+            val service = KavaMemberLookup.classOrNull(loader, PAUSED_SERVICE)
+            val access = if (countdownOwner != null && service != null) {
+                PauseCountdownAdapter.resolve(loader, countdownOwner, service)
+            } else null
+            if (access != null) runCatching {
+                val countdown = access.entry
+                environment.registrar.exact("paused.countdown", countdown.declaringClass,
+                    countdown.name, *countdown.parameterTypes) {
+                    before {
+                        if (!access.allows(instance, args.getOrNull(0))) return@before
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
+                        result = access.emptyResult()
+                        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
                     }
                 }
-            }
-            panelRegistered = true
-            hookCount++
-            environment.logInfo(
-                "paused_p2",
-                "[BIL] 已注册暂停页广告面板拦截兜底（AdPanelRepository.showPanel）"
-            )
-        }.onFailure { throwable ->
-            environment.logInfo(
-                "paused_p2_reg_err",
-                "[BIL] 暂停页广告 P2 兜底注册失败: $throwable"
-            )
+            }.onSuccess { hookCount++ }.onFailure {
+                environment.logError("paused_p3_register", "[BIL] 暂停广告倒计时入口注册失败: $it")
+            } else environment.logInfo("paused_p3_preserved",
+                "[BIL] 暂停倒计时广告来源/协程门禁不可用，保留正常 bar 与宿主倒计时")
         }
 
-        runCatching {
-            val countdownPoint = points?.countdown
-            if (countdownPoint != null) {
-                environment.registrar.adapted("paused.countdown", countdownPoint) {
-                    before { result = null }
-                }
-            } else {
-                environment.registrar.first(
-                    "paused.countdown_fallback",
-                    COUNTDOWN_CLASS,
-                    INVOKE_SUSPEND
-                ) { before { result = null } }
-            }
-            hookCount++
-            environment.logInfo("paused_p3", "[BIL] 已屏蔽暂停页「3 秒后展示广告」倒计时 toast")
-        }.onFailure { throwable ->
-            environment.logInfo(
-                "paused_p3_reg_err",
-                "[BIL] 暂停页倒计时 toast 屏蔽注册失败: $throwable"
-            )
-        }
-
-        // P4：协议响应层。与 P1/P2/P3 互不知情——它们全是"按宿主实现定位"
-        // （混淆类名一漂移就落空），这一层打在未混淆的 protobuf 生成类上。
-        if (installResponseLayer(environment)) hookCount++
-
-        environment.reportStatus(
-            CHANNEL_STATUS,
-            if (primaryCount > 0 || panelRegistered) "success" else "failed"
-        )
+        val response = PauseResponseAdapter.install(environment, PauseResponseAdapter.resolve(loader))
+        expected += response.expected
+        hookCount += response.installed
+        environment.reportStatus(CHANNEL_RESPONSE, when {
+            response.expected == 0 -> "not-applicable-host"
+            response.complete -> "success"
+            else -> "partial:${response.installed}/${response.expected}"
+        })
+        val complete = expected > 0 && hookCount == expected
+        environment.reportStatus(CHANNEL_STATUS, when {
+            hookCount == 0 -> "failed"
+            complete -> "success"
+            else -> "partial:$hookCount/$expected"
+        })
+        environment.logInfo("paused_coverage", "[BIL] 暂停广告安装覆盖=$hookCount/$expected，响应=${response.installed}/${response.expected}，请求家族=${requestFamilies.size}、载体=${requestOwners.size}（保留宿主）")
         return if (hookCount > 0) {
-            FeatureInstallResult.Installed(hookCount)
-        } else {
-            FeatureInstallResult.Skipped("no_hook_point")
-        }
-    }
-
-    /**
-     * P4：在 `ViewMoss#executePlayPause` 的响应上清掉广告载荷。
-     *
-     * `PlayPauseReply` 是 oneof（`dataCase_` + `data_`）承载 `ads_`，
-     * 而**暂停进度条 `bar_` 是独立声明字段**——25 版逐版核对确认，
-     * 所以 `clearAds()` 在结构上就碰不到进度条，不存在"顺手删掉正常功能"的风险。
-     *
-     * 定位面只有两个未混淆的 protobuf 类名，不依赖任何混淆实现类，
-     * 这是它比 P1/P2/P3 稳的原因。
-     *
-     * ⚠️ `PlayPauseReply` **从 8.91.0 才有**（8.84.0–8.89.0 那 5 版没有），
-     * 缺失时哨兵降级记 info 不记 error，P1/P2/P3 照常工作。
-     */
-    private fun installResponseLayer(environment: HookEnvironment): Boolean {
-        val loader = environment.classLoader ?: return false
-        val reply = KavaMemberLookup.classOrNull(loader, PLAY_PAUSE_REPLY_CLASS)
-        val moss = KavaMemberLookup.classOrNull(loader, VIEW_MOSS_CLASS)
-        val request = KavaMemberLookup.classOrNull(loader, PLAY_PAUSE_REQ_CLASS)
-        if (reply == null || moss == null || request == null) {
-            environment.reportStatus(CHANNEL_RESPONSE, "not-applicable-host")
-            environment.logInfo(
-                "paused_p4_absent",
-                "[BIL] 暂停页响应层不可用（本宿主无 $PLAY_PAUSE_REPLY_CLASS），仅保留 P1/P2/P3"
-            )
-            return false
-        }
-        val cleaner = PausePayloadCleaner.resolve(reply) ?: run {
-            environment.reportStatus(CHANNEL_RESPONSE, "not-applicable-host")
-            environment.logInfo(
-                "paused_p4_shape",
-                "[BIL] 暂停页响应层形状不符（缺 hasAds/clearAds），仅保留 P1/P2/P3"
-            )
-            return false
-        }
-        return runCatching {
-            environment.registrar.exact(
-                "paused.response.execute_play_pause",
-                moss,
-                EXECUTE_PLAY_PAUSE,
-                request
-            ) {
-                after {
-                    if (hasThrowable) return@after
-                    val original = result ?: return@after
-                    val updated = cleaner.clearAds(original, environment)
-                    if (updated !== original) result = updated
-                }
-            }
-            environment.reportStatus(CHANNEL_RESPONSE, "success")
-            environment.logInfo("paused_p4", "[BIL] 已注册暂停页响应层广告清理（P4）")
-            true
-        }.getOrElse { throwable ->
-            environment.reportStatus(CHANNEL_RESPONSE, "registration-failed")
-            environment.logError(
-                "paused_p4_reg_err",
-                "[BIL] 暂停页响应层注册失败: $throwable"
-            )
-            false
-        }
+            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
+            FeatureInstallResult.Installed(hookCount, complete)
+        } else FeatureInstallResult.Skipped("no-safe-hook-point")
     }
 
     companion object {
         const val ID = "paused_ad"
         private const val CHANNEL_STATUS = "adskip_status"
-        private const val INVOKE_SUSPEND = "invokeSuspend"
-        private const val REQUEST_CLASS_V2 =
-            "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2"
-        private const val REQUEST_CLASS_V3 =
-            "com.bilibili.ship.theseus.united.page.pausedpage.PausedPageService\$requestPausedPageData\$2"
-        private const val PANEL_REPOSITORY_CLASS =
-            "com.bilibili.ship.theseus.united.page.ad.AdPanelRepository"
-        private const val COUNTDOWN_CLASS =
-            "com.bilibili.ship.theseus.united.page.pausedpage.PausedPageService\$showPauseBarCountdownToast\$3"
-        private const val PANEL_DATA_NAME = "AdPausedPagePanelData"
-
-        /** P4 用的通道与锚点。全是未混淆的 protobuf 生成类。 */
         private const val CHANNEL_RESPONSE = "adskip_response_status"
-        private const val VIEW_MOSS_CLASS = "com.bapis.bilibili.app.viewunite.v1.ViewMoss"
-        private const val PLAY_PAUSE_REQ_CLASS =
-            "com.bapis.bilibili.app.viewunite.v1.PlayPauseReq"
-        private const val PLAY_PAUSE_REPLY_CLASS =
-            "com.bapis.bilibili.app.viewunite.v1.PlayPauseReply"
-        private const val EXECUTE_PLAY_PAUSE = "executePlayPause"
+        private const val PAUSED_SERVICE = "com.bilibili.ship.theseus.united.page.pausedpage.PausedPageService"
+        private const val PANEL_REPOSITORY_CLASS = "com.bilibili.ship.theseus.united.page.ad.AdPanelRepository"
+        private const val COUNTDOWN_CLASS = "$PAUSED_SERVICE\$showPauseBarCountdownToast\$3"
+        private const val PANEL_DATA_NAME = "AdPausedPagePanelData"
+        private const val PANEL_DATA_INTERFACE = "com.bilibili.gripper.api.ad.biz.videodetail.IPanelData"
+        private const val PANEL_LISTENER = "com.bilibili.gripper.api.ad.biz.videodetail.IAdPanelListener"
+        private val REQUEST_CARRIERS = listOf(
+            "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$2",
+            "$PAUSED_SERVICE\$requestPausedPageData\$2",
+            "kntr.app.ad.biz.videodetail.pausedpage.AdPausedPageApi\$requestPausedPage\$1",
+            "$PAUSED_SERVICE\$requestPausedPageResult\$1"
+        )
         internal const val HAS_ADS = "hasAds"
         internal const val CLEAR_ADS = "clearAds"
-
-        /** 暂停进度条：正常功能，**绝不能动**。留常量是为了让测试能钉住"没碰它"。 */
         internal const val PAUSE_BAR_PRESENCE = "hasBar"
     }
 }
@@ -262,10 +137,12 @@ internal class PausePayloadCleaner private constructor(
     private val plan: ProtobufBuilderPlan,
     private val hasAds: java.lang.reflect.Method,
     private val clearAds: java.lang.reflect.Method,
+    private val hasBar: java.lang.reflect.Method,
+    private val getBar: java.lang.reflect.Method,
     private val defaultInstance: Any?
 ) {
 
-    fun clearAds(original: Any, environment: HookEnvironment): Any = runCatching {
+    fun clearAds(original: Any, environment: HookEnvironment, reportApplied: Boolean = true): Any = runCatching {
         if (!reply.isInstance(original)) return@runCatching original
         if (defaultInstance != null && original === defaultInstance) return@runCatching original
         if (hasAds.invoke(original) as? Boolean != true) return@runCatching original
@@ -274,8 +151,8 @@ internal class PausePayloadCleaner private constructor(
         )
         val updated = plan.edit(original) { target -> clearAds.invoke(target) }
         // 回读确认：clear* 对空字段静默成功，不回读就没有"真的清掉了"的证据。
-        check(hasAds.invoke(updated) as? Boolean != true) { "Pause ads clear readback failed" }
-        environment.reportRuntimeEvidence(
+        check(isClearedCopy(original, updated)) { "Pause ads/bar clear readback failed" }
+        if (reportApplied) environment.reportRuntimeEvidence(
             PausedAdFeatureInstaller.ID, FeatureRuntimeStage.APPLIED
         )
         updated
@@ -290,16 +167,28 @@ internal class PausePayloadCleaner private constructor(
         original
     }
 
+    internal fun isClearedCopy(original: Any, updated: Any): Boolean =
+        reply.isInstance(original) && reply.isInstance(updated) && updated !== original &&
+            hasAds.invoke(updated) as? Boolean == false &&
+            hasBar.invoke(original) == hasBar.invoke(updated) && getBar.invoke(original) == getBar.invoke(updated)
+
     companion object {
         fun resolve(reply: Class<*>): PausePayloadCleaner? = runCatching {
             val plan = ProtobufBuilderPlan.resolve(reply) ?: return null
             val hasAds = KavaMemberLookup.methodOrNull(reply, PausedAdFeatureInstaller.HAS_ADS)
-                ?.takeIf { it.returnType == java.lang.Boolean.TYPE } ?: return null
+                ?.takeIf { !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 &&
+                    it.returnType == java.lang.Boolean.TYPE } ?: return null
             val clearAds = plan.method(PausedAdFeatureInstaller.CLEAR_ADS) ?: return null
-            val defaultInstance = runCatching {
-                KavaMemberLookup.methodOrNull(reply, "getDefaultInstance")?.invoke(null)
-            }.getOrNull()
-            PausePayloadCleaner(reply, plan, hasAds, clearAds, defaultInstance)
+            val hasBar = KavaMemberLookup.methodOrNull(reply, PausedAdFeatureInstaller.PAUSE_BAR_PRESENCE)
+                ?.takeIf { !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 &&
+                    it.returnType == java.lang.Boolean.TYPE } ?: return null
+            val getBar = KavaMemberLookup.methodOrNull(reply, "getBar")
+                ?.takeIf { !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 &&
+                    !it.returnType.isPrimitive } ?: return null
+            val defaultInstance = KavaMemberLookup.methodOrNull(reply, "getDefaultInstance")
+                ?.takeIf { Modifier.isStatic(it.modifiers) && it.parameterCount == 0 && it.returnType == reply }
+                ?.invoke(null)?.takeIf(reply::isInstance) ?: return null
+            PausePayloadCleaner(reply, plan, hasAds, clearAds, hasBar, getBar, defaultInstance)
         }.getOrNull()
     }
 }

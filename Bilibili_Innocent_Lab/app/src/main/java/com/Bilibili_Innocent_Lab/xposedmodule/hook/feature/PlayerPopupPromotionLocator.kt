@@ -1,10 +1,12 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 
-/** 广告模型的稳定语义入口；安装期校验，不进入后台适配缓存或 Hook 热路径扫描。 */
+/** 广告模型的稳定语义入口；缓存成员也在安装期验真，回调内不定位或扫描。 */
 internal object PlayerPopupPromotionLocator {
     const val ADVERT_CLASS = "com.bilibili.adcommon.data.model.DmAdvert"
     const val DM_CLASS = "com.bilibili.adcommon.data.model.Dm"
@@ -26,17 +28,20 @@ internal object PlayerPopupPromotionLocator {
         }
     }
 
-    fun resolve(loader: ClassLoader?): Access? {
-        val advert = KavaMemberLookup.classOrNull(loader, ADVERT_CLASS) ?: return null
+    fun resolve(loader: ClassLoader?, cachedFloat: HookPoint? = null): Access? {
+        val assisted = loader?.let { PlayerPopupPromotionAdapter.resolveAdvertFloat(it, cachedFloat) }
+        val advert = KavaMemberLookup.classOrNull(loader, ADVERT_CLASS) ?: assisted?.declaringClass ?: return null
         val dm = KavaMemberLookup.classOrNull(loader, DM_CLASS) ?: return null
         val card = KavaMemberLookup.classOrNull(loader, CARD_CLASS) ?: return null
-        return resolve(advert, dm, card)
+        return resolve(advert, dm, card, assisted?.takeIf { it.declaringClass == advert })
     }
 
-    internal fun resolve(advert: Class<*>, dm: Class<*>, card: Class<*>): Access? {
+    internal fun resolve(advert: Class<*>, dm: Class<*>, card: Class<*>, assistedFloat: Method? = null): Access? {
         val getCard = exact(dm, "getCard", card) ?: return null
         val getCardType = exact(card, "getCardType", Int::class.javaPrimitiveType!!) ?: return null
-        val readers = READERS.mapNotNull { exact(advert, it, List::class.java) }
+        val readers = READERS.mapNotNull {
+            exact(advert, it, List::class.java) ?: assistedFloat?.takeIf { _ -> it == "getFloatLayers" }
+        }.distinct()
         return Access(readers, dm, card, getCard, getCardType)
     }
 
