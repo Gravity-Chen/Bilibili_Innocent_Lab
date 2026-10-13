@@ -4,6 +4,8 @@
     <item name="top_container" type="id" />
     <item name="tab_layout" type="id" />
     <item name="icon_2" type="id" />
+    <item name="opus_pager" type="id" />
+    <item name="opus_dy_list" type="id" />
     <item name="story_activity_root" type="id" />
     <item name="story_fragment_root" type="id" />
     <item name="story_list_item_controller" type="id" />

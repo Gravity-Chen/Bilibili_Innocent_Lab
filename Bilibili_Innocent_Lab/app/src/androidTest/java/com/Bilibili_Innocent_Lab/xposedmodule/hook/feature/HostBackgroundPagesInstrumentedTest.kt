@@ -29,6 +29,66 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    @Test fun embeddedOpusCommentsShareTheArticleWorldButReplyOverlaysStayIndependent() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = InstrumentationRegistry.getInstrumentation().context
+                val decor = activity.window.decorView as ViewGroup
+                for (childFirst in listOf(false, true)) {
+                    val root = FrameLayout(context)
+                    val article = RecyclerView(context).apply { id = TestR.id.opus_dy_list; layoutManager = LinearLayoutManager(context) }
+                    val tabs = View(context).apply { setBackgroundColor(Color.WHITE) }
+                    val pager = FrameLayout(context).apply { id = TestR.id.opus_pager }
+                    val comment = FrameLayout(context).apply { setBackgroundColor(Color.WHITE) }
+                    val list = RecyclerView(context).apply { layoutManager = LinearLayoutManager(context); setBackgroundColor(Color.WHITE) }
+                    root.addView(article, FrameLayout.LayoutParams(-1, 240))
+                    root.addView(tabs, FrameLayout.LayoutParams(-1, 40).apply { topMargin = 240 })
+                    root.addView(pager, FrameLayout.LayoutParams(-1, 360).apply { topMargin = 280 })
+                    pager.addView(comment, FrameLayout.LayoutParams(-1, -1))
+                    comment.addView(list, FrameLayout.LayoutParams(-1, -1))
+                    decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                    root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                    root.layout(0, 0, 320, 640)
+                    val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it })
+                    val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                    fun draw() { root.viewTreeObserver.dispatchOnGlobalLayout(); root.viewTreeObserver.dispatchOnPreDraw() }
+                    if (childFirst) { pages.attach(comment, HostBackgroundPagePolicy.Kind.COMMENT); draw() }
+                    pages.attach(root, HostBackgroundPagePolicy.Kind.OPUS)
+                    pages.attach(comment, HostBackgroundPagePolicy.Kind.COMMENT)
+                    draw()
+                    assertSame(root, HostBackgroundPages.sharedWallpaperOwner(comment))
+                    assertNull(comment.background)
+                    assertNull(list.background)
+                    assertNull(tabs.background)
+                    val wallpaper = root.background as HostBackgroundDrawable
+                    assertTrue(pages.scroll(article, 200))
+                    assertEquals(200L, wallpaper.scrollOffset)
+                    assertTrue(pages.scroll(list, 80))
+                    draw()
+                    assertEquals(280L, wallpaper.scrollOffset)
+                    // 正文已移出视口，不能丢掉其累计距离，也不能由绘制回调顺序覆写评论距离。
+                    article.translationY = -640f
+                    draw()
+                    assertEquals(280L, wallpaper.scrollOffset)
+                    controller.apply(list, true)
+                    assertNull(comment.background)
+                    val reply = FrameLayout(context).apply { setBackgroundColor(Color.WHITE) }
+                    root.addView(reply, FrameLayout.LayoutParams(-1, -1))
+                    pages.attach(reply, HostBackgroundPagePolicy.Kind.COMMENT)
+                    draw()
+                    assertNull(HostBackgroundPages.sharedWallpaperOwner(reply))
+                    assertTrue(reply.background is HostBackgroundDrawable)
+                    root.removeView(reply)
+                    assertTrue(pages.scroll(list, -80))
+                    draw()
+                    assertEquals(200L, wallpaper.scrollOffset)
+                    decor.removeView(root)
+                }
+            }
+        }
+    }
+
     @Test fun favoriteTabActionShadeRevealsWallpaperAcrossHostReapplication() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->

@@ -88,6 +88,9 @@ internal class HostBackgroundPages(
     }
 
     private fun updateDetailWallpaper(panel: ViewGroup) {
+        // 图文评论位于正文之后，继承正文已经滚过的距离；视频左右标签则各自从零开始。
+        val opus = kinds[panel] == HostBackgroundPagePolicy.Kind.OPUS
+        val baseOffset = if (opus) pages[panel]?.wallpaperOffset(includeHidden = true) ?: 0L else 0L
         var weightedOffset = 0.0
         var visibleWidth = 0L
         for ((root, page) in pages) {
@@ -98,7 +101,8 @@ internal class HostBackgroundPages(
             visibleWidth += width
         }
         // 左右滑动时两个标签都可见，按可见宽度连续过渡，避免最后一个回调抢走顶栏原点。
-        if (visibleWidth > 0) background.pageOffset(panel, kotlin.math.round(weightedOffset / visibleWidth).toLong())
+        if (visibleWidth > 0) background.pageOffset(panel, baseOffset + kotlin.math.round(weightedOffset / visibleWidth).toLong())
+        else if (opus) background.pageOffset(panel, baseOffset)
     }
 
     private fun recycler(view: View): Boolean = types.getOrPut(view.javaClass) {
@@ -164,10 +168,11 @@ internal class HostBackgroundPages(
             if (it.offset != 0L && it.top.isAtTop(list)) it.offset = 0L
         }
 
-        fun wallpaperOffset(): Long? {
+        fun wallpaperOffset(includeHidden: Boolean = false): Long? {
             val page = root.get() ?: return null
             if (dirty) discover(page)
-            val list = activeList?.get()?.takeIf(::visible) ?: lists.firstNotNullOfOrNull { it.get()?.takeIf(::visible) }
+            val list = activeList?.get()?.takeIf { includeHidden || visible(it) }
+                ?: lists.firstNotNullOfOrNull { it.get()?.takeIf { list -> includeHidden || visible(list) } }
             return list?.let { position(it).offset }
         }
 
@@ -305,7 +310,8 @@ internal class HostBackgroundPages(
                 if (night) for (ref in texts) ref.get()?.takeIf { owner(it) === page }?.let { readableText(it, page) }
                 for (ref in lists) ref.get()?.takeIf { owner(it) === page }?.let(background::prepareList)
                 if ((wholePage || wallpaperOwner != null) && kind != HostBackgroundPagePolicy.Kind.COMPOSE) {
-                    if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
+                    if (kind == HostBackgroundPagePolicy.Kind.OPUS) updateDetailWallpaper(page)
+                    else if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
                     else wallpaperOffset()?.let { background.pageOffset(wallpaperOwner ?: page, it) }
                 }
                 detailSurfaces?.apply(night)
@@ -322,7 +328,8 @@ internal class HostBackgroundPages(
             val position = positions.getOrPut(list) { Position(list) }
             position.offset += dy
             activeList = WeakReference(list)
-            if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
+            if (kind == HostBackgroundPagePolicy.Kind.OPUS) updateDetailWallpaper(page)
+            else if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
             else background.pageOffset(wallpaperOwner ?: page, position.offset)
             return true
         }
@@ -480,8 +487,13 @@ internal class HostBackgroundPages(
             if (kinds[page] != HostBackgroundPagePolicy.Kind.COMMENT && kinds[page] != HostBackgroundPagePolicy.Kind.PAGE) return null
             var branch: View = page
             var node = page.parent as? View
+            var opusPager = false
             while (node != null) {
+                if (name(node) == "opus_pager") opusPager = true
                 if (node is ViewGroup && kinds.containsKey(node)) {
+                    // 仅共享正文中 opus_pager 下的主评论；楼中楼/独立弹层仍保有自己的底板。
+                    if (kinds[node] == HostBackgroundPagePolicy.Kind.OPUS && opusPager && page.width > 0 && page.width == node.width)
+                        return node
                     // 视频详情的前景面板包含简介/评论标签；壁纸不能提升到播放器所在的窗口。
                     return node.takeIf {
                         kinds[it] == HostBackgroundPagePolicy.Kind.NATIVE && name(it) == "content_container" && name(branch) == "pager" &&
