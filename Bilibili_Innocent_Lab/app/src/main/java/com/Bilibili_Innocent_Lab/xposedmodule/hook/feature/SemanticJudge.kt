@@ -1646,8 +1646,8 @@ internal object JevRequestCodec {
         val answers = runCatching { JSONObject(payload).getJSONObject("answers") }.getOrNull() ?: return null
         val scores = FloatArray(count) { Float.NaN }
         answers.keys().forEach { key ->
-            val entry = PAIR_KEY.find(key)?.groupValues?.get(1)?.toIntOrNull()
-                ?: ENTRY_KEY.find(key)?.groupValues?.get(1)?.toIntOrNull()
+            val entry = PAIR_KEY.matchEntire(key)?.groupValues?.get(1)?.toIntOrNull()
+                ?: ENTRY_KEY.matchEntire(key)?.groupValues?.get(1)?.toIntOrNull()
                 ?: return@forEach
             if (entry !in 0 until count) return@forEach
             val answer = answers.optJSONObject(key) ?: return@forEach

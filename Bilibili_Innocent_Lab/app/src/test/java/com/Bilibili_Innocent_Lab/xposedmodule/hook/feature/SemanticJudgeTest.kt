@@ -86,6 +86,18 @@ class SemanticJudgeTest {
     }
 
     @Test
+    fun `answer keys must match a complete entry or entry rule identity`() {
+        val malformed = listOf("x_item_0_1", "item_0_1_extra", "item_0_1_2", "item_0_-1", "item_0suffix")
+        fun answer(score: Double) = JSONObject().put("type", "noul").put("noul", score)
+        val invalidAnswers = JSONObject().also { answers -> malformed.forEach { answers.put(it, answer(0.99)) } }
+        assertNull(JevRequestCodec.decodeBlockScores(JSONObject().put("answers", invalidAnswers).toString(), 2))
+        invalidAnswers.put("item_0_0", answer(0.2)).put("item_1", answer(0.3))
+        val scores = JevRequestCodec.decodeBlockScores(JSONObject().put("answers", invalidAnswers).toString(), 2)!!
+        assertEquals(0.2f, scores[0], 1e-6f)
+        assertEquals(0.3f, scores[1], 1e-6f)
+    }
+
+    @Test
     fun `block score prefers the probability distribution and falls back to choice`() {
         val payload = JSONObject().put(
             "answers",
