@@ -10,6 +10,7 @@ internal object HostBackgroundPagePolicy {
     fun mediaDetailActivity(names: List<String>): Boolean = VIDEO_DETAIL_ACTIVITY in names
 
     fun kind(name: String): Kind? = when {
+        imageViewer(name) -> null
         name == "com.bilibili.bplus.followinglist.page.opus.OpusDetailFragment" -> Kind.OPUS
         name.startsWith("com.bilibili.app.comment") && name.substringAfterLast('.').startsWith("Comment") && name.endsWith("Fragment") -> Kind.COMMENT
         name.startsWith("com.bilibili.ogv.operation") && name.substringAfterLast('.').startsWith("BangumiHome") -> Kind.COMPOSE
@@ -21,6 +22,11 @@ internal object HostBackgroundPagePolicy {
         name.startsWith("com.bilibili.pegasus.") && name.endsWith("PegasusFragment") -> Kind.FEED
         else -> null
     }
+
+    /** 评论大图使用内嵌 DialogFragment，不能仅按 Activity 名称保护媒体。 */
+    fun imageViewer(name: String): Boolean = name.startsWith("com.bilibili.lib.imageviewer.") ||
+        name.startsWith("com.bilibili.app.comment") &&
+        (name.contains(".ui.widget.imageviewer.") || name.contains(".ui.widget.imagecardviewer."))
 
     /** Activity 的内容窗口兜底，播放、图片查看和直播房间保持自己的沉浸式材质。 */
     fun nativeActivity(names: List<String>, packageName: String = "tv.danmaku.bili"): Boolean = packageName == "tv.danmaku.bili" && names.isNotEmpty() && names.none { name ->

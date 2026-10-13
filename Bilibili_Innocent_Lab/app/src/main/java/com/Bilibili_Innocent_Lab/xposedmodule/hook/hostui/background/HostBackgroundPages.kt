@@ -507,6 +507,7 @@ internal class HostBackgroundPages(
         }
         fun contains(view: View) = kind(view) != null
         private fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||
+            HostBackgroundPagePolicy.imageViewer(view.javaClass.name) ||
             name(view) in protectedNames || selectionChrome(view) || view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
             view.javaClass.name.startsWith("com.bilibili.video.story.") ||
             view.javaClass.name.startsWith("com.bilibili.cron.") || view.javaClass.name.startsWith("tv.danmaku.render.")

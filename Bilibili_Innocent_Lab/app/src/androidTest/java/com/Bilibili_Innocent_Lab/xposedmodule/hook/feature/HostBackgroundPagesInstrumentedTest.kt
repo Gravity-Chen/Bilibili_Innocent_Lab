@@ -29,6 +29,48 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    @Test fun embeddedCommentImageViewerKeepsItsBackdropAndControlsInsideNativePages() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(activity)
+                val viewer = com.bilibili.app.comment3.ui.widget.imagecardviewer.ui.widget.ViewerFixture(activity).apply {
+                    setBackgroundColor(Color.BLACK)
+                }
+                val mediaBackground = viewer.background
+                val controls = FrameLayout(activity).apply { setBackgroundColor(Color.DKGRAY) }
+                val controlsBackground = controls.background
+                val title = TextView(activity).apply { text = "查看原图"; setTextColor(Color.WHITE) }
+                val image = ImageView(activity).apply { setImageDrawable(ColorDrawable(0x80ffffff.toInt())) }
+                val content = image.drawable
+                controls.addView(title, FrameLayout.LayoutParams(-1, -1))
+                viewer.addView(image, FrameLayout.LayoutParams(-1, -1))
+                viewer.addView(controls, FrameLayout.LayoutParams(-1, 60))
+                root.addView(viewer, FrameLayout.LayoutParams(-1, -1))
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, 320, 640)
+                val pages = HostBackgroundPages(HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it }),
+                    HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                pages.attach(viewer, HostBackgroundPagePolicy.Kind.COMMENT)
+                repeat(2) {
+                    root.viewTreeObserver.dispatchOnGlobalLayout()
+                    root.viewTreeObserver.dispatchOnPreDraw()
+                    assertTrue(root.background is HostBackgroundDrawable)
+                    assertSame(root, HostBackgroundPages.owner(viewer))
+                    assertTrue(HostBackgroundPages.protectedAncestor(controls))
+                    assertSame(mediaBackground, viewer.background)
+                    assertSame(controlsBackground, controls.background)
+                    assertSame(content, image.drawable)
+                    assertEquals(Color.WHITE, title.currentTextColor)
+                }
+                decor.removeView(root)
+            }
+        }
+    }
+
     @Test fun embeddedOpusCommentsShareTheArticleWorldButReplyOverlaysStayIndependent() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->

@@ -6,6 +6,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostBackgroundPagePolicyTest {
+    @Test fun embeddedCommentImageViewersKeepTheirMediaComposition() {
+        for (name in listOf(
+            "com.bilibili.app.comment3.ui.widget.imagecardviewer.CommentImageCardViewerDialogFragment",
+            "com.bilibili.app.comment3.ui.widget.imagecardviewer.CommentImageCardFragment",
+            "com.bilibili.app.comment3.ui.widget.imageviewer.CommentImageFragment",
+            "com.bilibili.app.comment3.ui.widget.imagecardviewer.ui.widget.TouchDispatchObservableFrameLayout",
+            "com.bilibili.lib.imageviewer.widget.MediaViewPager"
+        )) {
+            assertTrue(HostBackgroundPagePolicy.imageViewer(name))
+            assertNull(HostBackgroundPagePolicy.kind(name))
+        }
+        assertFalse(HostBackgroundPagePolicy.imageViewer("com.bilibili.app.comment3.ui.widget.CommentPictureListWidget"))
+        assertFalse(HostBackgroundPagePolicy.imageViewer("another.app.ui.widget.imageviewer.CommentImageFragment"))
+        assertEquals(Kind.COMMENT, HostBackgroundPagePolicy.kind("com.bilibili.app.comment3.ui.CommentV3DetailFragment"))
+    }
+
     @Test fun storyWindowsAndTheirSubclassesKeepNativeMediaComposition() {
         for (name in listOf("StoryTransparentActivity", "StoryVideoActivity", "StoryActivity")) {
             val activity = "com.bilibili.video.story.$name"
