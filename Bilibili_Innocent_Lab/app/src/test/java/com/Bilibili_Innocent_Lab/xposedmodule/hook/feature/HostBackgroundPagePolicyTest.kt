@@ -6,6 +6,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostBackgroundPagePolicyTest {
+    @Test fun storyWindowsAndTheirSubclassesKeepNativeMediaComposition() {
+        for (name in listOf("StoryTransparentActivity", "StoryVideoActivity", "StoryActivity")) {
+            val activity = "com.bilibili.video.story.$name"
+            assertFalse(HostBackgroundPagePolicy.nativeActivity(listOf(activity, "android.app.Activity")))
+            assertFalse(HostBackgroundPagePolicy.nativeActivity(listOf("host.StoryVariant", activity, "android.app.Activity")))
+            assertFalse(HostBackgroundPagePolicy.mediaDetailActivity(listOf(activity)))
+        }
+        assertTrue(HostBackgroundPagePolicy.nativeActivity(listOf("com.bilibili.app.history.HistoryActivity")))
+    }
+
     @Test fun mediaDetailsKeepTheirWindowButStillAcceptContentBackgrounds() {
         val detail = "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
         assertTrue(HostBackgroundPagePolicy.mediaDetailActivity(listOf("host.DetailVariant", detail, "android.app.Activity")))

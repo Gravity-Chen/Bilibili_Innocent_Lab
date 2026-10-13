@@ -24,6 +24,9 @@ internal object HostBackgroundPagePolicy {
 
     /** Activity 的内容窗口兜底，播放、图片查看和直播房间保持自己的沉浸式材质。 */
     fun nativeActivity(names: List<String>, packageName: String = "tv.danmaku.bili"): Boolean = packageName == "tv.danmaku.bili" && names.isNotEmpty() && names.none { name ->
+        // 详情页按钮实际启动 StoryTransparentActivity；不能只按 StoryVideo 等简单类名识别。
+        // 同时覆盖普通 StoryVideoActivity、透明入口和它们的宿主派生类。
+        if (name.startsWith("com.bilibili.video.story.")) return@none true
         val simple = name.substringAfterLast('.').lowercase()
         listOf("playeractivity", "fullscreen", "liveroomactivity", "liveroomtranslucent", "liveplayer", "translucentactivity", "dialogactivity",
             "pictureviewer", "imageviewer", "imagesviewer", "localviewer", "mediaviewer", "bigavatar", "imageviewactivity", "imageeditor",

@@ -29,6 +29,49 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    @Test fun storyMediaRootsAndControlsKeepTheirSurfacesAcrossLayoutChanges() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = InstrumentationRegistry.getInstrumentation().context
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(context)
+                val media = FrameLayout(context).apply { id = TestR.id.story_activity_root; setBackgroundColor(Color.BLACK) }
+                val controls = FrameLayout(context).apply { id = TestR.id.story_list_item_controller; setBackgroundColor(Color.TRANSPARENT) }
+                val shade = View(context).apply { setBackgroundColor(Color.DKGRAY) }
+                val list = RecyclerView(context).apply { layoutManager = LinearLayoutManager(context); setBackgroundColor(Color.BLACK) }
+                root.addView(media, FrameLayout.LayoutParams(-1, -1))
+                media.addView(list, FrameLayout.LayoutParams(-1, -1))
+                media.addView(controls, FrameLayout.LayoutParams(-1, -1))
+                controls.addView(shade, FrameLayout.LayoutParams(-1, 100))
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, 320, 640)
+                val surfaces = listOf(media, controls, shade, list)
+                val originals = surfaces.map { it.background }
+                val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it })
+                val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                // 即使嵌在已接入的普通页里，也不能把壁纸附到媒体根或清理其控制器。
+                pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                pages.attach(media, HostBackgroundPagePolicy.Kind.NATIVE)
+                pages.attach(controls, HostBackgroundPagePolicy.Kind.PAGE)
+                repeat(3) { pass ->
+                    controls.visibility = if (pass == 1) View.INVISIBLE else View.VISIBLE
+                    root.viewTreeObserver.dispatchOnGlobalLayout()
+                    root.viewTreeObserver.dispatchOnPreDraw()
+                    surfaces.forEachIndexed { index, view ->
+                        assertSame(originals[index], view.background)
+                        assertTrue(HostBackgroundPages.protectedAncestor(view))
+                        assertSame(root, HostBackgroundPages.owner(view))
+                    }
+                    assertFalse(pages.scroll(list, 200))
+                }
+                decor.removeView(root)
+            }
+        }
+    }
+
     @Test fun tabActionGradientsRevealWallpaperWithoutChangingIconsOrOtherImages() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->

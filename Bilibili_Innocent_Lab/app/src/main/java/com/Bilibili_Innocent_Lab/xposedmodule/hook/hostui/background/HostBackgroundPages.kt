@@ -36,6 +36,7 @@ internal class HostBackgroundPages(
     val requiresNight: Boolean get() = background.requiresNight
 
     fun attach(root: ViewGroup, kind: HostBackgroundPagePolicy.Kind, window: Window? = null) {
+        if (protected(root)) return
         val owner = owner(root)
         if (owner === root || owner != null && kinds[owner] != HostBackgroundPagePolicy.Kind.NATIVE && kind != HostBackgroundPagePolicy.Kind.COMMENT) return
         // 内容 Layer 与外层评论 Fragment 属于同一面板，不能在标题栏下面重启壁纸。
@@ -495,6 +496,7 @@ internal class HostBackgroundPages(
         fun contains(view: View) = kind(view) != null
         private fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||
             name(view) in protectedNames || selectionChrome(view) || view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
+            view.javaClass.name.startsWith("com.bilibili.video.story.") ||
             view.javaClass.name.startsWith("com.bilibili.cron.") || view.javaClass.name.startsWith("tv.danmaku.render.")
 
         fun protectedAncestor(view: View): Boolean {
@@ -527,6 +529,7 @@ internal class HostBackgroundPages(
         private val sectionNames = setOf("sticky_container", "sub_sticky_container", "tab_recyclerView", "top_bar", "dy_app_bar", "dy_sticky_group")
         private val chromeNames = setOf("main_top_layout", "nav_top_bar", "top_bar", "mine_top_view", "fake_input_layout", "cmt3_page_title_container")
         private val protectedNames = setOf("splash_layout", "splash_container", "video_container", "video_area", "control_container", "player_wrapper", "video_cover_wrapper",
+            "story_activity_root", "story_fragment_root", "story_list_item_container", "story_list_item_controller", "story_list_item_controller_image", "story_landscape",
             "cover", "cover_layout", "video_cover", "iv_cover", "cover_image", "image_cover", "cover_container", "thumbnail", "pic", "banner", "dy_tab_layout",
             "avatar", "avatar_container", "avatar_layer", "garb_bg", "high_light_view", "login_mask", "login_mask_container", "video_area_float_layer_container",
             "shortcut_video_view", "recycler_top_car", "cover_ground_layout")

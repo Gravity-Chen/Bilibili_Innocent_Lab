@@ -116,6 +116,7 @@ internal class HostVideoCardStyle(
 
         override fun onPreDraw(): Boolean {
             val list = parent.get() ?: return true
+            if (isInPlayer(list)) return true
             val night = host.isNight(list.context)
             background?.apply(list, night)
             if (!decorateCards) return true
@@ -383,6 +384,8 @@ internal class HostVideoCardStyle(
         }
     }
     private fun resourceKind(view: View): Int {
+        // Story 条目在 bind 时可能还没挂到页面，先由子树中的播放器/控制器类识别。
+        if (view.javaClass.name.startsWith("com.bilibili.video.story.")) return PLAYER
         val id = view.id
         if (id == View.NO_ID) return OTHER
         val cached = resourceKinds.get(id, -1)
@@ -392,6 +395,8 @@ internal class HostVideoCardStyle(
             // 结束页卡片在 bind 时可能尚未挂到播放器；其进度占位 ViewStub 可提前识别。
             name == "endpage_progess_root" || name == "endpage_progress_root" ||
                 name == "video_container" || name == "video_area" || name == "control_container" ||
+                name == "story_activity_root" || name == "story_fragment_root" || name == "story_list_item_container" ||
+                name == "story_list_item_controller" || name == "story_list_item_controller_image" || name == "story_landscape" ||
                 name == "recycler_top_car" || name == "shortcut_video_view" -> PLAYER
             name in coverNames -> COVER
             name in titleNames -> TITLE
