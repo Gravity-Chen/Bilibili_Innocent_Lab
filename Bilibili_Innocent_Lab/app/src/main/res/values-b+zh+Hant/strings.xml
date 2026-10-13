@@ -415,6 +415,8 @@
     <string name="remove_comment_empty_guide_tip">啟用後，隱藏評論區暫無評論時的一鍵傳送引導，評論區入口不受影響。重新啟動 Bilibili 後生效。</string>
     <string name="remove_comment_vote_widgets">隱藏評論投票元件</string>
     <string name="remove_comment_vote_widgets_tip">啟用後，隱藏評論中的投票與站隊元件；一般按讚、回覆及評論內容不受影響。重新啟動 Bilibili 後生效。</string>
+    <string name="hide_comment_reply_button">隱藏評論回覆按鈕</string>
+    <string name="hide_comment_reply_button_tip">隱藏評論下方的「回覆」文字或圖示，仍可點按評論進行回覆，樓中樓預覽及回覆數量不受影響。如果同時停用了點按評論快速回覆，請從三點選單回覆。重新啟動 Bilibili 後生效。</string>
     <string name="remove_comment_follow_buttons">隱藏評論追蹤按鈕</string>
     <string name="remove_comment_follow_buttons_tip">啟用後，隱藏評論區中的追蹤按鈕，其他徽章、評論內容與互動不受影響。重新啟動 Bilibili 後生效。</string>
     <string name="remove_comment_qoe">關閉評論體驗回饋</string>

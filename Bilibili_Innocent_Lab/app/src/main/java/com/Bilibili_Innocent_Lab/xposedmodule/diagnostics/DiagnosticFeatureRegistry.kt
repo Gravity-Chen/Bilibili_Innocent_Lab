@@ -157,6 +157,7 @@ internal object DiagnosticFeatureRegistry {
             DiagnosticFeatureCategory.PLAYER_AND_DETAIL,
             runtimeEvidenceExpected = true
         ),
+        DiagnosticFeatureDescriptor("comment_reply_button", DiagnosticFeatureCategory.COMMENTS, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor("comment_section", DiagnosticFeatureCategory.COMMENTS),
         DiagnosticFeatureDescriptor("comment_classic_style", DiagnosticFeatureCategory.COMMENTS, runtimeEvidenceExpected = true),
         DiagnosticFeatureDescriptor(

@@ -33,7 +33,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRende
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 52
+    const val CATALOG_VERSION = 53
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -834,6 +834,7 @@ internal object SettingsCatalog {
         bool("comments.search_links.removed", FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS, R.string.remove_comment_search_links),
         bool("comments.empty_guide.removed", FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE, R.string.remove_comment_empty_guide),
         bool("comments.vote_widgets.removed", FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS, R.string.remove_comment_vote_widgets),
+        bool("comments.reply_button.hidden", FeaturePreferences.HIDE_COMMENT_REPLY_BUTTON, R.string.hide_comment_reply_button, introducedCatalogVersion = 53),
         bool("comments.follow_buttons.removed", FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS, R.string.remove_comment_follow_buttons),
         bool("comments.qoe.removed", FeaturePreferences.REMOVE_COMMENT_QOE, R.string.remove_comment_qoe),
         bool("comments.operations.removed", FeaturePreferences.REMOVE_COMMENT_OPERATIONS, R.string.remove_comment_operations),
@@ -995,7 +996,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 233) { "Expected 233 catalog settings, found ${specs.size}" }
+        check(specs.size == 234) { "Expected 234 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

@@ -415,6 +415,8 @@
     <string name="remove_comment_empty_guide_tip">开启后，隐藏评论区暂无评论时的一键发送引导，评论区入口不受影响。重启哔哩哔哩后生效。</string>
     <string name="remove_comment_vote_widgets">隐藏评论投票组件</string>
     <string name="remove_comment_vote_widgets_tip">开启后，隐藏评论中的投票与站队组件，普通点赞、回复和评论内容不受影响。重启哔哩哔哩后生效。</string>
+    <string name="hide_comment_reply_button">隐藏评论回复按钮</string>
+    <string name="hide_comment_reply_button_tip">隐藏评论下方的“回复”文字或图标，仍可点击评论进行回复，楼中楼预览和回复数量不受影响。如果同时关闭了评论点击快速回复，请从三点菜单回复。重启哔哩哔哩后生效。</string>
     <string name="remove_comment_follow_buttons">隐藏评论关注按钮</string>
     <string name="remove_comment_follow_buttons_tip">开启后，隐藏评论区中的关注按钮，其他徽章、评论内容和交互不受影响。重启哔哩哔哩后生效。</string>
     <string name="remove_comment_qoe">关闭评论体验反馈</string>

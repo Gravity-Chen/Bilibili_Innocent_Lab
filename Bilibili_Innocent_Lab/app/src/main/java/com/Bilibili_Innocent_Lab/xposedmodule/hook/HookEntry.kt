@@ -55,6 +55,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BvToAvFeatureInstalle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentPurifyFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentTopologyFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentReplyButtonFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentSectionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.CommentClassicStyleFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyFeatureInstaller
@@ -3434,6 +3435,9 @@ class HookEntry : XposedModule() {
 
             featureInstallCoordinator.installAll(
                 listOf(
+                    CommentReplyButtonFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.HIDE_COMMENT_REPLY_BUTTON, false)
+                    ),
                     CommentSectionFeatureInstaller(
                         enabled = prefs.getBoolean(
                             FeaturePreferences.HIDE_COMMENT_SECTION,

@@ -415,6 +415,7 @@ class MainActivity : SkinnedActivity() {
     private var removeCommentSearchLinks = false
     private var removeCommentEmptyGuide = false
     private var removeCommentVoteWidgets = false
+    private var hideCommentReplyButton = false
     private var removeCommentFollowButtons = false
     private var removeCommentQoe = false
     private var removeCommentOperations = false
@@ -4446,6 +4447,7 @@ class MainActivity : SkinnedActivity() {
         removeCommentSearchLinks = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS)
         removeCommentEmptyGuide = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE)
         removeCommentVoteWidgets = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS)
+        hideCommentReplyButton = uiSettings.bool(FeaturePreferences.HIDE_COMMENT_REPLY_BUTTON)
         removeCommentFollowButtons = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS)
         removeCommentQoe = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_QOE)
         removeCommentOperations = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_OPERATIONS)
@@ -7388,6 +7390,45 @@ class MainActivity : SkinnedActivity() {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.remove_comment_follow_buttons_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            bindFavoriteSwitch(this, FeaturePreferences.HIDE_COMMENT_REPLY_BUTTON, directToggle = true)
+            text = stringResource(R.string.hide_comment_reply_button)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = hideCommentReplyButton
+            setOnCheckedChangeListener { _, isChecked ->
+                hideCommentReplyButton = isChecked
+                runCatching {
+                    prefs().edit {
+                        putBoolean(
+                            FeaturePreferences.HIDE_COMMENT_REPLY_BUTTON,
+                            isChecked
+                        )
+                    }
+                }.onFailure { t ->
+                    Log.e(
+                        "BilibiliInnocentLab",
+                        "write comment reply button prefs failed",
+                        t
+                    )
+                }
+            }
+        }
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true)
+        ) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.hide_comment_reply_button_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }

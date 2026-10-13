@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 23
+    const val VERSION = 24
     val definitions = listOf(
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
@@ -166,6 +166,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("comments_qoe_removed", "comment_purify", R.string.remove_comment_qoe, setOf("comments.qoe.removed")),
         DiagnosticCapabilityDefinition("comments_operations_removed", "comment_purify", R.string.remove_comment_operations, setOf("comments.operations.removed")),
         DiagnosticCapabilityDefinition("comments_quick_reply_blocked", "comment_purify", R.string.block_comment_quick_reply, setOf("comments.quick_reply.blocked")),
+        DiagnosticCapabilityDefinition("comment_reply_button", "comment_reply_button", R.string.hide_comment_reply_button, setOf("comments.reply_button.hidden"), introducedCatalogVersion = 24),
         DiagnosticCapabilityDefinition("comment_section", "comment_section", R.string.hide_comment_section, setOf("comments.section.hidden")),
         DiagnosticCapabilityDefinition("comment_topology", "comment_topology", R.string.reply_topology_enabled, setOf("comments.reply_topology.enabled")),
         DiagnosticCapabilityDefinition("comment_classic_style", "comment_classic_style", R.string.comment_classic_style, setOf("comments.classic_style.enabled"), introducedCatalogVersion = 20),

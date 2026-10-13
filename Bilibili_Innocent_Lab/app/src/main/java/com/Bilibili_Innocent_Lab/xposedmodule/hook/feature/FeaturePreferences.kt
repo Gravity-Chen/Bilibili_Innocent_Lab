@@ -219,6 +219,7 @@ internal object FeaturePreferences {
     const val REMOVE_COMMENT_SEARCH_LINKS = "remove_comment_search_links"
     const val REMOVE_COMMENT_EMPTY_GUIDE = "remove_comment_empty_guide"
     const val REMOVE_COMMENT_VOTE_WIDGETS = "remove_comment_vote_widgets"
+    const val HIDE_COMMENT_REPLY_BUTTON = "hide_comment_reply_button"
     const val REMOVE_COMMENT_FOLLOW_BUTTONS = "remove_comment_follow_buttons"
     const val REMOVE_COMMENT_QOE = "remove_comment_qoe"
     const val REMOVE_COMMENT_OPERATIONS = "remove_comment_operations"

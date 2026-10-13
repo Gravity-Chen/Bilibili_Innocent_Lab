@@ -415,6 +415,8 @@
     <string name="remove_comment_empty_guide_tip">When enabled, hides the one-tap posting guide in an empty comment section. The comment tab remains available. Restart Bilibili to apply.</string>
     <string name="remove_comment_vote_widgets">Hide comment vote widgets</string>
     <string name="remove_comment_vote_widgets_tip">When enabled, hides comment polls and side-picking widgets. Normal likes, replies, and comment content remain available. Restart Bilibili to apply.</string>
+    <string name="hide_comment_reply_button">Hide comment reply buttons</string>
+    <string name="hide_comment_reply_button_tip">Hides the Reply text or icon below comments. Tapping comments to reply, reply previews, and reply counts remain available. If tap-to-quick-reply is disabled, use the three-dot menu to reply. Restart Bilibili to apply.</string>
     <string name="remove_comment_follow_buttons">Hide comment follow buttons</string>
     <string name="remove_comment_follow_buttons_tip">When enabled, hides follow buttons in comments. Other badges, comment content, and interactions remain available. Restart Bilibili to apply.</string>
     <string name="remove_comment_qoe">Disable comment experience feedback</string>
