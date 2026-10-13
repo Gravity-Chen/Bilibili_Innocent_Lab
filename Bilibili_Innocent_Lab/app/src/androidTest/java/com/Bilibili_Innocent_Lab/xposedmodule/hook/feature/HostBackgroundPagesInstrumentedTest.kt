@@ -29,6 +29,271 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    @Test fun embeddedCommentImageViewerKeepsItsBackdropAndControlsInsideNativePages() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(activity)
+                val viewer = com.bilibili.app.comment3.ui.widget.imagecardviewer.ui.widget.ViewerFixture(activity).apply {
+                    setBackgroundColor(Color.BLACK)
+                }
+                val mediaBackground = viewer.background
+                val controls = FrameLayout(activity).apply { setBackgroundColor(Color.DKGRAY) }
+                val controlsBackground = controls.background
+                val title = TextView(activity).apply { text = "查看原图"; setTextColor(Color.WHITE) }
+                val image = ImageView(activity).apply { setImageDrawable(ColorDrawable(0x80ffffff.toInt())) }
+                val content = image.drawable
+                controls.addView(title, FrameLayout.LayoutParams(-1, -1))
+                viewer.addView(image, FrameLayout.LayoutParams(-1, -1))
+                viewer.addView(controls, FrameLayout.LayoutParams(-1, 60))
+                root.addView(viewer, FrameLayout.LayoutParams(-1, -1))
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, 320, 640)
+                val pages = HostBackgroundPages(HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it }),
+                    HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                pages.attach(viewer, HostBackgroundPagePolicy.Kind.COMMENT)
+                repeat(2) {
+                    root.viewTreeObserver.dispatchOnGlobalLayout()
+                    root.viewTreeObserver.dispatchOnPreDraw()
+                    assertTrue(root.background is HostBackgroundDrawable)
+                    assertSame(root, HostBackgroundPages.owner(viewer))
+                    assertTrue(HostBackgroundPages.protectedAncestor(controls))
+                    assertSame(mediaBackground, viewer.background)
+                    assertSame(controlsBackground, controls.background)
+                    assertSame(content, image.drawable)
+                    assertEquals(Color.WHITE, title.currentTextColor)
+                }
+                decor.removeView(root)
+            }
+        }
+    }
+
+    @Test fun embeddedOpusCommentsShareTheArticleWorldButReplyOverlaysStayIndependent() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = InstrumentationRegistry.getInstrumentation().context
+                val decor = activity.window.decorView as ViewGroup
+                for (childFirst in listOf(false, true)) {
+                    val root = FrameLayout(context)
+                    val article = RecyclerView(context).apply { id = TestR.id.opus_dy_list; layoutManager = LinearLayoutManager(context) }
+                    val tabs = View(context).apply { setBackgroundColor(Color.WHITE) }
+                    val pager = FrameLayout(context).apply { id = TestR.id.opus_pager }
+                    val comment = FrameLayout(context).apply { setBackgroundColor(Color.WHITE) }
+                    val list = RecyclerView(context).apply { layoutManager = LinearLayoutManager(context); setBackgroundColor(Color.WHITE) }
+                    root.addView(article, FrameLayout.LayoutParams(-1, 240))
+                    root.addView(tabs, FrameLayout.LayoutParams(-1, 40).apply { topMargin = 240 })
+                    root.addView(pager, FrameLayout.LayoutParams(-1, 360).apply { topMargin = 280 })
+                    pager.addView(comment, FrameLayout.LayoutParams(-1, -1))
+                    comment.addView(list, FrameLayout.LayoutParams(-1, -1))
+                    decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                    root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                    root.layout(0, 0, 320, 640)
+                    val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it })
+                    val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                    fun draw() { root.viewTreeObserver.dispatchOnGlobalLayout(); root.viewTreeObserver.dispatchOnPreDraw() }
+                    if (childFirst) { pages.attach(comment, HostBackgroundPagePolicy.Kind.COMMENT); draw() }
+                    pages.attach(root, HostBackgroundPagePolicy.Kind.OPUS)
+                    pages.attach(comment, HostBackgroundPagePolicy.Kind.COMMENT)
+                    draw()
+                    assertSame(root, HostBackgroundPages.sharedWallpaperOwner(comment))
+                    assertNull(comment.background)
+                    assertNull(list.background)
+                    assertNull(tabs.background)
+                    val wallpaper = root.background as HostBackgroundDrawable
+                    assertTrue(pages.scroll(article, 200))
+                    assertEquals(200L, wallpaper.scrollOffset)
+                    assertTrue(pages.scroll(list, 80))
+                    draw()
+                    assertEquals(280L, wallpaper.scrollOffset)
+                    // 正文已移出视口，不能丢掉其累计距离，也不能由绘制回调顺序覆写评论距离。
+                    article.translationY = -640f
+                    draw()
+                    assertEquals(280L, wallpaper.scrollOffset)
+                    controller.apply(list, true)
+                    assertNull(comment.background)
+                    val reply = FrameLayout(context).apply { setBackgroundColor(Color.WHITE) }
+                    root.addView(reply, FrameLayout.LayoutParams(-1, -1))
+                    pages.attach(reply, HostBackgroundPagePolicy.Kind.COMMENT)
+                    draw()
+                    assertNull(HostBackgroundPages.sharedWallpaperOwner(reply))
+                    assertTrue(reply.background is HostBackgroundDrawable)
+                    root.removeView(reply)
+                    assertTrue(pages.scroll(list, -80))
+                    draw()
+                    assertEquals(200L, wallpaper.scrollOffset)
+                    decor.removeView(root)
+                }
+            }
+        }
+    }
+
+    @Test fun favoriteTabActionShadeRevealsWallpaperAcrossHostReapplication() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = InstrumentationRegistry.getInstrumentation().context
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(context)
+                val tabs = FrameLayout(context).apply { id = TestR.id.top_container }
+                val shade = View(context).apply { id = TestR.id.right_button_start_bg; setPadding(2, 3, 4, 5) }
+                val button = FrameLayout(context).apply { id = TestR.id.right_button }
+                val icon = ImageView(context).apply { id = TestR.id.icon_2; setImageDrawable(ColorDrawable(Color.GRAY)) }
+                val iconDrawable = icon.drawable
+                button.addView(icon, FrameLayout.LayoutParams(-1, -1))
+                tabs.addView(View(context).apply { id = TestR.id.tab_layout }, FrameLayout.LayoutParams(240, 60))
+                tabs.addView(shade, FrameLayout.LayoutParams(12, 60).apply { leftMargin = 240 })
+                tabs.addView(button, FrameLayout.LayoutParams(68, 60).apply { leftMargin = 252 })
+                root.addView(tabs, FrameLayout.LayoutParams(-1, 60))
+                // 同名但不属于收藏标签栏的业务渐变必须保留。
+                val unrelated = View(context).apply {
+                    id = TestR.id.right_button_start_bg
+                    background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.TRANSPARENT, Color.WHITE))
+                }
+                val original = unrelated.background
+                root.addView(unrelated, FrameLayout.LayoutParams(12, 60).apply { topMargin = 60 })
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, 320, 640)
+                val pages = HostBackgroundPages(HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it }),
+                    HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                for (color in listOf(Color.WHITE, Color.BLACK, Color.MAGENTA)) {
+                    shade.background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.TRANSPARENT, color))
+                    button.background = ColorDrawable(color)
+                    icon.background = ColorDrawable(color)
+                    val background = shade.background
+                    val buttonBackground = button.background
+                    val iconBackground = icon.background
+                    repeat(2) {
+                        root.viewTreeObserver.dispatchOnGlobalLayout()
+                        root.viewTreeObserver.dispatchOnPreDraw()
+                        if (color == Color.MAGENTA) assertSame(background, shade.background) else assertNull(shade.background)
+                        if (color == Color.MAGENTA) {
+                            assertSame(buttonBackground, button.background)
+                            assertSame(iconBackground, icon.background)
+                        } else {
+                            assertNull(button.background)
+                            assertNull(icon.background)
+                        }
+                        assertSame(original, unrelated.background)
+                        assertSame(iconDrawable, icon.drawable)
+                        assertEquals(listOf(2, 3, 4, 5), listOf(shade.paddingLeft, shade.paddingTop, shade.paddingRight, shade.paddingBottom))
+                    }
+                }
+                decor.removeView(root)
+            }
+        }
+    }
+
+    @Test fun storyMediaRootsAndControlsKeepTheirSurfacesAcrossLayoutChanges() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = InstrumentationRegistry.getInstrumentation().context
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(context)
+                val media = FrameLayout(context).apply { id = TestR.id.story_activity_root; setBackgroundColor(Color.BLACK) }
+                val controls = FrameLayout(context).apply { id = TestR.id.story_list_item_controller; setBackgroundColor(Color.TRANSPARENT) }
+                val shade = View(context).apply { setBackgroundColor(Color.DKGRAY) }
+                val list = RecyclerView(context).apply { layoutManager = LinearLayoutManager(context); setBackgroundColor(Color.BLACK) }
+                root.addView(media, FrameLayout.LayoutParams(-1, -1))
+                media.addView(list, FrameLayout.LayoutParams(-1, -1))
+                media.addView(controls, FrameLayout.LayoutParams(-1, -1))
+                controls.addView(shade, FrameLayout.LayoutParams(-1, 100))
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, 320, 640)
+                val surfaces = listOf(media, controls, shade, list)
+                val originals = surfaces.map { it.background }
+                val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it })
+                val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                // 即使嵌在已接入的普通页里，也不能把壁纸附到媒体根或清理其控制器。
+                pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                pages.attach(media, HostBackgroundPagePolicy.Kind.NATIVE)
+                pages.attach(controls, HostBackgroundPagePolicy.Kind.PAGE)
+                repeat(3) { pass ->
+                    controls.visibility = if (pass == 1) View.INVISIBLE else View.VISIBLE
+                    root.viewTreeObserver.dispatchOnGlobalLayout()
+                    root.viewTreeObserver.dispatchOnPreDraw()
+                    surfaces.forEachIndexed { index, view ->
+                        assertSame(originals[index], view.background)
+                        assertTrue(HostBackgroundPages.protectedAncestor(view))
+                        assertSame(root, HostBackgroundPages.owner(view))
+                    }
+                    assertFalse(pages.scroll(list, 200))
+                }
+                decor.removeView(root)
+            }
+        }
+    }
+
+    @Test fun tabActionGradientsRevealWallpaperWithoutChangingIconsOrOtherImages() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = InstrumentationRegistry.getInstrumentation().context
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(context)
+                val strip = FrameLayout(context).apply { id = TestR.id.container_strip }
+                val filterContainer = FrameLayout(context).apply { id = TestR.id.filter_icon_container }
+                val filter = ImageView(context).apply { id = TestR.id.filter_icon; setImageDrawable(ColorDrawable(Color.GRAY)); setPadding(28, 0, 16, 0) }
+                val tabs = FrameLayout(context).apply { id = TestR.id.tab_box }
+                val manageContainer = FrameLayout(context)
+                val manage = ImageView(context).apply { id = TestR.id.history_manage; setImageDrawable(ColorDrawable(Color.GRAY)) }
+                val cover = ImageView(context)
+                fun gradient(color: Int) = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.TRANSPARENT, color))
+                cover.background = gradient(Color.WHITE)
+                val coverBackground = cover.background
+                val filterIcon = filter.drawable
+                val manageIcon = manage.drawable
+                root.addView(strip, FrameLayout.LayoutParams(-1, 60))
+                strip.addView(filterContainer, FrameLayout.LayoutParams(64, 60))
+                filterContainer.addView(filter, FrameLayout.LayoutParams(-1, -1))
+                root.addView(tabs, FrameLayout.LayoutParams(-1, 60).apply { topMargin = 60 })
+                tabs.addView(manageContainer, FrameLayout.LayoutParams(62, 34))
+                manageContainer.addView(manage, FrameLayout.LayoutParams(20, 20))
+                root.addView(cover, FrameLayout.LayoutParams(100, 100).apply { topMargin = 120 })
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, 320, 640)
+                val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.NEBULA), { throw it })
+                val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                for (color in listOf(Color.WHITE, Color.BLACK, Color.MAGENTA)) {
+                    filter.background = gradient(color)
+                    manageContainer.background = LayerDrawable(arrayOf(gradient(color), GradientDrawable().apply { setColor(color) })).apply {
+                        setLayerInset(0, 0, 0, 50, 0)
+                        setLayerInset(1, 12, 0, 0, 0)
+                    }
+                    val filterBackground = filter.background
+                    val manageBackground = manageContainer.background
+                    repeat(2) {
+                        root.viewTreeObserver.dispatchOnGlobalLayout()
+                        root.viewTreeObserver.dispatchOnPreDraw()
+                        if (color == Color.MAGENTA) {
+                            assertSame(filterBackground, filter.background)
+                            assertSame(manageBackground, manageContainer.background)
+                        } else {
+                            assertNull(filter.background)
+                            assertNull(manageContainer.background)
+                        }
+                        assertSame(filterIcon, filter.drawable)
+                        assertSame(manageIcon, manage.drawable)
+                        assertSame(coverBackground, cover.background)
+                        assertEquals(28, filter.paddingLeft)
+                        assertEquals(16, filter.paddingRight)
+                    }
+                }
+                decor.removeView(root)
+            }
+        }
+    }
+
     @Test fun splashAndPinnedSelectionHeaderKeepTheirOccludingSurfaces() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->

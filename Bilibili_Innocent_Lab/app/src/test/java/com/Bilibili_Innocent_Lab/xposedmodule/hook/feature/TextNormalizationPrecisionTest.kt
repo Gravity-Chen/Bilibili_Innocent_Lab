@@ -77,6 +77,6 @@ class TextNormalizationPrecisionTest {
         })
         judge.evaluate(listOf("ＡＡＡ 好耶"), SemanticMode.WAIT)
         judge.evaluate(listOf("AAA  好耶", " AAA​ 好耶 "), SemanticMode.WAIT)
-        assertEquals(1, questions)
+        assertEquals(SemanticPresets.DANMAKU.size, questions) // 归一化后同一文本只判一次；一题 = 一条 × 一条规则
     }
 }

@@ -19,7 +19,8 @@ class SemanticBackendTest {
 
     @get:Rule val temp = TemporaryFolder()
 
-    private val rules = SemanticPresets.COMMENT
+    /** 批量上限类断言假设一题一文本；拆题后一题 = 一条 × 一条规则，取一条规则保持题数 = 条目数（多规则题面见 SemanticJudgeTest）。 */
+    private val rules = SemanticPresets.COMMENT.take(1)
 
     @Before fun resetVariants() = SemanticJudge.resetLearnedVariants()
 
@@ -113,6 +114,19 @@ class SemanticBackendTest {
     }
 
     @Test
+    fun `openai per rule results merge by max per entry`() {
+        val backend = OpenAiCompatibleBackend("m")
+        val scores = backend.decode(
+            chat(
+                "{\"results\":[{\"i\":0,\"r\":0,\"p\":0.2},{\"i\":0,\"r\":1,\"p\":0.75}," +
+                    "{\"i\":1,\"r\":0,\"p\":0.4},{\"i\":1,\"r\":0,\"p\":0.9}]}"
+            ), 2
+        )!!
+        assertEquals(0.75f, scores[0], 1e-6f) // 同一条目各规则取最大
+        assertEquals(0.4f, scores[1], 1e-6f) // 同一 (i, r) 重复先到为准
+    }
+
+    @Test
     fun `unsupported response format relaxes once and stays relaxed`() {
         val formats = mutableListOf<Boolean>()
         val judge = SemanticJudge("k", rules, backend = OpenAiCompatibleBackend("m"), background = { it.run(); true },
@@ -180,7 +194,7 @@ class SemanticBackendTest {
     }
 
     private fun typeOf(body: ByteArray): String =
-        JSONObject(String(body)).getJSONObject("questions").getJSONObject("item_0").getString("type")
+        JSONObject(String(body)).getJSONObject("questions").getJSONObject("item_0_0").getString("type")
 
     @Test
     fun `envelope parses but nothing scores counts as a structural failure`() {
@@ -204,12 +218,12 @@ class SemanticBackendTest {
     @Test
     fun `jev question formats follow the official criteria shapes`() {
         fun question(format: JevQuestionFormat) = JSONObject(String(JevRequestCodec.encode(listOf("a"), rules, format = format)))
-            .getJSONObject("questions").getJSONObject("item_0")
+            .getJSONObject("questions").getJSONObject("item_0_0")
         assertEquals(setOf("block", "keep"), question(JevQuestionFormat.CHOICE).getJSONObject("criteria").keys().asSequence().toSet())
         assertEquals(setOf("true", "false"), question(JevQuestionFormat.NOUL).getJSONObject("criteria").keys().asSequence().toSet())
         val levels = question(JevQuestionFormat.SCORE).getJSONArray("criteria")
         assertEquals(2, levels.length())
-        assertTrue(levels.getString(1).contains("matches at least one")) // 最高级 = 屏蔽
+        assertTrue(levels.getString(1).contains("Matches this one rule")) // 最高级 = 屏蔽（一题只判一条规则）
         assertEquals("noul", question(JevQuestionFormat.NOUL).getString("type"))
     }
 
@@ -410,7 +424,7 @@ class SemanticBackendTest {
         assertEquals(listOf(32, 16, 16), sizes) // 32 被拒 → 两个 16，题型没变
         sizes.clear()
         // 之后直接按探明的 16 切，不再先撞一次 400；其他过滤面同一服务也一样。
-        SemanticJudge("k", SemanticPresets.DANMAKU, batchSize = 32, background = { it.run(); true }, transport = transport)
+        SemanticJudge("k", SemanticPresets.DANMAKU.take(1), batchSize = 32, background = { it.run(); true }, transport = transport)
             .evaluate(List(32) { "新$it" }, SemanticMode.WAIT)
         assertEquals(listOf(16, 16), sizes)
     }
@@ -487,7 +501,7 @@ class SemanticBackendTest {
         // 模拟 OpenRouter 上的 Respan：state 必须是字符串，且只收 noul。
         val transport: (ByteArray, String, Int) -> Pair<Int, String>? = { body, _, _ ->
             val json = JSONObject(String(body))
-            val type = json.getJSONObject("questions").getJSONObject("item_0").getString("type")
+            val type = json.getJSONObject("questions").getJSONObject("item_0_0").getString("type")
             val text = json.opt("state") is String
             seen += if (text) "$type+text" else type
             when {
@@ -514,7 +528,7 @@ class SemanticBackendTest {
         assertTrue(state.contains("Blocking rules (JSON): ") && state.contains(rules.first().covers))
         assertTrue(state.contains("拿不准就保留") && state.contains(SemanticGuidance.SAFETY))
         assertTrue(state.contains("[0] 第一条\n[1] 第二条"))
-        val question = body.getJSONObject("questions").getJSONObject("item_1")
+        val question = body.getJSONObject("questions").getJSONObject("item_1_0")
         assertEquals("noul", question.getString("type"))
         assertTrue(question.getString("instructions").contains("entry [1]"))
         assertTrue(question.get("instructions") is String) // Respan 只收纯字符串的 instructions / criteria

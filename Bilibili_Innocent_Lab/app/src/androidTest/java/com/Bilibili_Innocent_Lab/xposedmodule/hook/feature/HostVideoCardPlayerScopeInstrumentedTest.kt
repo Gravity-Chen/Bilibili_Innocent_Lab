@@ -151,6 +151,22 @@ class HostVideoCardPlayerScopeInstrumentedTest {
         card.assertUnmodified()
     }
 
+    @Test fun storyPagerKeepsFullWidthRowsAndNativeSurfaces() = check { context, style ->
+        val card = Card(context, endPage = false)
+        card.attach(player = false)
+        val list = card.root.parent as ViewGroup
+        val page = list.parent as View
+        page.id = context.resources.getIdentifier("story_activity_root", "id", "tv.danmaku.bili")
+        assertTrue(page.id != 0)
+        val params = card.root.layoutParams as ViewGroup.MarginLayoutParams
+        val original = listOf(params.leftMargin, params.topMargin, params.rightMargin, params.bottomMargin)
+        style.bind(card.root)
+        style.prepareMeasurement(LinearLayoutManager(context), card.root)
+        card.assertUnmodified()
+        assertEquals(original, listOf(params.leftMargin, params.topMargin, params.rightMargin, params.bottomMargin))
+        assertFalse(style.replacesSeparators(list))
+    }
+
     @Test fun sideCenterPodcastPreviewsKeepTheirDarkMediaSurface() = check { context, style ->
         val card = Card(context, endPage = false)
         card.attach(player = false, listName = "recycler_top_car")

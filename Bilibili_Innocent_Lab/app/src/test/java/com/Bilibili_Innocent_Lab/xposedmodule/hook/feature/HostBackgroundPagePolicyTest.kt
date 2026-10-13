@@ -6,6 +6,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostBackgroundPagePolicyTest {
+    @Test fun embeddedCommentImageViewersKeepTheirMediaComposition() {
+        for (name in listOf(
+            "com.bilibili.app.comment3.ui.widget.imagecardviewer.CommentImageCardViewerDialogFragment",
+            "com.bilibili.app.comment3.ui.widget.imagecardviewer.CommentImageCardFragment",
+            "com.bilibili.app.comment3.ui.widget.imageviewer.CommentImageFragment",
+            "com.bilibili.app.comment3.ui.widget.imagecardviewer.ui.widget.TouchDispatchObservableFrameLayout",
+            "com.bilibili.lib.imageviewer.widget.MediaViewPager"
+        )) {
+            assertTrue(HostBackgroundPagePolicy.imageViewer(name))
+            assertNull(HostBackgroundPagePolicy.kind(name))
+        }
+        assertFalse(HostBackgroundPagePolicy.imageViewer("com.bilibili.app.comment3.ui.widget.CommentPictureListWidget"))
+        assertFalse(HostBackgroundPagePolicy.imageViewer("another.app.ui.widget.imageviewer.CommentImageFragment"))
+        assertEquals(Kind.COMMENT, HostBackgroundPagePolicy.kind("com.bilibili.app.comment3.ui.CommentV3DetailFragment"))
+    }
+
+    @Test fun storyWindowsAndTheirSubclassesKeepNativeMediaComposition() {
+        for (name in listOf("StoryTransparentActivity", "StoryVideoActivity", "StoryActivity")) {
+            val activity = "com.bilibili.video.story.$name"
+            assertFalse(HostBackgroundPagePolicy.nativeActivity(listOf(activity, "android.app.Activity")))
+            assertFalse(HostBackgroundPagePolicy.nativeActivity(listOf("host.StoryVariant", activity, "android.app.Activity")))
+            assertFalse(HostBackgroundPagePolicy.mediaDetailActivity(listOf(activity)))
+        }
+        assertTrue(HostBackgroundPagePolicy.nativeActivity(listOf("com.bilibili.app.history.HistoryActivity")))
+    }
+
     @Test fun mediaDetailsKeepTheirWindowButStillAcceptContentBackgrounds() {
         val detail = "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
         assertTrue(HostBackgroundPagePolicy.mediaDetailActivity(listOf("host.DetailVariant", detail, "android.app.Activity")))
@@ -25,6 +51,7 @@ class HostBackgroundPagePolicyTest {
         assertEquals(Kind.PAGE, HostBackgroundPagePolicy.kind("tv.danmaku.bili.ui.rank.RankVideoListFragment"))
         assertEquals(Kind.DYNAMIC, HostBackgroundPagePolicy.kind("com.bilibili.bplus.followinglist.home.mediator.MediatorFragment"))
         assertEquals(Kind.DYNAMIC, HostBackgroundPagePolicy.kind("com.bilibili.bplus.followinglist.quick.consume.VideoQuickConsumeFragment"))
+        assertEquals(Kind.OPUS, HostBackgroundPagePolicy.kind("com.bilibili.bplus.followinglist.page.opus.OpusDetailFragment"))
         assertEquals(Kind.LIVE, HostBackgroundPagePolicy.kind("com.bilibili.bililive.biz.livehome.indexfeed.ui.LiveHomeFragment"))
         assertEquals(Kind.FEED, HostBackgroundPagePolicy.kind("com.bilibili.pegasus.PegasusFragment"))
         for (name in listOf("com.bilibili.ogv.operation2.PlayerFragment", "com.bilibili.bililive.room.LiveRoomFragment", "com.bilibili.ogv.misc.follow.BangumiFollowDialogFragment", "another.app.BangumiHomeFragment"))

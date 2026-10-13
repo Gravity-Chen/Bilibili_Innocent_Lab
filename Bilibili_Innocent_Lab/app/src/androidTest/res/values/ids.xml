@@ -1,4 +1,20 @@
 <resources>
+    <item name="right_button_start_bg" type="id" />
+    <item name="right_button" type="id" />
+    <item name="top_container" type="id" />
+    <item name="tab_layout" type="id" />
+    <item name="icon_2" type="id" />
+    <item name="opus_pager" type="id" />
+    <item name="opus_dy_list" type="id" />
+    <item name="story_activity_root" type="id" />
+    <item name="story_fragment_root" type="id" />
+    <item name="story_list_item_controller" type="id" />
+    <item name="story_landscape" type="id" />
+    <item name="filter_icon" type="id" />
+    <item name="filter_icon_container" type="id" />
+    <item name="container_strip" type="id" />
+    <item name="tab_box" type="id" />
+    <item name="history_manage" type="id" />
     <item name="splash_layout" type="id" />
     <item name="splash_container" type="id" />
     <item name="head_layout" type="id" />

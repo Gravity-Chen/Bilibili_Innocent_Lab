@@ -150,16 +150,19 @@ class SemanticCacheTest {
             cacheTtlMs = settings.cacheTtlMs
         )
 
-        val texts = List(60) { "评论$it" } // 超过落盘阈值 50 条
+        // 恰好攒到落盘阈值（50 条）：最后一次写盘把整份写全，不受分批大小（拆题后一题 = 一条 × 一条规则）影响。
+        val texts = List(50) { "评论$it" }
+        val perRequest = SemanticJudge.MAX_BATCH / rules.size
+        val requests = texts.size / perRequest + if (texts.size % perRequest == 0) 0 else 1
         assertTrue(judge().evaluate(texts, SemanticMode.WAIT).all { it == SemanticVerdict.BLOCK })
-        assertEquals(3, calls)
+        assertEquals(requests, calls)
         assertTrue(SemanticDiskStore.fileFor(temp.root, SemanticSurface.COMMENT).isFile)
 
         // "重启"：新实例、空内存，从硬盘恢复后直接命中。
         val restarted = judge()
         restarted.evaluate(listOf("预热"), SemanticMode.CACHE_ONLY)
         assertTrue(restarted.evaluate(texts, SemanticMode.CACHE_ONLY).all { it == SemanticVerdict.BLOCK })
-        assertEquals(3, calls)
+        assertEquals(requests, calls)
     }
 
     @Test

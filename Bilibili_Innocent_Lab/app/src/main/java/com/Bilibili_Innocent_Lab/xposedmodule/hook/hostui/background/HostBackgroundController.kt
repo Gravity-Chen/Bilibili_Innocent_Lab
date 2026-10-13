@@ -1,15 +1,18 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background
 
 import android.graphics.Bitmap
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.view.ViewGroup
 import android.view.View
-import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import java.util.concurrent.Executors
 
 /** 挂在已识别的内容列表或页面根容器，不插入叠层、不修改 Fragment 可见性。 */
 internal class HostBackgroundController(private val config: HostBackgroundConfig, private val onError: (Throwable) -> Unit,
-    private val onApplied: () -> Unit = {}) {
+    private val onApplied: () -> Unit = {},
+    private val imageLoader: (Context, HostBackgroundConfig) -> Bitmap? = HostBackgroundImages::load) {
     private class Surface(val drawable: HostBackgroundDrawable, val position: HostBackgroundListPosition)
     private val surfaces = WeakHashMap<ViewGroup, Surface>()
     private val loadingFooter = HostBackgroundLoadingFooter()
@@ -74,10 +77,11 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
         if (config.preset != HostBackgroundPreset.CUSTOM || requested) return
         requested = true
         val app = list.context.applicationContext
-        val anchor = WeakReference(list)
         worker.execute {
-            val loaded = HostBackgroundImages.load(app, config)
-            anchor.get()?.post {
+            val loaded = imageLoader(app, config)
+            // 首个列表可能已经退出；View.post 会等待它重新 attach，甚至永远丢失加载结果。
+            // 控制器共用图片，完成通知必须独立于任何一页的窗口生命周期。
+            main.post {
                 if (loaded == null) {
                     onError(IllegalStateException("Custom host background unavailable; using aurora"))
                 } else {
@@ -106,6 +110,7 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
     }
 
     companion object {
+        private val main = Handler(Looper.getMainLooper())
         private val worker = Executors.newSingleThreadExecutor { Thread(it, "host-background").apply { isDaemon = true } }
     }
 }

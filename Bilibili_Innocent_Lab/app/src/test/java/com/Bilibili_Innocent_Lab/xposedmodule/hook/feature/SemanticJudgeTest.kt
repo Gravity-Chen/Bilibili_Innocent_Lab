@@ -49,11 +49,40 @@ class SemanticJudgeTest {
         assertEquals(rules.size, state.getJSONArray("rules").length())
         assertTrue(state.getString("guidance").contains("untrusted"))
         assertEquals(2, state.getJSONArray("entries").length())
-        val question = body.getJSONObject("questions").getJSONObject("item_1")
+        // 一题只判一种违规（官方反例见 JevRequestCodec 头注）：条目 × 规则各一题，每题只指到自己那条规则。
+        assertEquals(2 * rules.size, body.getJSONObject("questions").length())
+        val question = body.getJSONObject("questions").getJSONObject("item_1_0")
         assertEquals("choice", question.getString("type"))
         assertTrue(question.getString("instructions").contains("`entries[1]`"))
-        assertTrue(question.getString("instructions").contains("`rules`"))
+        assertTrue(question.getString("instructions").contains("`rules[0]`"))
+        assertFalse(question.getString("instructions").contains("any of `rules`"))
         assertEquals(setOf("block", "keep"), question.getJSONObject("criteria").keys().asSequence().toSet())
+    }
+
+    @Test
+    fun `each violation type is its own question and per rule scores merge by max`() {
+        val two = rules.take(2)
+        val body = JSONObject(JevRequestCodec.encode(listOf("转发抽奖", "日常"), two).toString(StandardCharsets.UTF_8))
+        val questions = body.getJSONObject("questions")
+        assertEquals(4, questions.length())
+        listOf("item_0_0", "item_0_1", "item_1_0", "item_1_1").forEach { assertTrue(questions.has(it)) }
+        val first = questions.getJSONObject("item_0_1")
+        assertTrue(first.getString("instructions").contains("`entries[0]`"))
+        assertTrue(first.getString("instructions").contains("`rules[1]`"))
+
+        // 同一条目各规则取最大（命中任一规则即屏蔽）；部分规则漏答按已答的最大值计。
+        val payload = JSONObject().put(
+            "answers",
+            JSONObject()
+                .put("item_0_0", JSONObject().put("type", "noul").put("noul", 0.2))
+                .put("item_0_1", JSONObject().put("type", "noul").put("noul", 0.85))
+                .put("item_1_0", JSONObject().put("type", "noul").put("noul", 0.3))
+                .put("item_1", JSONObject().put("type", "noul").put("noul", 0.05)) // 整条式答案键也取最大
+        ).toString()
+        val scores = JevRequestCodec.decodeBlockScores(payload, 3)!!
+        assertEquals(0.85f, scores[0], 1e-6f)
+        assertEquals(0.3f, scores[1], 1e-6f)
+        assertTrue(scores[2].isNaN()) // 该条目一题都没答 = UNKNOWN
     }
 
     @Test
@@ -177,7 +206,9 @@ class SemanticJudgeTest {
 
         val verdicts = judge.evaluate(texts, SemanticMode.WAIT)
 
-        assertEquals(listOf(SemanticJudge.MAX_BATCH, SemanticJudge.MAX_BATCH, SemanticJudge.MAX_BATCH), sizes)
+        // 题数上限（MAX_BATCH）除以规则数换算成每批条目数；每个请求的题数仍顶着上限。
+        val entriesPerRequest = SemanticJudge.MAX_BATCH / rules.size
+        assertEquals(List(texts.count { it.isNotBlank() } / entriesPerRequest) { entriesPerRequest * rules.size }, sizes)
         assertTrue(verdicts.dropLast(1).all { it == keep })
         assertEquals(unknown, verdicts.last())
     }
@@ -213,7 +244,7 @@ class SemanticJudgeTest {
         // 同一条广告文案出现两次：只判一次，两条拿到同一个结论——不能第一张删、第二张留。
         assertEquals(listOf(block, block), judge.evaluate(listOf("抽奖", "抽奖"), SemanticMode.WAIT))
         assertEquals(1, calls)
-        assertEquals(1, asked)
+        assertEquals(rules.size, asked) // 一题一规则：一条文本出 rules.size 题
 
         // 混在空白与不同文本里也一样，空白恒为 UNKNOWN；"抽奖" 这次命中缓存，只有 "日常" 要发一次。
         assertEquals(
@@ -221,7 +252,7 @@ class SemanticJudgeTest {
             judge.evaluate(listOf("抽奖", "日常", "抽奖", " "), SemanticMode.WAIT)
         )
         assertEquals(2, calls)
-        assertEquals(1, asked)
+        assertEquals(rules.size, asked)
     }
 
     @Test
@@ -263,14 +294,31 @@ class SemanticJudgeTest {
     @Test
     fun `batch size is configurable per surface and capped`() {
         val sizes = mutableListOf<Int>()
-        val judge = SemanticJudge("k", rules, batchSize = 1_000, background = { it.run(); true }, transport = { body, _, _ ->
+        val transport: (ByteArray, String, Int) -> Pair<Int, String>? = { body, _, _ ->
             val count = questionCount(body)
             sizes += count
             200 to answers(*DoubleArray(count) { 0.0 })
-        })
+        }
+        fun assertCapped(cap: Int) {
+            // 一题 = 一条 × 一条规则：题数上限除以规则数换算成每批条目数。
+            val entriesPerRequest = cap / rules.size
+            val tail = 150 % entriesPerRequest
+            assertEquals(
+                (List(150 / entriesPerRequest) { entriesPerRequest * rules.size } +
+                    if (tail == 0) emptyList() else listOf(tail * rules.size)).sorted(),
+                sizes.sorted()
+            )
+        }
+        val judge = SemanticJudge("k", rules, batchSize = 1_000, background = { it.run(); true }, transport = transport)
         judge.evaluate(List(150) { "弹幕$it" }, SemanticMode.WAIT)
-        // 调用方要 1000，JEV 后端上限 32 题（2026-09-30 实测中转上限）。
-        assertEquals(listOf(22, 32, 32, 32, 32), sizes.sorted())
+        // 调用方要 1000；官方端点无题数上限，取 100 题绝对上限（拆题后按端点分流，2026-10-13）。
+        assertCapped(JevBackend.MAX_QUESTIONS_OFFICIAL)
+        // 第三方中转实测 32 题封顶（2026-09-30），同配置按 32 切。
+        sizes.clear()
+        SemanticJudge("k", rules, batchSize = 1_000, endpoint = "https://relay.example.com/v1/systemone",
+            background = { it.run(); true }, transport = transport)
+            .evaluate(List(150) { "新弹幕$it" }, SemanticMode.WAIT)
+        assertCapped(JevBackend.MAX_QUESTIONS)
     }
 
     @Test

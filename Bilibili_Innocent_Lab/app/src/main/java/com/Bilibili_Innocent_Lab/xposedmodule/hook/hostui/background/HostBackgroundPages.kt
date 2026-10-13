@@ -36,6 +36,7 @@ internal class HostBackgroundPages(
     val requiresNight: Boolean get() = background.requiresNight
 
     fun attach(root: ViewGroup, kind: HostBackgroundPagePolicy.Kind, window: Window? = null) {
+        if (protected(root)) return
         val owner = owner(root)
         if (owner === root || owner != null && kinds[owner] != HostBackgroundPagePolicy.Kind.NATIVE && kind != HostBackgroundPagePolicy.Kind.COMMENT) return
         // 内容 Layer 与外层评论 Fragment 属于同一面板，不能在标题栏下面重启壁纸。
@@ -87,6 +88,9 @@ internal class HostBackgroundPages(
     }
 
     private fun updateDetailWallpaper(panel: ViewGroup) {
+        // 图文评论位于正文之后，继承正文已经滚过的距离；视频左右标签则各自从零开始。
+        val opus = kinds[panel] == HostBackgroundPagePolicy.Kind.OPUS
+        val baseOffset = if (opus) pages[panel]?.wallpaperOffset(includeHidden = true) ?: 0L else 0L
         var weightedOffset = 0.0
         var visibleWidth = 0L
         for ((root, page) in pages) {
@@ -97,7 +101,8 @@ internal class HostBackgroundPages(
             visibleWidth += width
         }
         // 左右滑动时两个标签都可见，按可见宽度连续过渡，避免最后一个回调抢走顶栏原点。
-        if (visibleWidth > 0) background.pageOffset(panel, kotlin.math.round(weightedOffset / visibleWidth).toLong())
+        if (visibleWidth > 0) background.pageOffset(panel, baseOffset + kotlin.math.round(weightedOffset / visibleWidth).toLong())
+        else if (opus) background.pageOffset(panel, baseOffset)
     }
 
     private fun recycler(view: View): Boolean = types.getOrPut(view.javaClass) {
@@ -141,12 +146,14 @@ internal class HostBackgroundPages(
         private var windowBackground = WeakReference<Drawable>(null)
         private val detailSurfaces = if (kind == HostBackgroundPagePolicy.Kind.NATIVE && videoPanel(root))
             HostDetailSurfaces(root, detailBackgrounds) else null
+        private var opusChrome: HostOpusChrome? = null
         private var mediaWindow = window?.context?.let { context ->
             HostBackgroundPagePolicy.mediaDetailActivity(generateSequence(context.javaClass as Class<*>?) { it.superclass }
                 .map { it.name }.toList())
         } == true
         private val wholePage = kind != HostBackgroundPagePolicy.Kind.FEED && kind != HostBackgroundPagePolicy.Kind.LIVE
-        private val nativeContainers = kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT
+        private val nativeContainers = kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT ||
+            kind == HostBackgroundPagePolicy.Kind.OPUS
 
         fun invalidate() { dirty = true }
 
@@ -161,10 +168,11 @@ internal class HostBackgroundPages(
             if (it.offset != 0L && it.top.isAtTop(list)) it.offset = 0L
         }
 
-        fun wallpaperOffset(): Long? {
+        fun wallpaperOffset(includeHidden: Boolean = false): Long? {
             val page = root.get() ?: return null
             if (dirty) discover(page)
-            val list = activeList?.get()?.takeIf(::visible) ?: lists.firstNotNullOfOrNull { it.get()?.takeIf(::visible) }
+            val list = activeList?.get()?.takeIf { includeHidden || visible(it) }
+                ?: lists.firstNotNullOfOrNull { it.get()?.takeIf { list -> includeHidden || visible(list) } }
             return list?.let { position(it).offset }
         }
 
@@ -185,6 +193,7 @@ internal class HostBackgroundPages(
             }
             observer = null
             detailSurfaces?.detach()
+            opusChrome?.close(); opusChrome = null
         }
 
         fun dispose() {
@@ -201,6 +210,8 @@ internal class HostBackgroundPages(
             val nextLists = ArrayList<WeakReference<ViewGroup>>()
             val nextTexts = ArrayList<WeakReference<TextView>>()
             fun visit(node: View, depth: Int) {
+                // 标签末端的操作按钮也用页面底色；图片控件只登记背景，不触及图标内容。
+                if (nativeContainers && tabActionSurface(node)) nextContainers += WeakReference(node)
                 if (depth > (if (nativeContainers) 32 else 12) || node is ImageView) return
                 if (node !== root && kinds.containsKey(node)) return
                 if (node is TextView) {
@@ -261,6 +272,8 @@ internal class HostBackgroundPages(
                 // 播放窗口只给前景面板铺壁纸，状态栏、播放器及其工具栏保留宿主材质。
                 if (mediaWindow) return@runCatching
                 val night = host.isNight(page.context) || background.requiresNight
+                if (kind == HostBackgroundPagePolicy.Kind.OPUS && opusChrome == null)
+                    opusChrome = HostOpusChrome.create(page, detailBackgrounds)
                 if (wallpaperSystemBars && kind == HostBackgroundPagePolicy.Kind.NATIVE && page === page.rootView) {
                     // 侧边中心默认使用白色状态栏文字；透明化后按壁纸主题同步对比度，覆盖晚到的 Compose 副作用。
                     val darkBars = night || (sideCenter?.get()?.background as? ColorDrawable)?.color == android.graphics.Color.BLACK
@@ -297,10 +310,12 @@ internal class HostBackgroundPages(
                 if (night) for (ref in texts) ref.get()?.takeIf { owner(it) === page }?.let { readableText(it, page) }
                 for (ref in lists) ref.get()?.takeIf { owner(it) === page }?.let(background::prepareList)
                 if ((wholePage || wallpaperOwner != null) && kind != HostBackgroundPagePolicy.Kind.COMPOSE) {
-                    if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
+                    if (kind == HostBackgroundPagePolicy.Kind.OPUS) updateDetailWallpaper(page)
+                    else if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
                     else wallpaperOffset()?.let { background.pageOffset(wallpaperOwner ?: page, it) }
                 }
                 detailSurfaces?.apply(night)
+                opusChrome?.apply(night)
             }.onFailure(onError)
             return true
         }
@@ -313,13 +328,23 @@ internal class HostBackgroundPages(
             val position = positions.getOrPut(list) { Position(list) }
             position.offset += dy
             activeList = WeakReference(list)
-            if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
+            if (kind == HostBackgroundPagePolicy.Kind.OPUS) updateDetailWallpaper(page)
+            else if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
             else background.pageOffset(wallpaperOwner ?: page, position.offset)
             return true
         }
     }
 
     private fun clearNeutral(view: View, page: ViewGroup, nativeContainers: Boolean) {
+        if (nativeContainers && tabActionSurface(view)) {
+            val drawable = view.background
+            if (drawable != null && neutralTabActionBackground(drawable)) {
+                val padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
+                view.background = null
+                view.setPadding(padding[0], padding[1], padding[2], padding[3])
+            }
+            return
+        }
         if (protected(view)) return
         if (detailBackgrounds[view]?.let { it === view.background } == true) return
         // 侧边中心会随标签切换，把同一容器从 Bg2 改成黑色。媒体页白色顶栏依赖这块黑底。
@@ -423,6 +448,17 @@ internal class HostBackgroundPages(
         drawable.cornerRadius == 0f && drawable.cornerRadii?.any { it != 0f } != true && drawable.colors == null &&
         drawable.color?.let { !it.isStateful && HostBackgroundPagePolicy.neutral(it.defaultColor) } == true
 
+    private fun neutralTabActionBackground(drawable: Drawable): Boolean = when (drawable) {
+        is ColorDrawable -> drawable.color ushr 24 == 0 || HostBackgroundPagePolicy.neutral(drawable.color)
+        is GradientDrawable -> drawable.shape == GradientDrawable.RECTANGLE && drawable.cornerRadius == 0f &&
+            drawable.cornerRadii?.any { it != 0f } != true && (drawable.colors?.let { colors ->
+                colors.isNotEmpty() && colors.all { it ushr 24 == 0 || HostBackgroundPagePolicy.neutral(it or (0xff shl 24)) }
+            } ?: drawable.color?.let { !it.isStateful && (it.defaultColor ushr 24 == 0 || HostBackgroundPagePolicy.neutral(it.defaultColor)) } == true)
+        is LayerDrawable -> drawable.numberOfLayers > 0 &&
+            (0 until drawable.numberOfLayers).all { neutralTabActionBackground(drawable.getDrawable(it)) }
+        else -> false
+    }
+
     companion object {
         private val kinds = WeakHashMap<ViewGroup, HostBackgroundPagePolicy.Kind>()
         fun owner(view: View): ViewGroup? {
@@ -451,8 +487,13 @@ internal class HostBackgroundPages(
             if (kinds[page] != HostBackgroundPagePolicy.Kind.COMMENT && kinds[page] != HostBackgroundPagePolicy.Kind.PAGE) return null
             var branch: View = page
             var node = page.parent as? View
+            var opusPager = false
             while (node != null) {
+                if (name(node) == "opus_pager") opusPager = true
                 if (node is ViewGroup && kinds.containsKey(node)) {
+                    // 仅共享正文中 opus_pager 下的主评论；楼中楼/独立弹层仍保有自己的底板。
+                    if (kinds[node] == HostBackgroundPagePolicy.Kind.OPUS && opusPager && page.width > 0 && page.width == node.width)
+                        return node
                     // 视频详情的前景面板包含简介/评论标签；壁纸不能提升到播放器所在的窗口。
                     return node.takeIf {
                         kinds[it] == HostBackgroundPagePolicy.Kind.NATIVE && name(it) == "content_container" && name(branch) == "pager" &&
@@ -466,7 +507,9 @@ internal class HostBackgroundPages(
         }
         fun contains(view: View) = kind(view) != null
         private fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||
+            HostBackgroundPagePolicy.imageViewer(view.javaClass.name) ||
             name(view) in protectedNames || selectionChrome(view) || view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
+            view.javaClass.name.startsWith("com.bilibili.video.story.") ||
             view.javaClass.name.startsWith("com.bilibili.cron.") || view.javaClass.name.startsWith("tv.danmaku.render.")
 
         fun protectedAncestor(view: View): Boolean {
@@ -480,6 +523,22 @@ internal class HostBackgroundPages(
 
         private fun name(view: View) = if (view.id == View.NO_ID) "" else
             runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+        private fun tabActionSurface(view: View): Boolean {
+            val parent = view.parent as? View ?: return false
+            // 收藏二级标签的渐变、按钮容器和图标各自持有 Bg1，需一起接到壁纸。
+            val favoriteStrip = when {
+                name(view) in setOf("right_button_start_bg", "right_button") -> parent
+                view is ImageView && name(view) in setOf("icon_1", "icon_2", "icon_3") && name(parent) == "right_button" -> parent.parent as? View
+                else -> null
+            } as? ViewGroup
+            if (favoriteStrip != null && name(favoriteStrip) == "top_container")
+                return (0 until favoriteStrip.childCount).any { name(favoriteStrip.getChildAt(it)) == "tab_layout" } &&
+                    (0 until favoriteStrip.childCount).any { name(favoriteStrip.getChildAt(it)) == "right_button" }
+            if (view is ImageView) return name(view) == "filter_icon" && name(parent) == "filter_icon_container" &&
+                (parent.parent as? View)?.let(::name) == "container_strip"
+            return view is ViewGroup && name(parent) == "tab_box" && view.childCount == 1 &&
+                view.getChildAt(0) is ImageView && name(view.getChildAt(0)) == "history_manage"
+        }
         // 合集的吸顶信息栏遮住列表，固定标题栏遮住收起中的信息栏；两层都不能当作页面底板清空。
         private fun selectionChrome(view: View): Boolean {
             if (name(view) != "head_layout" && name(view) != "top_layout") return false
@@ -488,10 +547,11 @@ internal class HostBackgroundPages(
         }
         private fun videoPanel(view: View): Boolean = name(view) == "content_container" &&
             (view.parent as? View)?.let(::name) == "round_container"
-        private val listNames = setOf("recyclerView", "recycler_view", "dy_list", "recycler", "list")
+        private val listNames = setOf("recyclerView", "recycler_view", "dy_list", "recycler", "list", "opus_dy_list")
         private val sectionNames = setOf("sticky_container", "sub_sticky_container", "tab_recyclerView", "top_bar", "dy_app_bar", "dy_sticky_group")
         private val chromeNames = setOf("main_top_layout", "nav_top_bar", "top_bar", "mine_top_view", "fake_input_layout", "cmt3_page_title_container")
         private val protectedNames = setOf("splash_layout", "splash_container", "video_container", "video_area", "control_container", "player_wrapper", "video_cover_wrapper",
+            "story_activity_root", "story_fragment_root", "story_list_item_container", "story_list_item_controller", "story_list_item_controller_image", "story_landscape",
             "cover", "cover_layout", "video_cover", "iv_cover", "cover_image", "image_cover", "cover_container", "thumbnail", "pic", "banner", "dy_tab_layout",
             "avatar", "avatar_container", "avatar_layer", "garb_bg", "high_light_view", "login_mask", "login_mask_container", "video_area_float_layer_container",
             "shortcut_video_view", "recycler_top_car", "cover_ground_layout")

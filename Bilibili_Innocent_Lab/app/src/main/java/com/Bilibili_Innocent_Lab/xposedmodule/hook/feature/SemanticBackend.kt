@@ -25,6 +25,9 @@ internal interface SemanticBackend {
     /** 单个请求最多几题；生成式模型输出随条数线性增长，要比结构化接口小。 */
     val maxBatch: Int
 
+    /** 按实际请求地址取每请求题数上限（个别端点与默认限制不同，如 Jev 官方没有题数上限）。 */
+    fun maxBatch(endpoint: String): Int = maxBatch
+
     /** 用户填的地址 → 实际请求地址；空串表示使用该后端默认地址（没有默认地址时返回 null）。 */
     fun resolveEndpoint(raw: String): String?
 
@@ -124,7 +127,8 @@ internal data class SemanticUsage(val inputTokens: Int, val outputTokens: Int, v
 }
 
 /**
- * TypeSafe Jev 及同类"判定接口"（OpenRouter Decisions API 等）：规则与说明放共享 `state`，每条文本一题。
+ * TypeSafe Jev 及同类"判定接口"（OpenRouter Decisions API 等）：规则与说明放共享 `state`，
+ * 每条文本 × 每条规则一题（一题只判一种违规，官方反例见 [JevRequestCodec] 头注）。
  *
  * 请求写法按 [JevRequestVariant] 依次回退（题型 × state 形状）：
  * `choice`（首选，2026-09-29 真机 A/B 14/14）→ `choice`+文本 state → `noul` → `noul`+文本 → `score` → `score`+文本。
@@ -135,9 +139,12 @@ internal class JevBackend(override val model: String = DEFAULT_MODEL) : Semantic
     override val id: String = SemanticBackend.JEV
     /**
      * 官方文档没写题数上限（只限上下文 64k）；2026-09-30 实测第三方中转每请求最多 32 题，33 题起 400。
-     * 默认按 32 切；更小的中转由判定器被拒后对半拆分自动探明。
+     * 默认按 32 切；官方端点没有这个限制，按 [SemanticJudge.MAX_BATCH_LIMIT] 的 200 题切——拆题后
+     * 一题 = 一条 × 一条规则，批越小每条摊到的规则正文重付越多（见 [SemanticJudge.chunkLimit]）。
+     * 更小的中转由判定器被拒后对半拆分自动探明。
      */
     override val maxBatch: Int = MAX_QUESTIONS
+    override fun maxBatch(endpoint: String): Int = if (isOfficial(endpoint)) MAX_QUESTIONS_OFFICIAL else MAX_QUESTIONS
     override val variants: Int get() = JevRequestVariant.COUNT
     override fun variantName(variant: Int): String = JevRequestVariant.of(variant).label
 
@@ -187,7 +194,14 @@ internal class JevBackend(override val model: String = DEFAULT_MODEL) : Semantic
         const val DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
         const val OPENROUTER_DECISIONS = "https://openrouter.ai/api/alpha/decisions"
         const val EDENAI_DECISIONS = "https://api.edenai.run/v3/alpha/decisions"
+        /** 第三方中转实测的每请求题数上限（33 题起 400）；默认按它切。 */
         const val MAX_QUESTIONS = 32
+        /** 官方端点没有题数上限（只限上下文 64k），取模块的 200 题绝对上限。 */
+        const val MAX_QUESTIONS_OFFICIAL = 200
+        private val OFFICIAL_HOSTS = setOf("api.typesafe.ai")
+
+        private fun isOfficial(endpoint: String): Boolean =
+            runCatching { URL(endpoint).host?.lowercase() in OFFICIAL_HOSTS }.getOrDefault(false)
     }
 }
 
@@ -216,7 +230,8 @@ internal enum class JevQuestionFormat(val wire: String) {
 }
 
 /**
- * OpenAI 兼容 `/chat/completions`。让模型输出 `{"results":[{"i":序号,"p":0–1}]}`，p 为"命中任一屏蔽规则"的把握。
+ * OpenAI 兼容 `/chat/completions`。让模型对**每条 × 每条规则**输出 `{"results":[{"i":条目序号,"r":规则序号,"p":0–1}]}`，
+ * p 为命中该条规则的把握；同一条目各规则取最大即"命中任一规则"的把握（一题只判一种违规，官方反例见 [JevRequestCodec] 头注）。
  *
  * 鲁棒性：
  * - 请求写法与思考控制交给通用兼容层 [AiChatCompat]（以后别的 AI 功能也用它）：按"关闭思考 → 最低强度 → 低强度 →
@@ -224,7 +239,8 @@ internal enum class JevQuestionFormat(val wire: String) {
  *   换下一级，探到后按来源记住并落盘（见 [SemanticJudge]）。对**所有**对话类来源生效：已知站点用各家自己的参数，
  *   其余站点（含以后出现的中转）按 OpenAI 标准 `reasoning_effort` 试。
  * - 推理模型可能在正文前输出思考过程或用 ``` 包住 JSON：只取第一个 `{` 到最后一个 `}` 之间解析。
- * - 兼容 `p` 为数字或字符串、以及 `block: true/false` 的写法；缺项、越界、重复序号按 NaN/先到为准。
+ * - 兼容 `p` 为数字或字符串、以及 `block: true/false` 的写法；缺 `r` 的整条式结果与各规则结果一起取最大；
+ *   缺项、越界、重复 (i, r) 按 NaN/先到为准。
  * - 模型给出的"概率"未经校准，灵敏度门槛照常套用，判定质量取决于所选模型。
  */
 internal open class OpenAiCompatibleBackend(override val model: String) : SemanticBackend {
@@ -266,9 +282,11 @@ internal open class OpenAiCompatibleBackend(override val model: String) : Semant
             append(JevRequestCodec.rulesJson(rules).toString()).append('\n')
             append(guidance).append('\n')
             append(
-                "For each entry, estimate p = probability (0 to 1) that it clearly matches at least one blocking " +
-                    "rule. Reply with JSON only, exactly in the form " +
-                    "{\"results\":[{\"i\":<entry index>,\"p\":<number>}]}, one item per entry, no other text."
+                "For each entry and each blocking rule, estimate p = probability (0 to 1) that the entry clearly " +
+                    "matches that one rule. Judge every entry against every rule independently, one judgment per " +
+                    "entry and rule. Reply with JSON only, exactly in the form " +
+                    "{\"results\":[{\"i\":<entry index>,\"r\":<rule index>,\"p\":<number>}]}, one item per entry and " +
+                    "rule, no other text."
             )
         }
         val entries = JSONArray()
@@ -276,14 +294,14 @@ internal open class OpenAiCompatibleBackend(override val model: String) : Semant
         val data = JSONObject().put("entries", entries).toString()
         // strict 级的 max_tokens 给推理模型留出思考空间：关不掉思考的模型（如经基元律动转发的 GLM-5.3-FlashX，
         // 2026-09-30 实测 2 条就思考 69–90 token）在 48 + 16×条数 的旧上限下正文被截断成没有分数的 JSON。
-        // 不思考的模型写完 JSON 就停，上限高并不多花钱。
+        // 不思考的模型写完 JSON 就停，上限高并不多花钱。结果按（条目 × 规则）逐对输出，条数乘规则数。
         return AiChatCompat.buildRequest(
             model = model,
             system = system,
             user = data,
             variantIndex = variant,
             endpoint = endpoint,
-            maxTokens = MAX_TOKENS_BASE + texts.size * MAX_TOKENS_PER_ITEM
+            maxTokens = MAX_TOKENS_BASE + texts.size * rules.size * MAX_TOKENS_PER_RESULT
         ).toString().toByteArray(StandardCharsets.UTF_8)
     }
 
@@ -292,16 +310,21 @@ internal open class OpenAiCompatibleBackend(override val model: String) : Semant
         val results = AiChatCompat.findJsonObject(content) { it.optJSONArray("results") != null }
             ?.optJSONArray("results") ?: return null
         val scores = FloatArray(count) { Float.NaN }
+        val seen = HashSet<Pair<Int, Int>>()
         for (n in 0 until results.length()) {
             val item = results.optJSONObject(n) ?: continue
             val index = item.optInt("i", -1).takeIf { it in 0 until count } ?: continue
-            if (!scores[index].isNaN()) continue
+            val rule = item.optInt("r", -1)
+            // 同一 (i, r) 重复先到为准；缺 r 的整条式结果记 (i, -1)，与各规则结果一起取最大。
+            if (!seen.add(index to rule)) continue
             val score = when {
                 item.has("p") -> item.optDouble("p", Double.NaN)
                 item.has("block") -> if (item.optBoolean("block")) 1.0 else 0.0
                 else -> Double.NaN
             }
-            if (!score.isNaN() && score in 0.0..1.0) scores[index] = score.toFloat()
+            if (!score.isNaN() && score in 0.0..1.0 && (scores[index].isNaN() || score > scores[index])) {
+                scores[index] = score.toFloat()
+            }
         }
         // 回答因长度上限被截断且有条目缺分：当成"这种写法不行"，由判定器换下一级（带思考的级别不设上限）。
         if (AiChatCompat.truncated(payload) && scores.any { it.isNaN() }) return null
@@ -313,8 +336,9 @@ internal open class OpenAiCompatibleBackend(override val model: String) : Semant
     companion object {
         const val DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
         const val MAX_TOKENS_BASE = 1024
-        const val MAX_TOKENS_PER_ITEM = 32
-        /** 生成式输出约 16 token/条；20 条一批把单次延迟控制在常见模型 1–3 s 量级。 */
+        /** 每对结果（条目 × 规则）的输出预算；实际约 8–16 token，留足富余。 */
+        const val MAX_TOKENS_PER_RESULT = 32
+        /** 生成式输出随（条目 × 规则）对数线性增长；20 题一批把单次延迟控制在常见模型 1–3 s 量级。 */
         const val MAX_BATCH = 20
     }
 }
