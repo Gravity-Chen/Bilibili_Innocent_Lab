@@ -99,7 +99,7 @@ internal object PauseResponseAdapter {
         val members = if (points.kotlin != null && loader != null) {
             KotlinMossChannel.prepare(environment, loader, "暂停页广告", "paused_p4_kmoss")
         } else null
-        val codec = points.reply?.let(KotlinMossBridgeMembers.JavaReplyCodec::resolve)
+        val codec = KotlinMossBridgeMembers.JavaReplyCodec.resolve(points.reply)
         if (members != null && codec != null) register("paused.response.kmoss.play_pause", points.kotlin) { method ->
             val handler = method.parameterTypes[3]
             environment.registrar.exact("paused.response.kmoss.play_pause", method.declaringClass,

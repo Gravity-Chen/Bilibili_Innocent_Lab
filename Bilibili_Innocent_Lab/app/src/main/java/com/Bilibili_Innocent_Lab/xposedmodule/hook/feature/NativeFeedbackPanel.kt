@@ -158,10 +158,10 @@ internal class NativeFeedbackPanel(
             }
             val panel = NativeFeedbackPanel(injector, itemsGetter, styleGetter, titleGetter, copy,
                 clickGetter, { card ->
-                    homeReady && homeCard!!.isInstance(card) || detail?.cardClass?.isInstance(card) == true
+                    homeReady && homeCard.isInstance(card) || detail?.cardClass?.isInstance(card) == true
                 }, { card ->
                     val messages = InjectedUiLocale.messages()
-                    val data = if (homeReady && homeCard!!.isInstance(card)) cardArgs!!.invoke(card) else null
+                    val data = if (homeReady && homeCard.isInstance(card)) cardArgs.invoke(card) else null
                     val tags = if (data != null) {
                         val id = (tid!!.invoke(data) as? Number)?.toLong() ?: 0L
                         val name = tname?.invoke(data) as? String

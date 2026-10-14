@@ -144,7 +144,7 @@ internal class SponsorPlayerSessions(private val env: HookEnvironment, private v
                         val target = argOrNull(0) as? Activity
                         if (target?.componentName?.className == detail.name || target?.javaClass?.name == detail.name) {
                             diagnostics.record("callback.resume", "active=${active.get()} type=${detail.isInstance(target)} " +
-                                "name=${target?.javaClass?.name == detail.name} loader=${target?.classLoader === env.classLoader}")
+                                "name=${target.javaClass.name == detail.name} loader=${target.classLoader === env.classLoader}")
                         }
                     }
                     after {

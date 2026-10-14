@@ -60,7 +60,7 @@ internal class CommentKotlinPurifier(
         if (clears.isEmpty() && subject == null) return current
         val rebuilt = shape.plan.edit(current) { builder ->
             clears.forEach { it.clear.invoke(builder) }
-            if (subject != null) shape.subject?.set?.invoke(builder, subject)
+            if (subject != null) shape.subject.set.invoke(builder, subject)
         }
         clears.forEach {
             evidence(it.capability, FeatureRuntimeStage.OBSERVED, 1)

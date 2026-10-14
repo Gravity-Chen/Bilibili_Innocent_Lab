@@ -968,9 +968,9 @@ class HookEntry : XposedModule() {
             // 投影只用于本次长按的身份与 Emoji 映射，不修改宿主 TextView，也不把点击 Span
             // 带进气泡。识别失败时仍使用原可见快照，保持防串评论的保守回退。
             val identityText = renderedText
-                ?.let(::projectFoldedCommentBody)
-                ?.let(::snapshotCommentText)
-                ?.takeIf(::isValidFreeCopyText)
+                .let(::projectFoldedCommentBody)
+                .let(::snapshotCommentText)
+                .takeIf(::isValidFreeCopyText)
                 ?: visibleText
             val visibleSpans = replacementSpans(identityText)
             val emojiResolution = CommentEmojiAdapter.resolve(
@@ -1449,7 +1449,7 @@ class HookEntry : XposedModule() {
                 for (i in 0 until vg.childCount) {
                     val child = vg.childOrNull(i) ?: continue
                     val t = extractLongText(child, depth + 1) ?: continue
-                    if (best == null || t.length > best.let { b -> b?.length ?: 0 }) best = t
+                    if (best == null || t.length > best.length) best = t
                 }
             }
             return best
@@ -2528,7 +2528,7 @@ class HookEntry : XposedModule() {
                 VersionAdapter.readStartupCache(authorizationContext, versionAdapterResetTimestamp)
             }
             val hostAdaptResult by lazy(LazyThreadSafetyMode.NONE) {
-                val runtime = biliClassLoader?.let { VersionAdapter.quickLocate(it) }
+                val runtime = VersionAdapter.quickLocate(biliClassLoader)
                 VersionAdapter.mergeRuntimeWithCached(
                     runtime = runtime,
                     cached = startupCache.cached
@@ -3696,7 +3696,7 @@ class HookEntry : XposedModule() {
                 // 注：quickLocate 结果不持久化（AdaptResult 无真实 vc，写文件会被
                 // loadCached 拒绝）；attach 阶段 ensureAdapted 会重跑适配线程写正确缓存
                 val adaptResult = hostAdaptResult
-                    ?: biliClassLoader?.let { VersionAdapter.quickLocate(it) }
+                    ?: VersionAdapter.quickLocate(biliClassLoader)
                 // 性能：全局维护「列表滚动中」标志——快速滑动/惯性滚动期间暂缓评论绑定，
                 // 滑停（SCROLL_STATE_IDLE）后由 drainCommentBinds 统一批量绑定可见评论，
                 // 避免滚动中逐条全树绑定的卡顿（滚动状态回调本身低频，开销可忽略）。
@@ -4755,8 +4755,7 @@ class HookEntry : XposedModule() {
                     )
                 )
             }
-            if (biliClassLoader != null &&
-                TargetProcess.isMainProcess(attachedContext, TARGET_PACKAGE) &&
+            if (TargetProcess.isMainProcess(attachedContext, TARGET_PACKAGE) &&
                 !versionAdaptCheckedThisProcess
             ) {
                 versionAdaptCheckedThisProcess = true

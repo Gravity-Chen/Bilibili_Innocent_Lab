@@ -446,11 +446,11 @@ internal class DynamicPurifyFeatureInstaller(
             val updated = feed.builder.edit(reply) { builder ->
                 if (items != null) feed.setDynamicList!!.invoke(builder, items)
                 if (clearTopic) feed.clearTopicList.invoke(builder)
-                if (clearWhole) whole!!.clear.invoke(builder)
+                if (clearWhole) whole.clear.invoke(builder)
                 if (upList != null) feed.upList!!.setter.invoke(builder, upList)
             }
             if (clearWhole) {
-                check(invoke(whole!!.has, updated) == false) { "UP container clear verification failed" }
+                check(invoke(whole.has, updated) == false) { "UP container clear verification failed" }
                 applied("dynamic_frequent_visits_hidden")
             }
             applied(ID)

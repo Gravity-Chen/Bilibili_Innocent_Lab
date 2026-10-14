@@ -223,22 +223,22 @@ internal class DetailModuleReplyCleaner private constructor(
             environment.reportRuntimeEvidence(it.id, FeatureRuntimeStage.OBSERVED)
         }
         if (retainedTags != null) {
-            environment.reportRuntimeEvidence(tags!!.id, FeatureRuntimeStage.OBSERVED)
+            environment.reportRuntimeEvidence(tags.id, FeatureRuntimeStage.OBSERVED)
         }
         val updated = builder.edit(original) { target ->
             populated.forEach { it.clear.invoke(target) }
-            if (retainedTags != null) tags!!.write(target, retainedTags)
+            if (retainedTags != null) tags.write(target, retainedTags)
         }
         // 回读确认：clear* 对空字段静默成功，不回读就没有"真的清掉了"的证据。
         check(populated.none { it.populated(updated) }) { "Detail module clear readback failed" }
         if (retainedTags != null) {
-            check(tags!!.remaining(updated) == 0) { "Detail tag filter readback failed" }
+            check(tags.remaining(updated) == 0) { "Detail tag filter readback failed" }
         }
         populated.forEach {
             environment.reportRuntimeEvidence(it.id, FeatureRuntimeStage.APPLIED)
         }
         if (retainedTags != null) {
-            environment.reportRuntimeEvidence(tags!!.id, FeatureRuntimeStage.APPLIED)
+            environment.reportRuntimeEvidence(tags.id, FeatureRuntimeStage.APPLIED)
         }
         environment.reportRuntimeEvidence(
             DetailModulePurifyFeatureInstaller.ID,

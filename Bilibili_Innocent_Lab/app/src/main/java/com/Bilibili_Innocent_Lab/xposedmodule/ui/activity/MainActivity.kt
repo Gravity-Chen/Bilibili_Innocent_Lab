@@ -2593,7 +2593,7 @@ class MainActivity : SkinnedActivity() {
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 }
         } else null
-        val morphController = if (morphLayer != null && anchorBounds != null) {
+        val morphController = if (morphLayer != null) {
             // 形变不缩放卡片（缩放会把文字压扁），只驱动 outline + alpha，因此先抹掉
             // createModalContainer 为缩放入场准备的 0.85；alpha 0 仍然保留给正文淡入。
             container.scaleX = 1f

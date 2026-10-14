@@ -50,7 +50,7 @@ internal class PlayerBufferSessions {
         }
         active?.takeIf { it !== ticket }?.state?.set(CANCELLED)
         active = ticket
-        ticket.committedItem = WeakReference(actualItem!!)
+        ticket.committedItem = WeakReference(actualItem)
         ticket.state.set(COMMITTED)
         return true
     }

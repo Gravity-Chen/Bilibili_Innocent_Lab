@@ -38,7 +38,7 @@ internal object HostVideoCardSurface {
     private fun activity(context: Context): Activity? {
         var current = context
         repeat(10) {
-            if (current is Activity) return current as Activity
+            if (current is Activity) return current
             val wrapper = current as? ContextWrapper ?: return null
             val base = wrapper.baseContext
             if (base === current) return null

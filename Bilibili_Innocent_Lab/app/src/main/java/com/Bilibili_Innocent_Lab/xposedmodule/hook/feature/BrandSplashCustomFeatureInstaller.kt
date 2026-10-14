@@ -201,8 +201,7 @@ internal class BrandSplashSelectionRuntime(
                 val current = state.snapshot()
                 if (!current.customMode || current.selected.isEmpty()) return@after
                 if (original.any { it != null && !model.type.isInstance(it) }) return@after
-                @Suppress("UNCHECKED_CAST")
-                val source = original as List<Any?>
+                val source: List<Any?> = original
                 val selected = current.selected.filter { model.source(it) == BrandSplashPolicy.VIP_SOURCE }
                 val merged = BrandSplashPolicy.retainSelectedVip(source, selected,
                     { it?.let(model::source) }, { it?.let(model::key) ?: "null" },

@@ -21,7 +21,7 @@ internal class AgentTextPlanner(private val client: AgentModelClient, private va
             try {
                 val parsed = decode(turn.text, vision)
                 val usage = if (attempt == 0) turn.usage else if (previousUsage != null && turn.usage != null) {
-                    val old = previousUsage!!; val current = turn.usage
+                    val old = previousUsage; val current = turn.usage
                     AgentModelUsage(Math.addExact(old.inputTokens, current.inputTokens), Math.addExact(old.outputTokens, current.outputTokens),
                         Math.addExact(old.totalTokens, current.totalTokens))
                 } else null

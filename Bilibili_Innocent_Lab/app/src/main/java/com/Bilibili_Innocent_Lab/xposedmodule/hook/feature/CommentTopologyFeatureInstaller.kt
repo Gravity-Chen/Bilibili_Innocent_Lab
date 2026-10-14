@@ -444,7 +444,8 @@ internal class CommentTopologyFeatureInstaller(
     }
 
     private fun findViewFieldValue(owner: Any?): View? {
-        if (owner == null || owner is View) return owner as? View
+        if (owner == null) return null
+        if (owner is View) return owner
         bindingRootMethods[owner.javaClass]?.let { method ->
             (runCatching { method.invoke(owner) }.getOrNull() as? View)?.let { return it }
         }

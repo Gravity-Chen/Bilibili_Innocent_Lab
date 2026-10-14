@@ -98,8 +98,7 @@ abstract class SkinnedActivity : AppViewsActivity() {
         detachListener = object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(view: View) = Unit
             override fun onViewDetachedFromWindow(view: View) { release() }
-        }
-        window.decorView.addOnAttachStateChangeListener(detachListener!!)
+        }.also(window.decorView::addOnAttachStateChangeListener)
         dialogInteractions[window] = DialogInteraction(controller, release)
         window.callback = callback
         return release

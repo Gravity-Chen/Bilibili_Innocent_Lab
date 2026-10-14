@@ -151,7 +151,7 @@ internal class ReplyTopologySeedStore(
     fun clear() {
         byIdentity.clear()
         byRpid.clear()
-        while (queue.poll() != null) Unit
+        do {} while (queue.poll() != null)
     }
 
     private fun drainCollectedKeys() {
