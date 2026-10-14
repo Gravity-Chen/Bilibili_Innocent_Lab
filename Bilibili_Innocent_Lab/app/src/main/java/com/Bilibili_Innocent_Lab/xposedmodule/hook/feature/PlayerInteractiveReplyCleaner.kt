@@ -14,9 +14,10 @@ internal class PlayerInteractiveReplyCleaner(
 ) {
     data class Fallback(val getter: Method, val ids: Set<String>, val transform: (Any, HookEnvironment) -> Any)
     private data class Field(val id: String, val present: Method, val clear: Method) {
-        fun populated(target: Any): Boolean = when (val value = present.invoke(target)) {
+        fun populated(target: Any): Boolean = when (val value: Any? = present.invoke(target)) {
             is Boolean -> value
             is Int -> value > 0
+            null -> error("Unexpected presence result")
             else -> error("Unexpected presence result")
         }
     }

@@ -161,15 +161,17 @@ internal object NoRootConfigSnapshotCodec {
     private fun JSONObject.strictBoolean(key: String): Boolean? =
         opt(key) as? Boolean
 
-    private fun JSONObject.strictInt(key: String): Int? = when (val value = opt(key)) {
+    private fun JSONObject.strictInt(key: String): Int? = when (val value: Any? = opt(key)) {
         is Int -> value
         is Long -> value.takeIf { it in Int.MIN_VALUE..Int.MAX_VALUE }?.toInt()
+        null -> null
         else -> null
     }
 
-    private fun JSONObject.strictLong(key: String): Long? = when (val value = opt(key)) {
+    private fun JSONObject.strictLong(key: String): Long? = when (val value: Any? = opt(key)) {
         is Int -> value.toLong()
         is Long -> value
+        null -> null
         else -> null
     }
 

@@ -230,18 +230,18 @@ internal object HostBackgroundPageHooks {
                 val supported = node != null && kind != null && kind != HostBackgroundPagePolicy.Kind.DYNAMIC && !HostBackgroundPages.protectedAncestor(node)
                 val preserveCards = node?.let { commentOwnerActivity(it.context) }?.javaClass?.name ==
                     HostBackgroundPagePolicy.SIDE_CENTER_ACTIVITY
-                scopes.get().push(DrawPage(if (supported) node!!.width else 0, node?.resources?.displayMetrics?.density ?: 1f,
+                scopes.get()?.push(DrawPage(if (supported) node.width else 0, node?.resources?.displayMetrics?.density ?: 1f,
                     kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.COMMENT, preserveCards))
             }
             after {
-                val stack = scopes.get()
+                val stack = scopes.get() ?: return@after
                 if (stack.isNotEmpty()) stack.pop()
                 if (stack.isEmpty()) scopes.remove()
             }
         }
         environment.registrar.exact("host_background.compose_fill", draw.declaringClass, draw.name, *draw.parameterTypes) {
             before {
-                val page = scopes.get().peek() ?: return@before
+                val page = scopes.get()?.peek() ?: return@before
                 // SrcOver=3；遮罩的 DstIn 等混合方式不能按页面底板跳过。
                 if (page.width == 0 || argOrNull(3) != 1f || argOrNull(5) != null || argOrNull(6) != 3) return@before
                 val style = argOrNull(4)?.javaClass ?: return@before

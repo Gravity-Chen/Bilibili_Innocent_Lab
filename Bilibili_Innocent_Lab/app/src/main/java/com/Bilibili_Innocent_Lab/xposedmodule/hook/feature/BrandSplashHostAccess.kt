@@ -76,7 +76,7 @@ internal class BrandSplashModelAccess private constructor(
         val source: String?, val id: Long)
     fun source(value: Any): String? = sourceGetter.invoke(value) as? String
     fun key(value: Any): String = "${source(value)}#${idGetter.invoke(value)}"
-    fun identity(value: Any): String = idGetter.invoke(value).toString()
+    fun identity(value: Any): String = idGetter.invoke(value)?.toString() ?: "null"
     fun image(value: Any): Image? {
         val hash = hashGetter.invoke(value) as? String ?: return null
         if (hash.isBlank()) return null

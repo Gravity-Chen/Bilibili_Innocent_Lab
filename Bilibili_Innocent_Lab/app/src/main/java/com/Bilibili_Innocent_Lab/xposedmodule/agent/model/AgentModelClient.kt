@@ -143,8 +143,7 @@ internal class AgentModelClient(
                 requireRequest(pending.isEmpty())
                 requireRequest(!message.has("tool_call_id"))
             }
-            val content = message.opt("content")
-            when (content) {
+            when (val content = message.opt("content")) {
                 is String -> requireRequest(content.length <= MAX_TEXT_CHARS)
                 is JSONArray -> {
                     requireRequest(role == "user" && content.length() in 1..8)
@@ -163,7 +162,9 @@ internal class AgentModelClient(
                         }
                     }
                 }
-                else -> requireRequest(role == "assistant" && (content == null || content == JSONObject.NULL))
+                null -> requireRequest(role == "assistant")
+                JSONObject.NULL -> requireRequest(role == "assistant")
+                else -> invalidRequest()
             }
             if (message.has("tool_calls") && !message.isNull("tool_calls")) {
                 requireRequest(role == "assistant")
@@ -206,7 +207,8 @@ internal class AgentModelClient(
                     }
                 }
             }
-            null, JSONObject.NULL -> ""
+            null -> ""
+            JSONObject.NULL -> ""
             else -> invalidResponse()
         }
         val calls = if (original.has("tool_calls") && !original.isNull("tool_calls")) {
