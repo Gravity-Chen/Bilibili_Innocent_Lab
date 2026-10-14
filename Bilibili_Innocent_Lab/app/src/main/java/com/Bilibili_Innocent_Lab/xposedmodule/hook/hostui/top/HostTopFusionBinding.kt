@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.view.ViewCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.lumen.coacervation.engine.model.LumenPalette
 
@@ -55,6 +56,9 @@ internal class HostTopFusionBinding private constructor(
     /** 融合带当前生效的材质深浅色，见 [refreshMaterial]。 */
     private var materialDark = isDark
     private var materialColors: HostChromeColors? = null
+    private var preserveHostArtwork = false
+    private var originalLightStatus: Boolean? = null
+    private var appliedLightStatus: Boolean? = null
 
     companion object {
         fun attach(
@@ -119,6 +123,7 @@ internal class HostTopFusionBinding private constructor(
             }
 
             override fun onViewDetachedFromWindow(v: View) {
+                restoreStatusBar()
                 preDraw?.let { runCatching { v.viewTreeObserver.removeOnPreDrawListener(it) } }
                 preDraw = null
             }
@@ -128,6 +133,10 @@ internal class HostTopFusionBinding private constructor(
 
     /** 原生滚动完成后、绘制之前同步。修复宿主覆盖的 padding 时等待重布局，不画错位帧。 */
     fun sync(): Boolean {
+        if (!container.isShown) {
+            restoreStatusBar()
+            return true
+        }
         val top = screenTopOf(container) ?: return true
         if (top != bandTop) {
             val first = bandTop == Int.MIN_VALUE
@@ -176,17 +185,38 @@ internal class HostTopFusionBinding private constructor(
             backdrop?.onVisualMovement()
         }
         band.updateDocking(dockingProgress, top)
+        // 装扮图上的原生状态栏前景由宿主管理；滚动后背景变成模块玻璃，要切回材质的前景深浅。
+        if (preserveHostArtwork && dockingProgress < .5f) {
+            ViewCompat.getWindowInsetsController(container)?.let { controller ->
+                if (originalLightStatus == null) originalLightStatus = controller.isAppearanceLightStatusBars
+                val light = !materialDark
+                if (controller.isAppearanceLightStatusBars != light) controller.isAppearanceLightStatusBars = light
+                appliedLightStatus = light
+            }
+        } else restoreStatusBar()
         return true
     }
 
+    private fun restoreStatusBar() {
+        val original = originalLightStatus ?: return
+        ViewCompat.getWindowInsetsController(container)?.let { controller ->
+            // 宿主切页后已设置自己的前景时不覆盖；只恢复本绑定仍持有的状态。
+            if (controller.isAppearanceLightStatusBars == appliedLightStatus)
+                controller.isAppearanceLightStatusBars = original
+        }
+        originalLightStatus = null
+        appliedLightStatus = null
+    }
+
     /** 深浅色/主题切换后刷新融合带的色罩（采样纹理只带 alpha 曲线，不受影响）。 */
-    fun refreshMaterial(colors: HostChromeColors) {
+    fun refreshMaterial(colors: HostChromeColors, preserveHostArtwork: Boolean = false) {
         val isDark = colors.dark
-        if (colors == materialColors) return
+        if (colors == materialColors && this.preserveHostArtwork == preserveHostArtwork) return
         materialColors = colors
         materialDark = isDark
+        this.preserveHostArtwork = preserveHostArtwork
         band.updateMaterial(
-            colors.palette()
+            colors.palette(), preserveHostArtwork
         )
     }
 

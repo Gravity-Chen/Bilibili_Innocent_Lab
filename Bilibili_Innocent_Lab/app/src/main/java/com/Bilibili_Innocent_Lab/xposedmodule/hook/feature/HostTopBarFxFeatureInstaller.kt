@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopBarFxConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopBarFxController
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
 
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
@@ -17,7 +18,8 @@ internal class HostTopBarFxFeatureInstaller(
     private val liquidGlass: Boolean,
     private val touchGlow: Boolean,
     private val points: VersionAdapter.HomeTopBarPoints?,
-    private val appearance: HostChromeAppearance = HostChromeAppearance()
+    private val appearance: HostChromeAppearance = HostChromeAppearance(),
+    private val backgroundPreset: HostBackgroundPreset = HostBackgroundPreset.OFF
 ) : FeatureInstaller {
 
     override val id: String = ID
@@ -39,7 +41,8 @@ internal class HostTopBarFxFeatureInstaller(
         val config = HostTopBarFxConfig(
             liquidGlass = liquidGlass,
             touchGlow = touchGlow,
-            appearance = appearance
+            appearance = appearance,
+            backgroundPreset = backgroundPreset
         )
 
         return runCatching {

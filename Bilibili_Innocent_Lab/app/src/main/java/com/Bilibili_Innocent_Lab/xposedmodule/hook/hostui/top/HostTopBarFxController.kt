@@ -8,6 +8,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostTouchGlowBinding
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 
 import android.annotation.SuppressLint
@@ -34,7 +35,8 @@ import kotlin.math.roundToInt
 internal data class HostTopBarFxConfig(
     val liquidGlass: Boolean = true,
     val touchGlow: Boolean = true,
-    val appearance: HostChromeAppearance = HostChromeAppearance()
+    val appearance: HostChromeAppearance = HostChromeAppearance(),
+    val backgroundPreset: HostBackgroundPreset = HostBackgroundPreset.OFF
 )
 
 /** 保留原生分类与搜索区；引擎表面、触控柔光、收岛和状态栏融合分别装配。 */
@@ -208,16 +210,18 @@ internal object HostTopBarFxController {
                 island?.updateMaterial(current)
                 materialColors = current
             }
-            fusion?.refreshMaterial(current)
+            fusion?.refreshMaterial(current,
+                preserveHostArtwork = config.backgroundPreset == HostBackgroundPreset.OFF && current.garbAccent != null)
         }
         val artifacts = HostTopBarArtifactBinding(topBarDock)
-        // 首页搜索区的主视觉在 Fragment 外；个人中心 main_top_bg_imageview 保留原画。
+        // 首页搜索区的主视觉在 Fragment 外；跟随宿主时保留装扮图及其原生底色。
+        // 只在模块背景接管页面时剥离，个人中心 main_top_bg_imageview 始终保留原画。
         val headId = context.resources.getIdentifier("main_top_bg", "id", context.packageName)
         val headArtwork = if (headId != 0) root.rootView.findViewById<View>(headId) else null
         val materialPreDraw = ViewTreeObserver.OnPreDrawListener {
             val current = theme.read()
             artifacts.clear(current)
-            if (current.garbAccent != null) headArtwork?.let {
+            if (config.backgroundPreset != HostBackgroundPreset.OFF && current.garbAccent != null) headArtwork?.let {
                 HostChromeArtwork.clear(it)
                 (it.parent as? View)?.let { head -> if (head.background != null) head.background = null }
             }
