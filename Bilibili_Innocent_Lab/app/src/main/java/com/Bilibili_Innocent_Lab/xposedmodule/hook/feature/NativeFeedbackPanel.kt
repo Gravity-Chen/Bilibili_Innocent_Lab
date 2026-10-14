@@ -177,10 +177,10 @@ internal class NativeFeedbackPanel(
                         if (upName != null) {
                             val upId = (mid?.invoke(data) as? Number)?.toLong()?.takeIf { it > 0 }
                             injector.newEntry(String.format(messages.panelBlockAuthorLabel, upName)) {
-                                if (AuthorPickSession.add(upName)) {
-                                    authors.accumulate(MineComponentScanEntry.create("author", upName, upName, null, true)
-                                        ?.copy(selectionToken = java.util.UUID.randomUUID().toString()))
-                                }
+                                upId?.let { AuthorPickSession.add(it.toString()) }
+                                AuthorPickSession.add(upName)
+                                authors.accumulate(MineComponentScanEntry.create("author", upName, upName, null, true)
+                                    ?.copy(selectionToken = java.util.UUID.randomUUID().toString()))
                                 // 重复点同一个 UP 也回执：用户看到的应当是"这次点击被收到了"。
                                 announce(upName)
                             }?.let(::add)

@@ -47,6 +47,12 @@ class CommentSurfaceWiringContractTest {
         val source = SourceContract.read("hook/feature/CommentTopologyFeatureInstaller.kt")
         assertTrue(source.contains("coordinator?.open(activity, currentSeed, this@ReplyTopologyAnchorView)"))
         assertTrue(source.contains("state.sourceAnchor?.get()"))
+        val geometry = source.after("private class AnchorGeometry(").before("fun toTarget(")
+        assertTrue(geometry.contains("val include: WeakReference<ViewGroup>"))
+        assertTrue(geometry.contains("val row: WeakReference<ViewGroup>"))
+        assertTrue(geometry.contains("val referenceView: WeakReference<View>"))
+        assertTrue(geometry.contains("val primaryMessage: WeakReference<View>?"))
+        assertTrue(geometry.contains("val secondaryMessage: WeakReference<View>?"))
         val controller = SourceContract.read("ui/overlay/ReplyTopologyPanelController.kt")
         assertTrue(controller.contains("sourceAnchor.rootView"))
         assertTrue(controller.contains("parentRef = WeakReference(parent)"))
@@ -72,6 +78,8 @@ class CommentSurfaceWiringContractTest {
         val menu = SourceContract.read("hook/feature/ReplyTopologyComposeMenu.kt")
         assertTrue(menu.contains("HostThreadGuard.run(\"reply_topology.compose_menu_click\")"))
         assertTrue(menu.contains("and 0b1110.inv()"))
+        assertTrue(menu.contains("reportRuntimeEvidence(CommentTopologyFeatureInstaller.ID, FeatureRuntimeStage.OBSERVED)"))
+        assertFalse(menu.contains("reportRuntimeEvidence(\"reply_topology_enabled\""))
     }
 
     @Test fun composeMoreActionInvalidatesPreviousContextBeforeAnyBindingFallback() {

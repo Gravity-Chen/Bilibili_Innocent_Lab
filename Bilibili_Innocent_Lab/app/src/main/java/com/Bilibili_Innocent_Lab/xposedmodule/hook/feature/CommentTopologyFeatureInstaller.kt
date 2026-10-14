@@ -825,16 +825,20 @@ internal class CommentTopologyFeatureInstaller(
     private fun findAnchorTarget(start: View): AnchorTarget? {
         val geometry = resolveAnchorGeometry(start) ?: return null
         val scope = resolveBindingScope(start, geometry)
-        val index = geometry.row.indexOfChild(geometry.referenceView)
+        val row = geometry.row.get() ?: return null
+        val referenceView = geometry.referenceView.get() ?: return null
+        val index = row.indexOfChild(referenceView)
         if (index < 0) {
             // 宿主重排了操作行的子节点：作废缓存重算一次，仍失败才按缺失处理。
             anchorGeometries.remove(start)
             val refreshed = resolveAnchorGeometry(start) ?: return null
-            val refreshedIndex = refreshed.row.indexOfChild(refreshed.referenceView)
+            val refreshedRow = refreshed.row.get() ?: return null
+            val refreshedRef = refreshed.referenceView.get() ?: return null
+            val refreshedIndex = refreshedRow.indexOfChild(refreshedRef)
             if (refreshedIndex < 0) return null
-            return refreshed.toTarget(refreshedIndex, resolveBindingScope(start, refreshed))
+            return refreshed.toTarget(refreshedRow, refreshedRef, refreshedIndex, resolveBindingScope(start, refreshed))
         }
-        return geometry.toTarget(index, scope)
+        return geometry.toTarget(row, referenceView, index, scope)
     }
 
     /** 命中缓存时只做 O(层级) 的指针校验，不再触碰任何子树。 */
@@ -850,12 +854,21 @@ internal class CommentTopologyFeatureInstaller(
 
     private fun isGeometryUsable(start: View, geometry: AnchorGeometry): Boolean {
         if (!start.isAttachedToWindow) return false
-        if (!geometry.include.isAttachedToWindow || !geometry.row.isAttachedToWindow) return false
-        if (geometry.referenceView.parent !== geometry.row) return false
-        if (!isWithin(geometry.row, geometry.include)) return false
-        geometry.primaryMessage?.let { if (!isWithin(it, start)) return false }
-        geometry.secondaryMessage?.let { if (!isWithin(it, start)) return false }
-        return sharesSearchScope(start, geometry.include)
+        val include = geometry.include.get() ?: return false
+        val row = geometry.row.get() ?: return false
+        val referenceView = geometry.referenceView.get() ?: return false
+        if (!include.isAttachedToWindow || !row.isAttachedToWindow) return false
+        if (referenceView.parent !== row) return false
+        if (!isWithin(row, include)) return false
+        geometry.primaryMessage?.let { ref ->
+            val primary = ref.get() ?: return false
+            if (!isWithin(primary, start)) return false
+        }
+        geometry.secondaryMessage?.let { ref ->
+            val secondary = ref.get() ?: return false
+            if (!isWithin(secondary, start)) return false
+        }
+        return sharesSearchScope(start, include)
     }
 
     /** include 仍位于 [findActionInclude] 会检查的祖先范围内，否则缓存不再代表同一棵树。 */
@@ -891,12 +904,12 @@ internal class CommentTopologyFeatureInstaller(
                 val row = moreButton.parent as? ViewGroup
                 if (row != null && isWithin(row, include)) {
                     return AnchorGeometry(
-                        include = include,
-                        row = row,
-                        referenceView = moreButton,
+                        include = WeakReference(include),
+                        row = WeakReference(row),
+                        referenceView = WeakReference(moreButton),
                         beforeReference = true,
-                        primaryMessage = primaryMessage,
-                        secondaryMessage = secondaryMessage
+                        primaryMessage = primaryMessage?.let(::WeakReference),
+                        secondaryMessage = secondaryMessage?.let(::WeakReference)
                     )
                 }
             }
@@ -907,12 +920,12 @@ internal class CommentTopologyFeatureInstaller(
                 val row = replyButton.parent as? ViewGroup
                 if (row != null && isWithin(row, include)) {
                     return AnchorGeometry(
-                        include = include,
-                        row = row,
-                        referenceView = replyButton,
+                        include = WeakReference(include),
+                        row = WeakReference(row),
+                        referenceView = WeakReference(replyButton),
                         beforeReference = false,
-                        primaryMessage = primaryMessage,
-                        secondaryMessage = secondaryMessage
+                        primaryMessage = primaryMessage?.let(::WeakReference),
+                        secondaryMessage = secondaryMessage?.let(::WeakReference)
                     )
                 }
             }
@@ -970,13 +983,13 @@ internal class CommentTopologyFeatureInstaller(
         boundView: View,
         geometry: AnchorGeometry
     ): ReplyTopologyBindingScope {
-        val include = geometry.include
+        val include = geometry.include.get() ?: return ReplyTopologyBindingScope.UNKNOWN
         if (isWithin(include, boundView)) return ReplyTopologyBindingScope.OWNER
         val primaryMessageId = resolveHostViewId(boundView, "primary_message")
         val secondaryMessageId = resolveHostViewId(boundView, "secondary_message")
         val boundGroup = boundView as? ViewGroup
-        val primaryMessage = geometry.primaryMessage
-        val secondaryMessage = geometry.secondaryMessage
+        val primaryMessage = geometry.primaryMessage?.get()
+        val secondaryMessage = geometry.secondaryMessage?.get()
         val messageScope = replyTopologyMessageScope(
             primaryPresent = primaryMessage != null,
             primaryVisible = isVisibleWithin(primaryMessage, boundGroup),
@@ -1084,14 +1097,19 @@ internal class CommentTopologyFeatureInstaller(
 
     /** 只保存复用中稳定的"位置"；insertIndex 与 scope 一律逐次重算。 */
     private class AnchorGeometry(
-        val include: ViewGroup,
-        val row: ViewGroup,
-        val referenceView: View,
+        val include: WeakReference<ViewGroup>,
+        val row: WeakReference<ViewGroup>,
+        val referenceView: WeakReference<View>,
         val beforeReference: Boolean,
-        val primaryMessage: View?,
-        val secondaryMessage: View?
+        val primaryMessage: WeakReference<View>?,
+        val secondaryMessage: WeakReference<View>?
     ) {
-        fun toTarget(referenceIndex: Int, scope: ReplyTopologyBindingScope) = AnchorTarget(
+        fun toTarget(
+            row: ViewGroup,
+            referenceView: View,
+            referenceIndex: Int,
+            scope: ReplyTopologyBindingScope
+        ) = AnchorTarget(
             row = row,
             insertIndex = if (beforeReference) referenceIndex else referenceIndex + 1,
             scope = scope,

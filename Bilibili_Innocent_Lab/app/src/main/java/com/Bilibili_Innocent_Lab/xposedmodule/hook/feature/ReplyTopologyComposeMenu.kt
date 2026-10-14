@@ -174,7 +174,7 @@ internal class ReplyTopologyComposeMenu(private val open: (View, ReplyTopologySe
                     args[0] = merged
                     // 与 NativeFeedbackPanel 相同：参数 0 的 changed 槽是 1–3 位，保留 force 位。
                     args[3] = (argOrNull(3) as Int) and 0b1110.inv()
-                    environment.reportRuntimeEvidence("reply_topology_enabled", FeatureRuntimeStage.OBSERVED)
+                    environment.reportRuntimeEvidence(CommentTopologyFeatureInstaller.ID, FeatureRuntimeStage.OBSERVED)
                 }
             }
             FeatureInstallResult.Installed(1)
@@ -259,7 +259,7 @@ internal class ReplyTopologyComposeMenu(private val open: (View, ReplyTopologySe
                     injecting.set(true)
                     try {
                         row.invoke(null, *values)
-                        environment.reportRuntimeEvidence("reply_topology_enabled", FeatureRuntimeStage.OBSERVED)
+                        environment.reportRuntimeEvidence(CommentTopologyFeatureInstaller.ID, FeatureRuntimeStage.OBSERVED)
                     } finally {
                         injecting.remove()
                     }
