@@ -8,6 +8,7 @@ import re
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
+from release_context import list_commits, resolve_baseline, tag_commit_timestamp
 
 from release_note_common import (
     CATEGORIES,
@@ -47,14 +48,7 @@ def find_previous_stable(repo_root: Path, commit: str, release_tag: str) -> str 
     current_version = parse_stable_tag(release_tag)
     if current_version is None:
         raise ValueError(f"Invalid Stable tag: {release_tag}")
-    result = run_git(repo_root, "tag", "--merged", commit, "--list", "v[0-9]*")
-    candidates: list[tuple[tuple[int, int, int], str]] = []
-    for tag in result.stdout.splitlines():
-        tag = tag.strip()
-        parsed = parse_stable_tag(tag)
-        if parsed is not None and parsed < current_version:
-            candidates.append((parsed, tag))
-    return max(candidates, default=None)[1] if candidates else None
+    return resolve_baseline(repo_root, commit, release_tag, "stable")[0]
 
 
 def render_categorized_entries(entries: Iterable[tuple[str, str]], repository_url: str) -> str:
@@ -110,7 +104,7 @@ def build_changelog(
     if parse_stable_tag(release_tag) is None:
         raise ValueError(f"Invalid Stable tag: {release_tag}")
     repository_url = repository_url.rstrip("/")
-    previous_stable = find_previous_stable(repo_root, commit, release_tag)
+    previous_stable, orphaned = resolve_baseline(repo_root, commit, release_tag, "stable")
     if previous_stable is None:
         categorized = render_categorized_entries(
             [(commit, "chore(release): 建立首个可追溯的 Stable 发布基线")],
@@ -128,24 +122,19 @@ def build_changelog(
         )
     if diff_result.returncode == 0:
         categorized = render_categorized_entries(
-            [(commit, f"chore(release): 与上一 Stable {previous_stable} 使用相同目标代码")],
+            [(commit, f"chore(release): 与上一发布 {previous_stable} 使用相同目标代码")],
             repository_url,
         )
     else:
-        log_result = run_git(
-            repo_root,
-            "log",
-            "--reverse",
-            "--no-merges",
-            "--format=%H%x09%s",
-            f"{previous_stable}..{commit}",
-        )
-        entries: list[tuple[str, str]] = []
-        for line in log_result.stdout.splitlines():
-            commit_sha, separator, subject = line.partition("\t")
-            if separator and commit_sha and subject:
-                entries.append((commit_sha, subject))
+        commits = list_commits(repo_root, f"{previous_stable}..{commit}",
+                               since=tag_commit_timestamp(repo_root, previous_stable) if orphaned else None)
+        entries = [(info.sha, info.subject) for info in commits]
         categorized = render_categorized_entries(entries, repository_url)
+        complete = ["", "<details>", f"<summary>📜 完整提交记录（{len(commits)}）</summary>", ""]
+        complete.extend(f"- {escape_markdown_text(info.subject)} ([`{info.sha[:7]}`]({repository_url}/commit/{info.sha}))"
+                        for info in commits)
+        complete.extend(["", "</details>"])
+        categorized += "\n" + "\n".join(complete)
 
     return (
         f"{categorized}\n\n"

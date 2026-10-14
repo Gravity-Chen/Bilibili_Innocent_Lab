@@ -11,6 +11,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from release_context import (
@@ -18,7 +19,10 @@ from release_context import (
     find_orphaned_tag,
     find_previous_tag,
     tag_commit_timestamp,
+    resolve_baseline,
 )
+import generate_alpha_changelog
+import generate_stable_changelog
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -116,6 +120,65 @@ class OrphanBaselineTests(unittest.TestCase):
         # 拿到空提交列表）。
         ts = tag_commit_timestamp(self.repo, "v1.0.0")
         self.assertRegex(ts, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
+
+    def test_newer_orphan_stable_supersedes_older_reachable_alpha(self) -> None:
+        _git(self.repo, "tag", "v0.9.0-alpha.1", self.head)
+        self.assertEqual(("v1.0.0", True), resolve_baseline(self.repo, self.head, "v1.1.0-alpha.1", "alpha"))
+
+
+class CrossChannelBaselineTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        _git(self.repo, "init", "-q")
+        _commit(self.repo, "a.txt", "old", "feat: old alpha feature")
+        _git(self.repo, "tag", "v1.1.8-alpha.2")
+        _commit(self.repo, "a.txt", "stable", "feat: already stable")
+        _git(self.repo, "tag", "v1.2.0")
+        self.delta = _commit(self.repo, "b.txt", "new", "feat: current delta")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_alpha_starts_at_newer_stable_in_ai_and_rules(self) -> None:
+        context = build_context(self.repo, {}, channel="alpha", release_tag="v1.2.1-alpha.1",
+                                commit=self.delta, fetch_published=False)
+        self.assertEqual("v1.2.0", context.previous_tag)
+        self.assertEqual([self.delta], [info.sha for info in context.commits])
+        text = generate_alpha_changelog.build_changelog(self.repo, "https://github.com/o/r", "v1.2.1-alpha.1", self.delta)
+        self.assertIn("v1.2.0...", text)
+        self.assertNotIn("already stable", text)
+        self.assertNotIn("old alpha feature", text)
+
+    def test_stable_and_alpha_start_at_previous_alpha(self) -> None:
+        _git(self.repo, "tag", "v1.2.1-alpha.1", self.delta)
+        head = _commit(self.repo, "c.txt", "stable delta", "fix: after alpha")
+        for channel, tag in (("stable", "v1.2.1"), ("alpha", "v1.2.1-alpha.2")):
+            with self.subTest(channel=channel):
+                context = build_context(self.repo, {}, channel=channel, release_tag=tag,
+                                        commit=head, fetch_published=False)
+                self.assertEqual("v1.2.1-alpha.1", context.previous_tag)
+                self.assertEqual([head], [info.sha for info in context.commits])
+        text = generate_stable_changelog.build_changelog(self.repo, "https://github.com/o/r", "v1.2.1", head)
+        self.assertIn("v1.2.1-alpha.1...", text)
+        self.assertNotIn("current delta", text)
+
+    def test_current_future_and_unreachable_tags_do_not_enter_reachable_range(self) -> None:
+        _git(self.repo, "tag", "v1.2.1-alpha.2", self.delta)
+        _git(self.repo, "tag", "v1.2.1", self.delta)
+        _git(self.repo, "tag", "v9.0.0", self.delta)
+        self.assertEqual("v1.2.0", find_previous_tag(self.repo, self.delta, "v1.2.1-alpha.1", "alpha"))
+
+    def test_many_long_commits_keep_recent_identifiers_in_context(self) -> None:
+        from release_context import CommitInfo
+        commits = [CommitInfo(f"{index:040x}", "2026-10-14", "长标题" * 80, "长正文" * 200, 1, 1, 1, ())
+                   for index in range(1, 333)]
+        with mock.patch("release_context.list_commits", return_value=commits):
+            context = build_context(self.repo, {}, channel="alpha", release_tag="v1.2.1-alpha.1",
+                                    commit=self.delta, fetch_published=False)
+        self.assertTrue(context.commit_index_complete)
+        index_text = dict(context.sections)["完整提交索引（时间正序；每个 SHA 必须归类）"]
+        self.assertEqual(332, len(index_text.splitlines()))
 
 
 if __name__ == "__main__":

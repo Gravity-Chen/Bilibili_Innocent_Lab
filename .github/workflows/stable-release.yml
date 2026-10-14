@@ -448,14 +448,23 @@ jobs:
           RELEASE_NOTES_LLM_1_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_1_PROTOCOL }}
           RELEASE_NOTES_LLM_1_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_1_BASE_URL || vars.RELEASE_NOTES_LLM_1_BASE_URL }}
           RELEASE_NOTES_LLM_1_MODEL: ${{ vars.RELEASE_NOTES_LLM_1_MODEL }}
+          RELEASE_NOTES_LLM_1_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_1_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_1_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_1_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_1_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_1_BODY_JSON }}
           RELEASE_NOTES_LLM_2_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_2_API_KEY }}
           RELEASE_NOTES_LLM_2_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_2_PROTOCOL }}
           RELEASE_NOTES_LLM_2_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_2_BASE_URL || vars.RELEASE_NOTES_LLM_2_BASE_URL }}
           RELEASE_NOTES_LLM_2_MODEL: ${{ vars.RELEASE_NOTES_LLM_2_MODEL }}
+          RELEASE_NOTES_LLM_2_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_2_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_2_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_2_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_2_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_2_BODY_JSON }}
           RELEASE_NOTES_LLM_3_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_3_API_KEY }}
           RELEASE_NOTES_LLM_3_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_3_PROTOCOL }}
           RELEASE_NOTES_LLM_3_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_3_BASE_URL || vars.RELEASE_NOTES_LLM_3_BASE_URL }}
           RELEASE_NOTES_LLM_3_MODEL: ${{ vars.RELEASE_NOTES_LLM_3_MODEL }}
+          RELEASE_NOTES_LLM_3_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_3_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_3_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_3_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_3_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_3_BODY_JSON }}
         run: |
           set -euo pipefail
           changelog_file="release-asset/STABLE_CHANGELOG.md"
@@ -488,6 +497,19 @@ jobs:
             exit 1
           fi
 
+      - name: Preserve oversized announcement as a complete release asset
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/prepare_release_announcement.py \
+            --notes-file release-asset/RELEASE_NOTES.md \
+            --repository-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --release-tag "$RELEASE_TAG"
+          if [[ -f release-asset/RELEASE_NOTES_FULL.md ]]; then
+            (cd release-asset && sha256sum RELEASE_NOTES_FULL.md) >> release-asset/SHA256SUMS.txt
+          fi
+
       - name: Create GitHub Stable Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -495,10 +517,15 @@ jobs:
           APK_FILENAME: ${{ steps.apk.outputs.apk_filename }}
         run: |
           set -euo pipefail
+          note_assets=()
+          if [[ -f release-asset/RELEASE_NOTES_FULL.md ]]; then
+            note_assets+=(release-asset/RELEASE_NOTES_FULL.md)
+          fi
           gh release create "$RELEASE_TAG" \
             "release-asset/$APK_FILENAME" \
             release-asset/BUILD_INFO.txt \
             release-asset/SHA256SUMS.txt \
+            "${note_assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "$RELEASE_TAG" \
@@ -529,7 +556,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --dir "$published_dir"
           diff -u \
-            <(printf '%s\n' "$APK_FILENAME" BUILD_INFO.txt SHA256SUMS.txt | sort) \
+            <({ printf '%s\n' "$APK_FILENAME" BUILD_INFO.txt SHA256SUMS.txt; \
+                if [[ -f release-asset/RELEASE_NOTES_FULL.md ]]; then printf '%s\n' RELEASE_NOTES_FULL.md; fi; } | sort) \
             <(find "$published_dir" -maxdepth 1 -type f -printf '%f\n' | sort)
           (
             cd "$published_dir"
@@ -538,6 +566,9 @@ jobs:
           cmp "release-asset/$APK_FILENAME" "$published_dir/$APK_FILENAME"
           cmp release-asset/BUILD_INFO.txt "$published_dir/BUILD_INFO.txt"
           cmp release-asset/SHA256SUMS.txt "$published_dir/SHA256SUMS.txt"
+          if [[ -f release-asset/RELEASE_NOTES_FULL.md ]]; then
+            cmp release-asset/RELEASE_NOTES_FULL.md "$published_dir/RELEASE_NOTES_FULL.md"
+          fi
 
           git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           published_commit="$(git rev-list -n 1 "$RELEASE_TAG")"
@@ -552,6 +583,9 @@ jobs:
             echo "- Commit: \`$published_commit\`"
             echo "- Release: $release_url"
             echo "- Assets: APK, BUILD_INFO.txt, SHA256SUMS.txt"
+            if [[ -f release-asset/RELEASE_NOTES_FULL.md ]]; then
+              echo "- Complete announcement: RELEASE_NOTES_FULL.md (checksum verified)"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       # README 的「稳定版」徽章读 badges 分支上的 stable.json（shields endpoint）。直接用 shields 的

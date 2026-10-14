@@ -1,0 +1,90 @@
+name: Preview release notes
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel to preview; never publishes a Release
+        required: true
+        type: choice
+        options: [alpha, stable]
+      release_tag:
+        description: Intended version tag, for example v1.2.1-alpha.1
+        required: true
+        type: string
+      source_commit:
+        description: Full source commit SHA; empty uses this workflow's commit
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out trusted generator and full release history
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Validate tooling
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          python3 -m unittest discover -s .github/release-templates -p 'test_*.py'
+
+      - name: Generate announcement preview with configured providers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          RELEASE_NOTES_LLM_1_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_1_API_KEY }}
+          RELEASE_NOTES_LLM_1_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_1_PROTOCOL }}
+          RELEASE_NOTES_LLM_1_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_1_BASE_URL || vars.RELEASE_NOTES_LLM_1_BASE_URL }}
+          RELEASE_NOTES_LLM_1_MODEL: ${{ vars.RELEASE_NOTES_LLM_1_MODEL }}
+          RELEASE_NOTES_LLM_1_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_1_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_1_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_1_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_1_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_1_BODY_JSON }}
+          RELEASE_NOTES_LLM_2_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_2_API_KEY }}
+          RELEASE_NOTES_LLM_2_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_2_PROTOCOL }}
+          RELEASE_NOTES_LLM_2_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_2_BASE_URL || vars.RELEASE_NOTES_LLM_2_BASE_URL }}
+          RELEASE_NOTES_LLM_2_MODEL: ${{ vars.RELEASE_NOTES_LLM_2_MODEL }}
+          RELEASE_NOTES_LLM_2_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_2_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_2_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_2_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_2_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_2_BODY_JSON }}
+          RELEASE_NOTES_LLM_3_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_3_API_KEY }}
+          RELEASE_NOTES_LLM_3_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_3_PROTOCOL }}
+          RELEASE_NOTES_LLM_3_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_3_BASE_URL || vars.RELEASE_NOTES_LLM_3_BASE_URL }}
+          RELEASE_NOTES_LLM_3_MODEL: ${{ vars.RELEASE_NOTES_LLM_3_MODEL }}
+          RELEASE_NOTES_LLM_3_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_3_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_3_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_3_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_3_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_3_BODY_JSON }}
+        run: |
+          set -euo pipefail
+          source_commit="${SOURCE_COMMIT:-$GITHUB_SHA}"
+          if [[ ! "$source_commit" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "source_commit must be a full commit SHA"
+            exit 1
+          fi
+          git cat-file -e "${source_commit}^{commit}"
+          mkdir -p release-notes-preview
+          python3 .github/release-templates/generate_release_notes.py \
+            --channel "$RELEASE_CHANNEL" --repo-root . \
+            --repository-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --release-tag "$RELEASE_TAG" --commit "$source_commit" \
+            --changelog-output release-notes-preview/CHANGELOG.md \
+            --summary-output release-notes-preview/SUMMARY.md \
+            --report-output "$GITHUB_STEP_SUMMARY"
+
+      - name: Save complete preview
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-notes-preview
+          path: release-notes-preview/
+          if-no-files-found: error
+          retention-days: 7

@@ -12,13 +12,13 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import generate_alpha_changelog
 import generate_stable_changelog
 import llm_providers
-from release_context import ReleaseContext, build_context, load_config
+from release_context import ReleaseContext, build_context, load_config, resolve_baseline
 from release_note_common import CATEGORY_ICONS, escape_markdown_text
 
 
@@ -28,8 +28,7 @@ CATEGORY_KEYS = {"new": "新增", "fixed": "修复", "improved": "优化"}
 MAX_ITEM_CHARS = 160
 MAX_GROUP_CHARS = 16
 MAX_SENTENCE_CHARS = 80
-# 覆盖检查只在提交数适中时作为硬性规则；超大范围只记警告，避免反复重试。
-STRICT_COVERAGE_LIMIT = 60
+COMMIT_BATCH_SIZE = 40
 SENTENCE_SPLIT = re.compile(r"(?<=[。！？!?])")
 
 OUTPUT_SCHEMA = {
@@ -79,6 +78,8 @@ class GenerationResult:
     source: str
     log: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    previous_tag: str | None = None
+    commit_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +239,8 @@ def validate_notes(
     full_shas = context.commit_shas()
     forbidden = config.get("forbidden_terms", [])
     max_items = int(config.get("max_items", 18))
+    if set(payload) != {"summary", "items", "maintenance"}:
+        errors.append("顶层字段必须且只能是 summary/items/maintenance")
 
     summary_raw = payload.get("summary")
     items_raw = payload.get("items")
@@ -276,6 +279,11 @@ def validate_notes(
         if not isinstance(raw_item, dict):
             errors.append(f"{where} 不是对象")
             continue
+        if set(raw_item) != {"category", "group", "text", "commits"}:
+            errors.append(f"{where} 字段必须且只能是 category/group/text/commits")
+        if not all(isinstance(raw_item.get(key), str) for key in ("category", "group", "text")):
+            errors.append(f"{where}.category/group/text 必须是字符串")
+            continue
         category = str(raw_item.get("category", "")).strip()
         group = space_cjk_latin(str(raw_item.get("group", "")).strip())
         text = space_cjk_latin(str(raw_item.get("text", "")).strip())
@@ -301,7 +309,7 @@ def validate_notes(
             errors.append(f"{where}.text 与前文重复：{text[:30]}…")
         seen_texts.add(text)
         resolved: list[str] = []
-        if not isinstance(commits, list) or not commits:
+        if not isinstance(commits, list) or not commits or not all(isinstance(short, str) for short in commits):
             errors.append(f"{where}.commits 不能为空")
             commits = []
         for short in commits:
@@ -326,12 +334,9 @@ def validate_notes(
         errors.append(f"条目过多（{len(items)} 条，上限 {max_items}），请合并同类项")
     missing = [info for info in context.commits if info.sha not in covered]
     if missing:
-        listing = "；".join(f"{info.sha[:7]} {info.subject}" for info in missing[:15])
+        listing = "；".join(f"{info.sha[:7]} {info.subject}" for info in missing)
         message = f"以下提交既没有写进 items 也没有列入 maintenance：{listing}"
-        if len(context.commits) <= STRICT_COVERAGE_LIMIT:
-            errors.append(message)
-        else:
-            warnings.append(message)
+        errors.append(message)
     if not items and len(maintenance) < len(context.commits):
         errors.append("items 为空，但并非所有提交都属于维护类")
 
@@ -415,8 +420,9 @@ def fallback_changelog(channel: str, repo_root: Path, repository_url: str, relea
     return module.build_changelog(repo_root, repository_url, release_tag, commit).rstrip() + "\n"
 
 
-def generate_with_llm(
-    context: ReleaseContext, config: dict, slots: list[llm_providers.ProviderSlot], log: list[str], warnings: list[str]
+def _generate_batch(
+    context: ReleaseContext, config: dict, slots: list[llm_providers.ProviderSlot], log: list[str], warnings: list[str],
+    session: llm_providers.ProviderSession,
 ) -> tuple[ReleaseNotes, str] | None:
     system = build_system_prompt(config, context.channel)
     user_prompt = build_user_prompt(context)
@@ -424,7 +430,7 @@ def generate_with_llm(
         messages: list[dict] = [{"role": "user", "content": user_prompt}]
         for attempt in (1, 2):
             try:
-                raw = llm_providers.complete(slot, system, messages, OUTPUT_SCHEMA)
+                raw = llm_providers.complete(slot, system, messages, OUTPUT_SCHEMA, session=session)
             except llm_providers.ProviderError as error:
                 log.append(f"{slot.label} 第 {attempt} 次请求失败：{error}")
                 break
@@ -451,6 +457,94 @@ def generate_with_llm(
     return None
 
 
+def _batch_context(context: ReleaseContext, commits: list) -> ReleaseContext:
+    shared = [(title, body) for title, body in context.sections
+              if not title.startswith(("完整提交索引", "提交记录"))]
+    index = "\n".join(f"- {info.sha[:7]} {info.subject}" for info in commits)
+    detail = "\n".join(f"- {info.sha[:7]} {info.subject}\n  {info.body[:400]}\n  主要文件："
+                       + ", ".join(info.top_files) for info in commits)
+    return replace(context, commits=commits, commit_index_complete=True,
+                   sections=[("本批完整提交索引（只归类这些 SHA，净变化仍对比完整发布基线）", index),
+                             *shared, ("本批提交详情", detail)])
+
+
+def _generate_overview(notes: ReleaseNotes, context: ReleaseContext, config: dict,
+                       slots: list[llm_providers.ProviderSlot], session: llm_providers.ProviderSession,
+                       log: list[str]) -> list[str]:
+    # 正文逐条保留批次结果；最后只让模型概括已验证的条目，不再次压缩或删除正文。
+    evidence = "\n".join(f"- {CATEGORY_KEYS[item.category]}：{item.text}" for item in notes.items)
+    system = build_system_prompt(config, context.channel) + "\n本次只写 summary，items 和 maintenance 必须为空数组。"
+    messages = [{"role": "user", "content": "以下是已完整归类的更新内容，只概括这些事实：\n" + evidence}]
+    empty_context = replace(context, commits=[])
+    for slot in slots:
+        conversation = list(messages)
+        for attempt in (1, 2):
+            try:
+                raw = llm_providers.complete(slot, system, conversation, OUTPUT_SCHEMA, session=session)
+                payload = extract_json(raw)
+                overview, errors, _ = validate_notes(payload, empty_context, config)
+                if payload.get("items") or payload.get("maintenance"):
+                    errors.append("仅写 summary，items 和 maintenance 必须为空数组")
+            except (llm_providers.ProviderError, ValueError) as error:
+                log.append(f"版本概述 {slot.label} 请求失败：{error}")
+                break
+            if overview is not None and not errors:
+                return overview.summary
+            conversation.extend([{"role": "assistant", "content": raw},
+                                 {"role": "user", "content": "请修正后输出完整 JSON：" + "；".join(errors)}])
+    log.append("版本概述生成失败，保留全部正文并使用中性概述。")
+    return (["本版本包含近期功能与兼容性调整。具体更新内容见下方说明。"]
+            if context.channel == "stable" else [])
+
+
+def generate_with_llm(
+    context: ReleaseContext, config: dict, slots: list[llm_providers.ProviderSlot], log: list[str], warnings: list[str]
+) -> tuple[ReleaseNotes, str] | None:
+    session = llm_providers.ProviderSession()
+    if len(context.commits) <= COMMIT_BATCH_SIZE:
+        if not context.commit_index_complete:
+            log.append("提交索引无法完整放入上下文，改用完整规则记录。")
+            return None
+        batch_config = {**config, "max_items": max(int(config.get("max_items", 18)), len(context.commits) * 2)}
+        return _generate_batch(context, batch_config, slots, log, warnings, session)
+    batches = [context.commits[offset:offset + COMMIT_BATCH_SIZE]
+               for offset in range(0, len(context.commits), COMMIT_BATCH_SIZE)]
+    merged = ReleaseNotes([], [], [])
+    sources = []
+    items: dict[tuple[str, str], NoteItem] = {}
+    for index, batch in enumerate(batches, start=1):
+        log.append(f"更新归类批次 {index}/{len(batches)}：{len(batch)} 个提交")
+        # 批次可以包含许多独立更新，不用 18 条上限迫使模型丢掉细节。
+        batch_config = {**config, "max_items": max(int(config.get("max_items", 18)), len(batch) * 2)}
+        outcome = _generate_batch(_batch_context(context, batch), batch_config, slots, log, warnings, session)
+        if outcome is None:
+            log.append(f"批次 {index} 未完成，禁止发布部分 AI 总结，改用整个范围的规则记录。")
+            return None
+        notes, source = outcome
+        if source not in sources:
+            sources.append(source)
+        for item in notes.items:
+            key = (item.category, item.text)
+            if key in items:
+                previous = items[key]
+                previous.commits = list(dict.fromkeys([*previous.commits, *item.commits]))
+            else:
+                items[key] = item
+        merged.maintenance.extend(notes.maintenance)
+    merged.items = list(items.values())
+    merged.maintenance = list(dict.fromkeys(merged.maintenance))
+    # 合并只去掉文字完全相同的条目，并合并其引用；不设正文总条数上限。
+    merged.summary = _generate_overview(merged, context, config, slots, session, log)
+    payload = {"summary": merged.summary,
+               "items": [vars(item) for item in merged.items], "maintenance": merged.maintenance}
+    checked, errors, _ = validate_notes(payload, context, {**config, "max_items": len(merged.items)})
+    if checked is None:
+        log.append("合并后校验失败：" + "；".join(errors))
+        return None
+    log.append(f"全部 {len(context.commits)} 个提交完成归类，保留 {len(checked.items)} 条更新。")
+    return checked, "、".join(sources) + f"（{len(batches)} 批，完整覆盖）"
+
+
 def generate(
     *,
     channel: str,
@@ -469,6 +563,7 @@ def generate(
     manual_summary = manual_summary.strip()
     log: list[str] = []
     warnings: list[str] = []
+    context: ReleaseContext | None = None
 
     override = repo_root / ".github" / OVERRIDE_DIR_NAME / f"{release_tag}.md"
     if override.is_file():
@@ -491,22 +586,28 @@ def generate(
             if context.baseline_orphaned:
                 warnings.append(
                     f"基线标签 {context.previous_tag} 不在当前历史中（疑似历史重写后未迁移 tag）；"
-                    "已改用其树做净变化对比、提交记录按日期近似收敛。建议将该 tag 重贴到等价提交。"
+                    "已改用其树做净变化对比、提交记录按日期近似收敛，需人工核对该范围。"
                 )
             outcome = generate_with_llm(context, config, slots, log, warnings)
             if outcome is not None:
                 notes, label = outcome
                 summary = manual_summary or "".join(notes.summary)
-                return GenerationResult(render_changelog(notes, context, repository_url), summary, label, log, warnings)
+                return GenerationResult(render_changelog(notes, context, repository_url), summary, label, log, warnings,
+                                        context.previous_tag, len(context.commits))
             warnings.append("所有模型槽位均失败，已回退为规则版，请检查下方记录并考虑手写覆盖。")
 
     changelog = fallback_changelog(channel, repo_root, repository_url, release_tag, commit)
     summary = manual_summary or (fallback_summary(changelog) if channel == "stable" else "")
-    return GenerationResult(changelog, summary, "规则版", log, warnings)
+    previous = context.previous_tag if context is not None else resolve_baseline(repo_root, commit, release_tag, channel)[0]
+    archive_count = re.search(r"完整提交记录（(\d+)）", changelog)
+    count = len(context.commits) if context is not None else (int(archive_count.group(1)) if archive_count else 0)
+    return GenerationResult(changelog, summary, "规则版", log, warnings, previous, count)
 
 
 def render_report(result: GenerationResult, channel: str, release_tag: str) -> str:
     lines = [f"### Release notes · {release_tag} ({channel})", "", f"- 生成来源：**{result.source}**"]
+    if result.previous_tag:
+        lines.append(f"- 对比基线：`{result.previous_tag}`；范围内非合并提交：{result.commit_count}")
     lines.extend(f"- ⚠️ {warning}" for warning in result.warnings)
     if result.log:
         lines.extend(["", "<details><summary>模型调用记录</summary>", ""])

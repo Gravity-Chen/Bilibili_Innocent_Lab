@@ -8,6 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from release_context import list_commits, resolve_baseline, tag_commit_timestamp
 from release_note_common import (
     escape_markdown_text,
     is_build_maintenance,
@@ -39,21 +40,8 @@ def run_git(repo_root: Path, *args: str, check: bool = True) -> subprocess.Compl
 
 
 def find_previous_alpha(repo_root: Path, commit: str, release_tag: str) -> str | None:
-    result = run_git(
-        repo_root,
-        "tag",
-        "--merged",
-        commit,
-        "--list",
-        "v[0-9]*-alpha.*",
-    )
-    candidates: list[tuple[tuple[int, int, int, int], str]] = []
-    for tag in result.stdout.splitlines():
-        tag = tag.strip()
-        parsed = parse_alpha_tag(tag)
-        if parsed is not None and tag != release_tag:
-            candidates.append((parsed, tag))
-    return max(candidates, default=None)[1] if candidates else None
+    # 保留旧入口名；两个发布通道现在均使用统一基线选择。
+    return resolve_baseline(repo_root, commit, release_tag, "alpha")[0]
 
 
 def build_changelog(
@@ -62,7 +50,7 @@ def build_changelog(
     release_tag: str,
     commit: str,
 ) -> str:
-    previous_alpha = find_previous_alpha(repo_root, commit, release_tag)
+    previous_alpha, orphaned = resolve_baseline(repo_root, commit, release_tag, "alpha")
     short_commit = commit[:7]
     repository_url = repository_url.rstrip("/")
     if previous_alpha is None:
@@ -81,23 +69,16 @@ def build_changelog(
         )
     if diff_result.returncode == 0:
         return (
-            f"- 与上一 Alpha（`{previous_alpha}`）使用相同目标代码，"
+            f"- 与上一发布（`{previous_alpha}`）使用相同目标代码，"
             "本次主要验证构建与发布链路。"
         )
 
-    log_result = run_git(
-        repo_root,
-        "log",
-        "--reverse",
-        "--format=%H%x09%s",
-        f"{previous_alpha}..{commit}",
-    )
+    commits = list_commits(repo_root, f"{previous_alpha}..{commit}",
+                           since=tag_commit_timestamp(repo_root, previous_alpha) if orphaned else None)
     entries: list[str] = []
     seen_subjects: set[str] = set()
-    for line in log_result.stdout.splitlines():
-        commit_sha, separator, subject = line.partition("\t")
-        if not separator or not commit_sha or not subject:
-            continue
+    for info in commits:
+        commit_sha, subject = info.sha, info.subject
         # 连续文档修订等常产生相同标题；Release 正文只展示一次，完整差异链接仍保留全部提交。
         if subject in seen_subjects:
             continue
@@ -113,6 +94,10 @@ def build_changelog(
         )
     if not entries:
         entries.append("- 未检测到可列出的提交标题，请结合完整差异查看本次代码调整。")
+    entries.extend(["", "<details>", f"<summary>📜 完整提交记录（{len(commits)}）</summary>", ""])
+    entries.extend(f"- {escape_markdown_text(info.subject)} ([`{info.sha[:7]}`]({repository_url}/commit/{info.sha}))"
+                   for info in commits)
+    entries.extend(["", "</details>"])
     entries.extend(
         [
             "",

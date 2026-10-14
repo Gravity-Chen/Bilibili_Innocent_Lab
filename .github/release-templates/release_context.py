@@ -52,6 +52,7 @@ class ReleaseContext:
     # Net-diff sections still compare its tree correctly; the commit list is
     # bounded by the tag date instead of a real ancestry range.
     baseline_orphaned: bool = False
+    commit_index_complete: bool = True
 
     def commit_shas(self) -> set[str]:
         return {commit.sha for commit in self.commits}
@@ -83,14 +84,22 @@ def _parse_tag(tag: str, pattern: re.Pattern[str]) -> tuple[int, ...] | None:
     return tuple(int(part) for part in match.groups()) if match else None
 
 
+def release_order(tag: str, channel: str) -> tuple[int, ...] | None:
+    """两个通道都比较最近发布；正式版晚于同版本 Alpha。"""
+    stable = _parse_tag(tag, STABLE_TAG_PATTERN)
+    if stable is not None:
+        return (*stable, 1, 0)
+    alpha = _parse_tag(tag, ALPHA_TAG_PATTERN)
+    return (*alpha[:3], 0, alpha[3]) if alpha is not None else None
+
+
 def find_previous_tag(repo_root: Path, commit: str, release_tag: str, channel: str) -> str | None:
-    """Alpha 对比上一个 Alpha，Stable 对比上一个版本号更小的 Stable。"""
-    pattern = ALPHA_TAG_PATTERN if channel == "alpha" else STABLE_TAG_PATTERN
-    current = _parse_tag(release_tag, pattern)
+    """在可达标签中选最近的 Stable 或 Alpha 发布基线。"""
+    current = release_order(release_tag, channel)
     tags = run_git(repo_root, "tag", "--merged", commit, "--list", "v[0-9]*").splitlines()
     candidates = []
     for tag in (tag.strip() for tag in tags):
-        parsed = _parse_tag(tag, pattern)
+        parsed = release_order(tag, channel)
         if parsed is None or tag == release_tag:
             continue
         if current is not None and parsed >= current:
@@ -109,12 +118,11 @@ def find_orphaned_tag(repo_root: Path, commit: str, release_tag: str, channel: s
     (`git diff tag..commit` compares trees, not ancestry); only the commit
     list can't be ranged by it — callers bound it by the tag date instead.
     """
-    pattern = ALPHA_TAG_PATTERN if channel == "alpha" else STABLE_TAG_PATTERN
-    current = _parse_tag(release_tag, pattern)
+    current = release_order(release_tag, channel)
     tags = run_git(repo_root, "tag", "--list", "v[0-9]*").splitlines()
     candidates = []
     for tag in (tag.strip() for tag in tags):
-        parsed = _parse_tag(tag, pattern)
+        parsed = release_order(tag, channel)
         if parsed is None or tag == release_tag:
             continue
         if current is not None and parsed >= current:
@@ -128,6 +136,15 @@ def find_orphaned_tag(repo_root: Path, commit: str, release_tag: str, channel: s
         if not merged:
             candidates.append((parsed, tag))
     return max(candidates)[1] if candidates else None
+
+
+def resolve_baseline(repo_root: Path, commit: str, release_tag: str, channel: str) -> tuple[str | None, bool]:
+    previous = find_previous_tag(repo_root, commit, release_tag, channel)
+    orphan = find_orphaned_tag(repo_root, commit, release_tag, channel)
+    # 更近的发布标签即使因历史重写而不可达，也不能被较旧的可达标签盖过去。
+    if orphan and (previous is None or release_order(orphan, channel) > release_order(previous, channel)):
+        return orphan, True
+    return previous, False
 
 
 def tag_commit_timestamp(repo_root: Path, tag: str) -> str:
@@ -336,7 +353,8 @@ def _alpha_tags_since(repo_root: Path, commit: str, previous_stable: str | None)
 def _clip(text: str, limit: int) -> tuple[str, bool]:
     if len(text) <= limit:
         return text, False
-    return text[:limit].rstrip() + "\n…（已截断）", True
+    marker = "\n…（已截断）"
+    return text[:max(0, limit - len(marker))].rstrip() + marker[:limit], True
 
 
 def build_context(
@@ -349,7 +367,7 @@ def build_context(
     repository: str = "",
     fetch_published: bool = True,
 ) -> ReleaseContext:
-    previous_tag = find_previous_tag(repo_root, commit, release_tag, channel)
+    previous_tag, baseline_orphaned = resolve_baseline(repo_root, commit, release_tag, channel)
     # History rewrites (filter-branch etc.) leave old release tags pointing
     # at commits no longer reachable from HEAD. With no baseline at all the
     # context silently covers the ENTIRE history — that's how release notes
@@ -357,14 +375,7 @@ def build_context(
     # correct net-diff base (git diff compares trees, not ancestry); only the
     # commit list can't be ranged on it, so it falls back to "--since=<tag
     # timestamp>" which approximates the real delta.
-    baseline_orphaned = False
-    commit_since: str | None = None
-    if previous_tag is None:
-        orphan = find_orphaned_tag(repo_root, commit, release_tag, channel)
-        if orphan is not None:
-            previous_tag = orphan
-            baseline_orphaned = True
-            commit_since = tag_commit_timestamp(repo_root, orphan)
+    commit_since = tag_commit_timestamp(repo_root, previous_tag) if baseline_orphaned else None
     revision_range = f"{previous_tag}..{commit}" if previous_tag else commit
     commits = list_commits(repo_root, revision_range, since=commit_since)
     context = ReleaseContext(channel, release_tag, previous_tag, commit, commits)
@@ -381,7 +392,22 @@ def build_context(
         context.sections.append((title, clipped))
         budget -= len(clipped)
 
-    # 1. 提交过程记录：按时间先后排列，模型据此识别「阶段一 → 收尾」「新增后又撤回」。
+    # 完整索引单独保留所有 SHA 与标题，避免长正文挤掉近期提交；正文与文件统计仅作补充。
+    # 如果连最小索引也装不下，标记证据不全，调用方改用规则版而不是让模型猜测。
+    index_budget = min(20000, budget)
+    per_commit = index_budget // max(1, len(commits)) - 1
+    index_lines = []
+    for info in commits:
+        prefix = f"- {info.sha[:7]} "
+        subject = info.subject
+        if len(prefix) + len(subject) > per_commit:
+            subject = subject[:max(0, per_commit - len(prefix) - 1)] + "…"
+            context.truncated = True
+        index_lines.append(prefix + subject)
+    context.commit_index_complete = len("\n".join(index_lines)) <= index_budget
+    add("完整提交索引（时间正序；每个 SHA 必须归类）", "\n".join(index_lines) or "（无提交）", index_budget)
+
+    # 提交过程详情可截断，但完整索引不因早期提交的长正文而丢失后面的 SHA。
     commit_lines = []
     for info in commits:
         line = (
@@ -393,8 +419,6 @@ def build_context(
         if info.top_files:
             line += "\n  主要文件：" + ", ".join(path.rsplit("/", 1)[-1] for path in info.top_files)
         commit_lines.append(line)
-    add("提交记录（时间正序，只代表开发过程）", "\n".join(commit_lines) or "（无提交）", 20000)
-
     # 没有上一标签时对 Git 空树做 diff，等价于完整快照。
     diff_base = previous_tag or EMPTY_TREE_SHA
 
@@ -415,6 +439,8 @@ def build_context(
     if highlight_paths:
         highlight_diff = run_git(repo_root, "diff", "-U1", diff_base, commit, "--", *highlight_paths)
         add("内置更新亮点目录净变化", changed_lines_only(highlight_diff), 6000)
+
+    add("提交记录详情（只代表开发过程，可截断）", "\n".join(commit_lines) or "（无提交）", 6000)
 
     # 3. 净文件变化统计，帮助判断改动集中在哪些模块。
     ignored = config.get("ignored_path_patterns", [])
@@ -444,7 +470,7 @@ def build_context(
         if previous_tag:
             body = fetch_release_body(repository, previous_tag)
             if body:
-                add(f"上一 Stable {previous_tag} 的正文（仅作语气与粒度参考，不要复述其内容）",
+                add(f"上一发布 {previous_tag} 的正文（仅作语气与粒度参考，不要复述其内容）",
                     strip_release_template(body), 5000)
 
     # 5. 剩余预算给源码 diff 摘录，按改动量从大到小，每个文件限长。

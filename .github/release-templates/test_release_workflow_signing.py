@@ -7,6 +7,17 @@ WORKFLOW_DIRECTORY = REPOSITORY_ROOT / ".github" / "workflows"
 
 
 class ReleaseWorkflowSigningTest(unittest.TestCase):
+    def test_oversized_announcements_are_published_with_checksum(self) -> None:
+        for name in ("alpha-release.yml", "stable-release.yml"):
+            with self.subTest(workflow=name):
+                text = (WORKFLOW_DIRECTORY / name).read_text(encoding="utf-8")
+                self.assertLess(text.index("prepare_release_announcement.py"), text.index("gh release create"))
+                self.assertIn("sha256sum RELEASE_NOTES_FULL.md", text)
+                self.assertIn('"${note_assets[@]}"', text)
+                self.assertIn("note_assets+=(release-asset/RELEASE_NOTES_FULL.md)", text)
+        stable = (WORKFLOW_DIRECTORY / "stable-release.yml").read_text(encoding="utf-8")
+        self.assertIn('cmp release-asset/RELEASE_NOTES_FULL.md "$published_dir/RELEASE_NOTES_FULL.md"', stable)
+
     def test_release_workflows_publish_only_fixed_signed_release_apks(self) -> None:
         for workflow_name in ("alpha-release.yml", "stable-release.yml"):
             with self.subTest(workflow=workflow_name):

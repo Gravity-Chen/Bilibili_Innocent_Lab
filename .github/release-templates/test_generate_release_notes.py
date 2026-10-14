@@ -146,6 +146,26 @@ class ValidateNotesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             notes_module.extract_json("没有 JSON")
 
+    def test_large_range_missing_coverage_is_an_error(self) -> None:
+        context = make_context()
+        context.commits.extend(CommitInfo(f"{index:07x}" + "0" * 33, "2026-10-14", "修复遗漏项", "", 1, 1, 1, ())
+                               for index in range(1, 80))
+        result, errors, warnings = notes_module.validate_notes(valid_payload(), context, CONFIG)
+        self.assertIsNone(result)
+        self.assertTrue(any("既没有写进" in error for error in errors))
+        self.assertFalse(warnings)
+
+    def test_prompt_only_json_still_requires_exact_schema_types(self) -> None:
+        for mutation in (lambda value: value.update(extra="unexpected"),
+                         lambda value: value["items"][0].update(text=None),
+                         lambda value: value["items"][0].update(group=["not a string"]),
+                         lambda value: value["items"][0].update(commits=[1111111])):
+            payload = valid_payload()
+            mutation(payload)
+            notes, errors, _ = notes_module.validate_notes(payload, make_context(), CONFIG)
+            self.assertIsNone(notes)
+            self.assertTrue(errors)
+
 
 class RenderTest(unittest.TestCase):
     def render(self, channel: str) -> str:
@@ -317,6 +337,60 @@ class ProviderChainTest(unittest.TestCase):
                 llm_providers.complete(slot, "sys", [{"role": "user", "content": "hi"}], notes_module.OUTPUT_SCHEMA)
 
 
+class CumulativeNotesTest(unittest.TestCase):
+    def test_1050_commits_and_updates_survive_batch_merge_for_both_channels(self) -> None:
+        import re
+        for channel in ("stable", "alpha"):
+            with self.subTest(channel=channel):
+                context = make_context(channel)
+                context.commits = [CommitInfo(f"{index:07x}" + "0" * 33, "2026-10-14", f"新增第 {index} 项", "", 1, 1, 0, ())
+                                   for index in range(1, 1051)]
+                context.truncated = True
+                context.sections = [("完整提交索引（时间正序；每个 SHA 必须归类）", "SHOULD NOT LEAK"),
+                                    ("用户可见文案净变化", "最终文案")]
+                calls = []
+                sessions = []
+                def complete(slot, system, messages, schema, *, session):
+                    calls.append(messages[0]["content"])
+                    sessions.append(session.session_id)
+                    if messages[0]["content"].startswith("以下是已完整归类"):
+                        return json.dumps({"summary": ["本版本新增了多项功能。并完成相关使用体验调整。"]
+                                           if channel == "stable" else [], "items": [], "maintenance": []})
+                    self.assertNotIn("SHOULD NOT LEAK", messages[0]["content"])
+                    shas = re.findall(r"^- ([0-9a-f]{7}) ", messages[0]["content"], re.MULTILINE)
+                    shas = list(dict.fromkeys(shas))
+                    payload = {"summary": ["本版本新增了多项功能。并完成相关使用体验调整。"]
+                               if channel == "stable" else [],
+                               "items": [{"category": "new", "group": "功能", "text": f"新增第 {int(sha, 16)} 项功能。", "commits": [sha]}
+                                         for sha in shas], "maintenance": []}
+                    return json.dumps(payload)
+                slot = llm_providers.ProviderSlot(1, "openai", "https://provider.example/v1", "m", "k")
+                log = []
+                with mock.patch("llm_providers.complete", side_effect=complete):
+                    outcome = notes_module.generate_with_llm(context, CONFIG, [slot], log, [])
+                self.assertIsNotNone(outcome)
+                notes, source = outcome
+                self.assertEqual(1050, len(notes.items))
+                self.assertEqual(context.commit_shas(), {sha for item in notes.items for sha in item.commits})
+                rendered = notes_module.render_changelog(notes, context, REPO_URL)
+                self.assertIn("新增第 1 项功能。", rendered)
+                self.assertIn("新增第 1050 项功能。", rendered)
+                self.assertIn("完整提交记录（1050）", rendered)
+                self.assertEqual(28, len(calls))  # 27 个归类批次与一次总概述
+                self.assertEqual(1, len(set(sessions)))
+                self.assertIn("完整覆盖", source)
+
+    def test_failed_later_batch_discards_partial_ai_notes(self) -> None:
+        context = make_context()
+        context.commits *= 20
+        slot = llm_providers.ProviderSlot(1, "openai", "https://provider.example/v1", "m", "k")
+        log = []
+        first = notes_module.ReleaseNotes([], [notes_module.NoteItem("new", "", "部分结果。", [SHA_A])], [])
+        with mock.patch.object(notes_module, "_generate_batch", side_effect=[(first, "slot"), None]):
+            self.assertIsNone(notes_module.generate_with_llm(context, CONFIG, [slot], log, []))
+        self.assertTrue(any("禁止发布部分" in entry for entry in log))
+
+
 class GitFixtureTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -408,7 +482,7 @@ class WorkflowSecretContractTest(unittest.TestCase):
     def test_llm_credentials_come_from_secrets(self) -> None:
         workflows = Path(__file__).resolve().parents[1] / "workflows"
         checked = 0
-        for name in ("alpha-release.yml", "stable-release.yml"):
+        for name in ("alpha-release.yml", "stable-release.yml", "release-notes-preview.yml"):
             text = (workflows / name).read_text(encoding="utf-8")
             for slot in (1, 2, 3):
                 prefix = f"RELEASE_NOTES_LLM_{slot}_"
@@ -418,8 +492,11 @@ class WorkflowSecretContractTest(unittest.TestCase):
                         f"{prefix}BASE_URL: ${{{{ secrets.{prefix}BASE_URL || vars.{prefix}BASE_URL }}}}", text
                     )
                     self.assertNotIn(f"vars.{prefix}API_KEY", text)
+                    for suffix in ("HEADERS_JSON", "BODY_JSON"):
+                        self.assertIn(f"{prefix}{suffix}: ${{{{ secrets.{prefix}{suffix} }}}}", text)
+                        self.assertNotIn(f"vars.{prefix}{suffix}", text)
                     checked += 1
-        self.assertEqual(6, checked)
+        self.assertEqual(9, checked)
 
 
 class HelpersTest(unittest.TestCase):

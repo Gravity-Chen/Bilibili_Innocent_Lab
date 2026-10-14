@@ -74,17 +74,26 @@ python3 .github/release-templates/render_release_template.py \
 
 `generate_release_notes.py` 负责两个渠道的“更新内容”（Stable 还包括版本概述）：
 
-1. **收集证据**（`release_context.py`）：上一标签到本次提交的提交记录、用户可见文案
+1. **收集证据**（`release_context.py`）：两个渠道都以最近的已发布 Stable 或 Alpha 标签为基线，
+   标签必须早于目标版本；同版本 Stable 晚于 Alpha。例如 `v1.2.1-alpha.1` 对比 `v1.2.0`，
+   `v1.2.1` 可以对比 `v1.2.1-alpha.1`。AI 与规则兜底使用同一基线。收集基线到本次提交的记录、用户可见文案
    （`values-zh-rCN/strings.xml`）与更新亮点目录的净 diff、净文件变化、按改动量截取的源码摘录；
-   Stable 还会读取本周期已发布的 Alpha 正文和上一 Stable 正文。净 diff 代表最终状态，
+   Stable 还会读取本周期已发布的 Alpha 正文和上一发布正文。净 diff 代表最终状态，
    用来合并阶段性提交、剔除已被推翻的中间实现。收集范围与禁用术语见 `release_notes_config.json`。
 2. **按槽位请求模型**（`llm_providers.py`）：槽位 1 → 2 → 3 依次尝试，模型只输出 JSON。
-3. **本地校验**：提交引用必须属于本次范围、每个提交都要被归类、Stable 概述为 2～4 句、
+3. **分批与本地校验**：每批至多 40 个提交，每批保留完整提交索引与完整发布范围的净变化。
+   提交引用必须属于本批范围、每个提交都要被归类、Stable 概述为 2～4 句、
    条目长度、不得含 Markdown/链接/内部术语、不得重复。不通过时把错误反馈给同一模型重试一次，
-   仍失败就换下一槽位。
+   仍失败就换下一槽位。遗漏提交始终是错误，不因范围超过 60 个而降低校验要求。
+   每批条数上限随提交数扩展；合并结果没有 18 条总上限，只合并文本完全相同的条目与引用。
+   最后单独生成概述，保留所有批次正文。任一批失败则整个范围回退规则记录，禁止发布部分 AI 总结。
+   公告超过 120000 字符的正文预算时，`prepare_release_announcement.py` 把完整原文保存在
+   `RELEASE_NOTES_FULL.md`，正文明确提供附件链接；附件与校验值一起发布。优先只将完整提交列表
+   移到附件，更新条目本身也过长时再将完整正文移入附件，不丢掉任何条目或提交。
 4. **本地渲染**：章节、图标、分组、提交链接、完整提交记录与差异链接都由脚本生成，
    模型文本中的 HTML 和 `@` 会被转义。
-5. **兜底**：未配置密钥或所有槽位失败时回退规则版（按提交标题分类），并在 Job Summary
+5. **兜底**：未配置凭据或槽位失败时回退规则版（按提交标题分类），两渠道均附完整提交记录，
+   保留同名提交和维护提交，并在 Job Summary
    与 Actions 注解中给出警告。
 
 ### 配置槽位
@@ -95,14 +104,47 @@ Environment 里）。`<N>` 为 1、2、3，至少配置一个槽位；未配置 
 | 名称 | 类型 | 说明 |
 | --- | --- | --- |
 | `RELEASE_NOTES_LLM_<N>_API_KEY` | Secret | 必填 |
-| `RELEASE_NOTES_LLM_<N>_PROTOCOL` | Variable | `anthropic`（默认）或 `openai`（任意 OpenAI 兼容接口） |
+| `RELEASE_NOTES_LLM_<N>_PROTOCOL` | Variable | `anthropic`（默认，Messages）、`openai`（Chat Completions）、`responses`（Responses）或 `gemini`（原生 generateContent） |
 | `RELEASE_NOTES_LLM_<N>_BASE_URL` | Secret 或 Variable | 可选；默认 `https://api.anthropic.com` 或 `https://api.openai.com/v1`。同名 Secret 优先；**私有代理地址必须放 Secret** |
 | `RELEASE_NOTES_LLM_<N>_MODEL` | Variable | `anthropic` 默认 `claude-opus-5`；`openai` 必填 |
+| `RELEASE_NOTES_LLM_<N>_OUTPUT_FORMAT` | Variable | `auto`（默认）、`json_schema`、`json_object` 或 `text`；不支持时继续降级，Messages 不接受 `json_object` |
+| `RELEASE_NOTES_LLM_<N>_HEADERS_JSON` | Secret | 可选字符串字典，支持 API-key、自定义认证、租户与代理头；大小写不敏感覆盖默认头 |
+| `RELEASE_NOTES_LLM_<N>_BODY_JSON` | Secret | 可选请求体参数，如思考模式、服务等级或路由；不能覆盖模型、消息、工具、输出格式等核心字段 |
 
 仓库公开，运行日志与 Job Summary 人人可见：Variable 会以明文出现在日志的 env 块中，只有 Secret 会被遮蔽。模型调用失败的错误信息在写入日志前会抹掉密钥、`sk-` 开头的密钥片段、Bearer/api_key 字段值与非官方端点地址；工作流契约测试保证密钥只从 Secret 读取。建议为发布说明单独创建带消费上限的密钥。
 
 直连官方 Anthropic API 时会启用服务端拒答回退（`fallbacks: "default"`）；经代理时不附加该参数。
-接口不支持结构化输出参数时，脚本会自动降级为纯提示词约束的 JSON。
+接口拒绝结构化参数时，脚本逐级降级为 JSON 模式、纯提示词 JSON；校验重试及后续批次复用
+本次生成已确认的格式，不重复探测被拒参数。DeepSeek 官方 Chat Completions 的 `auto` 直接
+选择 `json_object`，以 16000 输出 token 上限与非思考模式生成；`BODY_JSON` 可以显式调整。
+上述任一模式都要经过本地结构、提交归属与完整覆盖校验，JSON 模式不等于 Schema 校验。
+
+### 多提供商配置
+
+基础地址由各提供商与所选模型的官方接口表确定，脚本不会根据模型名字猜协议。支持根路径、
+带 `/v1` 的路径及完整操作路径，Messages 不重复追加 `/v1`。当前可接入的协议与参考：
+
+| 提供商/接口 | PROTOCOL 与配置 | 官方来源 |
+| --- | --- | --- |
+| OpenCode Console/Zen | Claude 用 `anthropic`，GPT 用 `responses`，兼容模型用 `openai`；当前基础地址是 `https://opencode.ai/inference/v1`，历史 Zen/Go 地址按账户实际端点配置 | [模型与接口表](https://opencode.ai/v2/docs/console/models/) |
+| OpenCode Go | 按模型选择协议；自动发送真实客户端 User-Agent 与同次生成稳定的 `x-opencode-session`，每次请求单独 ID；支持自定义头覆盖 | [会话头与客户端要求](https://opencode.ai/v2/docs/console/go/) |
+| DeepSeek | `openai`，基础地址 `https://api.deepseek.com`；自动 JSON 模式。`responses` 可用于其 Responses 接口 | [Chat Completions](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/) |
+| OpenRouter | `openai`，基础地址 `https://openrouter.ai/api/v1`；可在 HEADERS_JSON 设置 HTTP-Referer、X-OpenRouter-Title | [结构化输出](https://openrouter.ai/docs/guides/features/structured-outputs)、[归属头](https://openrouter.ai/docs/app-attribution) |
+| Gemini OpenAI 兼容接口 | `openai`，基础地址 `https://generativelanguage.googleapis.com/v1beta/openai`，API Key 使用 Gemini 凭据 | [官方兼容说明](https://ai.google.dev/gemini-api/docs/openai) |
+| Gemini 原生与 OpenCode Gemini | `gemini`，Google 基础地址 `https://generativelanguage.googleapis.com/v1beta`；OpenCode 用其模型表的基础地址；使用 x-goog-api-key、systemInstruction、generationConfig，支持 Schema/JSON/文本逐级降级 | [generateContent API](https://ai.google.dev/api/generate-content) |
+| Anthropic 与 Messages 代理 | `anthropic`；可通过 HEADERS_JSON 配置 anthropic-version、anthropic-beta、代理认证等 | [Messages API](https://platform.claude.com/docs/en/api/messages/create) |
+| 其他 Chat Completions/Responses 网关 | `openai` 或 `responses`，基础地址、模型、格式与请求头按接口合同配置 | [Responses 格式](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses) |
+
+HEADERS_JSON 示例（内容存入对应 Secret，切勿写入工作流正文）：
+
+```json
+{"HTTP-Referer":"https://github.com/jichuo1/Bilibili_Innocent_Lab","X-OpenRouter-Title":"Bilibili Innocent Lab Release Notes"}
+```
+
+也可只配置 HEADERS_JSON 中的自定义认证而不设 API_KEY。禁止 CR/LF、非法头名、重复大小写头名、
+Host/Content-Length 等传输头。错误日志抹掉自定义头值、请求体字符串及端点信息；不打印配置原文。
+OpenCode 的真实客户端标识不伪装成官方 OpenCode；是否允许此类公告生成请求、免费或订阅模型的
+账户权限，仍由提供商决定。这里列出已实现的协议合同，真实付费调用成功需分别验证。
 
 ### 手写覆盖
 
@@ -117,6 +159,13 @@ python3 .github/release-templates/generate_release_notes.py   --channel stable -
 ```
 
 在本地设置同名环境变量即可调用模型；加 `--no-llm` 只查看规则版结果。
+
+### 云端验证
+
+手动运行 `Preview release notes`（`release-notes-preview.yml`），选择 Alpha/Stable、目标标签和
+可选的准确源码 SHA。它只读仓库，使用同一套提供商 Secret/Variable，生成完整变更记录与概述
+并保存 7 天预览产物；不会签名 APK 或创建/更新 Release。用它验证真实认证、请求头与输出格式，
+避免为了测试 AI 文案重复发布安装包。模型失败回退规则记录时，Job Summary 会明确标出来源。
 
 ## LSPosed 独立同步凭据
 

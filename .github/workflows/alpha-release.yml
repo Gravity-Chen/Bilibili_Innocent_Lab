@@ -441,14 +441,23 @@ jobs:
           RELEASE_NOTES_LLM_1_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_1_PROTOCOL }}
           RELEASE_NOTES_LLM_1_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_1_BASE_URL || vars.RELEASE_NOTES_LLM_1_BASE_URL }}
           RELEASE_NOTES_LLM_1_MODEL: ${{ vars.RELEASE_NOTES_LLM_1_MODEL }}
+          RELEASE_NOTES_LLM_1_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_1_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_1_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_1_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_1_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_1_BODY_JSON }}
           RELEASE_NOTES_LLM_2_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_2_API_KEY }}
           RELEASE_NOTES_LLM_2_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_2_PROTOCOL }}
           RELEASE_NOTES_LLM_2_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_2_BASE_URL || vars.RELEASE_NOTES_LLM_2_BASE_URL }}
           RELEASE_NOTES_LLM_2_MODEL: ${{ vars.RELEASE_NOTES_LLM_2_MODEL }}
+          RELEASE_NOTES_LLM_2_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_2_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_2_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_2_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_2_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_2_BODY_JSON }}
           RELEASE_NOTES_LLM_3_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_3_API_KEY }}
           RELEASE_NOTES_LLM_3_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_3_PROTOCOL }}
           RELEASE_NOTES_LLM_3_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_3_BASE_URL || vars.RELEASE_NOTES_LLM_3_BASE_URL }}
           RELEASE_NOTES_LLM_3_MODEL: ${{ vars.RELEASE_NOTES_LLM_3_MODEL }}
+          RELEASE_NOTES_LLM_3_OUTPUT_FORMAT: ${{ vars.RELEASE_NOTES_LLM_3_OUTPUT_FORMAT }}
+          RELEASE_NOTES_LLM_3_HEADERS_JSON: ${{ secrets.RELEASE_NOTES_LLM_3_HEADERS_JSON }}
+          RELEASE_NOTES_LLM_3_BODY_JSON: ${{ secrets.RELEASE_NOTES_LLM_3_BODY_JSON }}
         run: |
           set -euo pipefail
 
@@ -477,16 +486,35 @@ jobs:
             exit 1
           fi
 
+      - name: Preserve oversized announcement as a complete release asset
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/prepare_release_announcement.py \
+            --notes-file release-asset/RELEASE_NOTES.md \
+            --repository-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --release-tag "$RELEASE_TAG"
+          if [[ -f release-asset/RELEASE_NOTES_FULL.md ]]; then
+            (cd release-asset && sha256sum RELEASE_NOTES_FULL.md) >> release-asset/SHA256SUMS.txt
+          fi
+
       - name: Create GitHub Alpha Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           APK_FILENAME: ${{ steps.apk.outputs.apk_filename }}
         run: |
+          set -euo pipefail
+          note_assets=()
+          if [[ -f release-asset/RELEASE_NOTES_FULL.md ]]; then
+            note_assets+=(release-asset/RELEASE_NOTES_FULL.md)
+          fi
           gh release create "$RELEASE_TAG" \
             "release-asset/$APK_FILENAME" \
             release-asset/BUILD_INFO.txt \
             release-asset/SHA256SUMS.txt \
+            "${note_assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "$RELEASE_TAG" \
