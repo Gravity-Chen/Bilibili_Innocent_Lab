@@ -29,8 +29,6 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v6.4.0
-        with:
-          cache-provider: basic
       - uses: android-actions/setup-android@v4.0.4
         with:
           packages: platform-tools
@@ -38,11 +36,11 @@ jobs:
         run: sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0'
       - name: Build debug APK
         id: build
-        run: ./gradlew assembleDebug --console=plain --no-daemon '-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8'
+        run: ./gradlew assembleDebug compileDebugUnitTestKotlin --console=plain --daemon '-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing -Dfile.encoding=UTF-8'
       - name: Behavior tests
         id: unit_tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: ./gradlew testDebugUnitTest -PinnocentLab.testLayer=unit --console=plain --no-daemon '-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8'
+        run: ./gradlew testDebugUnitTest -PinnocentLab.testLayer=unit --console=plain --daemon '-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing -Dfile.encoding=UTF-8'
       - name: Preserve behavior reports
         if: ${{ !cancelled() && steps.unit_tests.outcome != 'skipped' }}
         uses: actions/upload-artifact@v7.0.2
@@ -55,7 +53,7 @@ jobs:
       - name: Source contracts
         id: contract_tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: ./gradlew testDebugUnitTest -PinnocentLab.testLayer=contract --console=plain --no-daemon '-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8'
+        run: ./gradlew testDebugUnitTest -PinnocentLab.testLayer=contract --console=plain --daemon '-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing -Dfile.encoding=UTF-8'
       - name: Preserve contract reports
         if: ${{ !cancelled() && steps.contract_tests.outcome != 'skipped' }}
         uses: actions/upload-artifact@v7.0.2
@@ -67,10 +65,10 @@ jobs:
             Bilibili_Innocent_Lab/app/build/test-results/testDebugUnitTest/
       - name: Lint
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: ./gradlew lintDebug --console=plain --no-daemon '-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8'
+        run: ./gradlew lintDebug --console=plain --daemon '-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing -Dfile.encoding=UTF-8'
       - name: Release minification
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: ./gradlew minifyReleaseWithR8 --console=plain --no-daemon '-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8'
+        run: ./gradlew minifyReleaseWithR8 --console=plain --daemon '-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing -Dfile.encoding=UTF-8'
       - name: Upload verification reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7.0.2

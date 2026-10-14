@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '*.md'
+      - '**/*.md'
+      - 'README*'
+      - 'docs/**'
   workflow_dispatch:
 
 concurrency:
@@ -17,6 +22,7 @@ env:
   # sdkmanager 的包 id 带小版本号（platforms;android-37.0），与上面的 Gradle 属性不同名。
   CI_COMPILE_SDK_PACKAGE: 'platforms;android-37.0'
   CI_BUILD_TOOLS: '37.0.0'
+  CI_GRADLE_JVMARGS: '-Xmx6144m -XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing -Dfile.encoding=UTF-8'
 
 jobs:
   verify:
@@ -91,9 +97,6 @@ jobs:
 
       - name: Set up Gradle and restore build cache
         uses: gradle/actions/setup-gradle@v6.4.0
-        with:
-          # Keep the cache provider open-source and avoid overlapping setup-java caches.
-          cache-provider: basic
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4.0.4
@@ -123,10 +126,10 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
-            "-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8" \
+            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
-            assembleDebug \
+            assembleDebug compileDebugUnitTestKotlin \
             --console=plain --daemon
 
       - name: Unit tests (behavior)
@@ -139,7 +142,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
-            "-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8" \
+            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
             -PinnocentLab.testLayer=unit \
@@ -156,7 +159,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
-            "-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8" \
+            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
             -PinnocentLab.testLayer=contract \
@@ -173,7 +176,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
-            "-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8" \
+            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
             lintDebug \
@@ -189,7 +192,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
-            "-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8" \
+            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
             minifyReleaseWithR8 \
@@ -247,7 +250,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v6.4.0
         with:
           # Restore the verify job's dependency/R8 task cache before signing.
-          cache-provider: basic
+          cache-read-only: true
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4.0.4
@@ -296,7 +299,7 @@ jobs:
         run: |
           set -euo pipefail
           ./gradlew \
-            "-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8" \
+            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
             "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
             "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
             assembleRelease \
