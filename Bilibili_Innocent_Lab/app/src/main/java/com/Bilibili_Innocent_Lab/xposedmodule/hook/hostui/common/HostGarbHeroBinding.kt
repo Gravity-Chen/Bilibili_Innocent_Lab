@@ -2,7 +2,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common
 
 import android.graphics.Outline
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.view.View
 import android.view.ViewOutlineProvider
 import java.lang.ref.WeakReference
@@ -18,9 +17,9 @@ internal class HostGarbHeroBinding(anchor: View) {
     private var originalForeground: Drawable? = null
     private var originalOutline: ViewOutlineProvider? = null
     private var originalClip = false
+    private var originalLayerType = View.LAYER_TYPE_NONE
     private var applied = false
-    private val scrim = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-        intArrayOf(0x66000000, 0x94000000.toInt(), 0xAC000000.toInt()))
+    private val scrim = HostGarbHeroForeground(24f * anchor.resources.displayMetrics.density)
     private val outline = object : ViewOutlineProvider() {
         override fun getOutline(view: View, outline: Outline) {
             val radius = 24f * view.resources.displayMetrics.density
@@ -50,6 +49,7 @@ internal class HostGarbHeroBinding(anchor: View) {
             originalForeground = view.foreground
             originalOutline = view.outlineProvider
             originalClip = view.clipToOutline
+            originalLayerType = view.layerType
             applied = true
             if (!reported) {
                 reported = true
@@ -58,7 +58,10 @@ internal class HostGarbHeroBinding(anchor: View) {
         } else if (view.foreground !== scrim) originalForeground = view.foreground
         if (view.foreground !== scrim) view.foreground = scrim
         if (view.outlineProvider !== outline) view.outlineProvider = outline
-        if (!view.clipToOutline) view.clipToOutline = true
+        // TextureView 和前景分别接受 Outline 裁切时边缘覆盖率不一致，会漏出细亮边。
+        // 独立硬件层隔离 DST_OUT，最后一次性擦除圆角外部，不读取视频帧或背景位图。
+        if (view.layerType != View.LAYER_TYPE_HARDWARE) view.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        if (view.clipToOutline) view.clipToOutline = false
     }
 
     fun restore() {
@@ -69,6 +72,8 @@ internal class HostGarbHeroBinding(anchor: View) {
                 view.outlineProvider = originalOutline
                 view.clipToOutline = originalClip
             }
+            if (view.layerType == View.LAYER_TYPE_HARDWARE && originalLayerType != View.LAYER_TYPE_HARDWARE)
+                view.setLayerType(originalLayerType, null)
         }
         originalForeground = null; originalOutline = null; applied = false
     }
