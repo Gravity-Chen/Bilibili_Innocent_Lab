@@ -18,7 +18,7 @@ from pathlib import Path
 import generate_alpha_changelog
 import generate_stable_changelog
 import llm_providers
-from release_context import ReleaseContext, build_context, load_config, resolve_baseline
+from release_context import ReleaseContext, batch_evidence_sections, build_context, load_config, resolve_baseline
 from release_note_common import CATEGORY_ICONS, escape_markdown_text
 
 
@@ -136,6 +136,8 @@ def build_system_prompt(config: dict, channel: str) -> str:
    - 已发布 Alpha 说明与净变化冲突时以净变化为准；不要把上一版本已有的功能写成新增。
 3. category 取值：new=用户能用到的新功能或新选项；fixed=以前表现错误、现在恢复正常；
    improved=既有功能变得更快、更稳、更好看或兼容更多宿主版本。
+   新增内部兜底、日志、诊断或识别路径不等于新增用户功能，须按实际效果归为修复、优化或维护；
+   例如给既有默认画质补定位兜底，不能写成新增默认画质功能。
 4. 纯构建、CI、文档、测试、版本号、无可感知变化的重构，只把提交 SHA 放进 maintenance。
 5. 每个提交都必须出现在某条 items[].commits 或 maintenance 中；commits 填 7 位短 SHA。
    一个提交做了多件事时拆成多条，并在每条里都引用它。
@@ -471,8 +473,7 @@ def _generate_batch(
 
 
 def _batch_context(context: ReleaseContext, commits: list) -> ReleaseContext:
-    shared = [(title, body) for title, body in context.sections
-              if not title.startswith(("完整提交索引", "提交记录"))]
+    shared = batch_evidence_sections(context, commits)
     index = "\n".join(f"- {info.sha[:7]} {info.subject}" for info in commits)
     detail = "\n".join(f"- {info.sha[:7]} {info.subject}\n  {info.body[:400]}\n  主要文件："
                        + ", ".join(info.top_files) for info in commits)

@@ -474,6 +474,34 @@ class GitFixtureTest(unittest.TestCase):
         self.assertIn("+fun a() = 2", rendered)
         self.assertNotIn("旧文案", rendered.split("用户可见文案净变化")[1].split("##")[0])
 
+    def test_batch_diagnostic_evidence_does_not_include_other_feature_text(self) -> None:
+        self.write("src/Diagnostic.kt", "fun diagnostic() = 1\n")
+        self.commit("fix: diagnose search coverage")
+        head = self.git("rev-parse", "HEAD").strip()
+        context = build_context(self.root, {"user_text_paths": ["res/strings.xml"], "source_prefixes": ["src/"]},
+                                channel="alpha", release_tag="v1.1.0-alpha.1", commit=head, fetch_published=False)
+        batch = notes_module._batch_context(context, [context.commits[-1]])
+        rendered = batch.render()
+        self.assertIn("Diagnostic.kt", rendered)
+        self.assertIn("diagnostic() = 1", rendered)
+        self.assertNotIn("夜间模式", rendered)
+        self.assertNotIn("+ b =", rendered)
+        feature_batch = notes_module._batch_context(context, [context.commits[0]])
+        self.assertIn("+ b = 夜间模式", feature_batch.render())
+
+    def test_batch_marks_experiment_reverted_in_final_tree(self) -> None:
+        self.write("src/App.kt", "fun a() = 99\n")
+        self.commit("feat: temporary experiment")
+        self.write("src/App.kt", "fun a() = 1\n")
+        self.commit("fix: revert experiment")
+        head = self.git("rev-parse", "HEAD").strip()
+        context = build_context(self.root, {"source_prefixes": ["src/"]}, channel="alpha",
+                                release_tag="v1.1.0-alpha.1", commit=head, fetch_published=False)
+        batch = notes_module._batch_context(context, [context.commits[-2]])
+        self.assertIn("fun a() = 99", batch.render())
+        self.assertIn("最终内容与发布基线一致", batch.render())
+
+
     def test_string_diff_follows_moved_resource_file(self) -> None:
         # 引入多语言：中文从 res/strings.xml 迁到 res-zh/strings.xml，同时改了一条文案。
         self.write("res-zh/strings.xml", '<string name="a">新文案</string>\n<string name="b">夜间模式</string>\n')

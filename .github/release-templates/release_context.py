@@ -53,6 +53,9 @@ class ReleaseContext:
     # bounded by the tag date instead of a real ancestry range.
     baseline_orphaned: bool = False
     commit_index_complete: bool = True
+    repo_root: Path | None = None
+    evidence_paths: tuple[str, ...] = ()
+    user_text_paths: tuple[str, ...] = ()
 
     def commit_shas(self) -> set[str]:
         return {commit.sha for commit in self.commits}
@@ -357,6 +360,54 @@ def _clip(text: str, limit: int) -> tuple[str, bool]:
     return text[:max(0, limit - len(marker))].rstrip() + marker[:limit], True
 
 
+def batch_evidence_sections(context: ReleaseContext, commits: list[CommitInfo]) -> list[tuple[str, str]]:
+    """每批仅提供其真实改动与相关最终状态，避免全局新功能被硬配到无关 SHA。"""
+    if context.repo_root is None:
+        return [(title, body) for title, body in context.sections
+                if not title.startswith(("完整提交索引", "提交记录"))]
+    resources: set[str] = set()
+    files: set[str] = set()
+    changes = []
+    share = 32000 // max(1, len(commits))
+    for info in commits:
+        patch = run_git(context.repo_root, "show", "--format=", "--no-ext-diff", "-U0", info.sha,
+                        "--", *context.evidence_paths)
+        keys = set(re.findall(r'<string\b[^>]*\bname="([^"]+)"', patch))
+        resources.update(keys)
+        files.update(re.findall(r"^\+\+\+ b/(.+)$", patch, re.MULTILINE))
+        excerpt, _ = _clip(changed_lines_only(patch), share)
+        changes.append(f"### {info.sha[:7]} {info.subject}\n"
+                       + ("本提交改动的文案键：" + ", ".join(sorted(keys)) + "\n" if keys else "")
+                       + (excerpt or "（未修改用户功能源码，按提交标题核对维护归类）"))
+    sections = [("本批每个提交的实际差异（SHA 与证据一一对应，过程实现可能已被替换）", "\n\n".join(changes))]
+    relevant_text = []
+    for title, body in context.sections:
+        if not title.startswith("用户可见文案净变化"):
+            continue
+        for line in body.splitlines():
+            key = re.match(r"^[+~\-]\s+([^\s：=]+)", line)
+            if key and key.group(1) in resources:
+                relevant_text.append(line)
+    if relevant_text:
+        sections.append(("本批相关文案的最终净变化（以此为准，其他批次的文案不在这里）", "\n".join(relevant_text)))
+    final_patches = []
+    budget = 14000
+    base = context.previous_tag or EMPTY_TREE_SHA
+    for path in sorted(files):
+        if path in context.user_text_paths or budget <= 0:
+            continue
+        patch = run_git(context.repo_root, "diff", "--no-ext-diff", "-U0", base, context.commit, "--", path)
+        if patch:
+            excerpt, _ = _clip(changed_lines_only(patch), min(1200, budget))
+            final_patches.append(excerpt)
+            budget -= len(excerpt)
+        else:
+            final_patches.append(f"# {path}\n（该文件最终内容与发布基线一致，过程变更不能当作当前新增）")
+    if final_patches:
+        sections.append(("本批所改文件的最终净变化摘录（对比完整发布基线，可截断）", "\n\n".join(final_patches)))
+    return sections
+
+
 def build_context(
     repo_root: Path,
     config: dict,
@@ -379,6 +430,10 @@ def build_context(
     revision_range = f"{previous_tag}..{commit}" if previous_tag else commit
     commits = list_commits(repo_root, revision_range, since=commit_since)
     context = ReleaseContext(channel, release_tag, previous_tag, commit, commits)
+    context.repo_root = repo_root
+    context.user_text_paths = tuple(config.get("user_text_paths", []))
+    context.evidence_paths = tuple(dict.fromkeys([*config.get("source_prefixes", []),
+                                                 *context.user_text_paths, *config.get("highlight_paths", [])]))
     context.baseline_orphaned = baseline_orphaned
     budget = int(config.get("max_context_chars", 60000))
     strip_prefixes = config.get("path_strip_prefixes", [])
