@@ -536,10 +536,14 @@ def _consolidate_notes(notes: ReleaseNotes, context: ReleaseContext, config: dic
     # 完整细分证据留在报告中，正文压缩不会丢失审计来源。
     log.append("原始细分条目（完整复核证据）：" + json.dumps(evidence, ensure_ascii=False))
     for slot in slots:
+        # 归并需要计数和完整映射；River DeepSeek 在此阶段开启推理，分批生成仍走快速模式。
+        merge_slot = slot
+        if slot.base_url.rstrip("/") == "https://api.river.ai/v1" and slot.model.startswith("deepseek-ai/"):
+            merge_slot = replace(slot, extra_body={**slot.extra_body, "reasoning_effort": "high", "max_tokens": 32768})
         messages = [{"role": "user", "content": prompt}]
         for attempt in (1, 2):
             try:
-                raw = llm_providers.complete(slot, system, messages, OUTPUT_SCHEMA, session=session)
+                raw = llm_providers.complete(merge_slot, system, messages, OUTPUT_SCHEMA, session=session)
                 payload = extract_json(raw)
             except (llm_providers.ProviderError, ValueError) as error:
                 log.append(f"最终归并 {slot.label} 请求失败：{error}")

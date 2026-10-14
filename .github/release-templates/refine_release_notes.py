@@ -41,6 +41,11 @@ def main():
     log = [f"复用完整原始证据：{len(original.items)} 条；仅重跑归并与概述。"]
     refined = notes.limit_notes(original, context, config, slots, llm_providers.ProviderSession(), log)
     if refined is None:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        (args.output_dir / "REPORT.md").write_text("\n".join(log), encoding="utf-8")
+        for entry in log:
+            if not entry.startswith("原始细分条目"):
+                print(entry)
         raise SystemExit("Final refinement failed; no incomplete announcement written")
     result = notes.GenerationResult(notes.render_changelog(refined, context, args.repository_url),
                                    "".join(refined.summary), "新来源小组归并（完整覆盖）", log, warnings,

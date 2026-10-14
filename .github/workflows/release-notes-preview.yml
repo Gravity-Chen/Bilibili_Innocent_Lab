@@ -101,6 +101,7 @@ jobs:
           cat release-notes-preview/REPORT.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save complete preview
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: release-notes-preview
