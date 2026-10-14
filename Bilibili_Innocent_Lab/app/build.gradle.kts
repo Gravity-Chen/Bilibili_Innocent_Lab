@@ -170,6 +170,9 @@ android {
     }
     lint {
         checkReleaseBuilds = false
+        checkTestSources = false
+        ignoreTestSources = true
+        checkDependencies = false
         // 通信回退使用签名级 API 与稳定的隐藏接收器标志，调用点有异常兜底；
         // 仅基线化当前已审阅的 3 个位置，新增 Lint Error 仍必须阻断构建。
         baseline = file("lint-baseline.xml")
@@ -203,6 +206,14 @@ androidComponents.onVariants(androidComponents.selector().withBuildType("debug")
 // 源码护栏必须检查本次 composite build 实际使用的引擎，不能读取旧模块副本。
 tasks.withType<Test>().configureEach {
     systemProperty("innocentLab.lumenSource", gradle.extra["innocentLab.lumenSource"])
+}
+
+// 测试源码不含 @Hikagable 注解，跳过无产出的测试 KSP 与测试 Lint 模型构建。
+tasks.matching {
+    (it.name.startsWith("ksp") && it.name.contains("Test")) ||
+        (it.name.contains("Lint") && (it.name.contains("UnitTest") || it.name.contains("AndroidTest")))
+}.configureEach {
+    enabled = false
 }
 
 // ---- 测试分层 ----

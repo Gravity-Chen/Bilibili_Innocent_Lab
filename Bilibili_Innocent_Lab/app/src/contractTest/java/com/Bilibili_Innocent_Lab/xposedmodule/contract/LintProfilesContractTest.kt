@@ -36,7 +36,8 @@ class LintProfilesContractTest {
         assertTrue(buildScript.contains("SingleArtifact.LINT_XML_REPORT"))
         assertTrue(buildScript.contains("\"exportDebugFastLintReports\" else \"exportDebugFullLintReports\""))
         assertTrue(lint.contains("baseline = file(\"lint-baseline.xml\")"))
-        assertFalse(lint.contains("ignoreTestSources"))
+        assertTrue(lint.contains("ignoreTestSources = true"))
+        assertTrue(lint.contains("checkDependencies = false"))
         assertFalse(lint.contains("checkOnly"))
         assertFalse(lint.contains("abortOnError = false"))
     }

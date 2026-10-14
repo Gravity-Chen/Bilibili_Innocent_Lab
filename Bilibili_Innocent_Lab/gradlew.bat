@@ -79,6 +79,8 @@ set "TMP=%BIL_GRADLE_TMP%"
 @rem Match org.gradle.jvmargs so --no-daemon can reuse this JVM instead of
 @rem forking a single-use Daemon and opening a local selector/AF_UNIX pipe.
 set "BIL_GRADLE_HEAP=6144m"
+set "BIL_JVM_TUNING=-XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing"
+set "JDK_JAVA_OPTIONS=%BIL_JVM_TUNING%"
 set DEFAULT_JVM_OPTS="-Xmx%BIL_GRADLE_HEAP%" "-Dfile.encoding=UTF-8" "-Djava.io.tmpdir=%BIL_GRADLE_TMP%"
 
 @rem Find java.exe
@@ -119,7 +121,7 @@ goto exitWithErrorLevel
 
 @rem Execute gradlew
 @rem Keep short TEMP/TMP inherited by Gradle and its workers until Java exits.
-"%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" "-Dorg.gradle.jvmargs=-Xmx%BIL_GRADLE_HEAP% -Dfile.encoding=UTF-8" -jar "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" %*
+"%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" "-Dorg.gradle.jvmargs=-Xmx%BIL_GRADLE_HEAP% %BIL_JVM_TUNING% -Dfile.encoding=UTF-8" -jar "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" %*
 endlocal & "%COMSPEC%" /c exit %ERRORLEVEL%
 goto exitWithErrorLevel
 
