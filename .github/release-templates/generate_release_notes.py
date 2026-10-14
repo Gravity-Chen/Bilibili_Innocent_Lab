@@ -423,8 +423,17 @@ def fallback_changelog(channel: str, repo_root: Path, repository_url: str, relea
 def _generate_batch(
     context: ReleaseContext, config: dict, slots: list[llm_providers.ProviderSlot], log: list[str], warnings: list[str],
     session: llm_providers.ProviderSession,
+    *, summarize: bool = True,
 ) -> tuple[ReleaseNotes, str] | None:
     system = build_system_prompt(config, context.channel)
+    allowed = json.dumps([info.sha[:7] for info in context.commits], ensure_ascii=False)
+    system += (
+        "\n本次调用只归类当前批次的提交。commits 和 maintenance 只能使用以下 SHA：" + allowed
+        + "\n完整发布目标提交、其他批次的 SHA、设置名、资源名、文件名和中文说明均不能当作提交引用。"
+        + "净变化证据覆盖整个发布范围，只用来核实本批提交的最终效果；不要把其他批次的功能写进本批。"
+    )
+    if not summarize:
+        system += "\n这是归类批次，summary 必须为空数组。版本概述在所有批次完成后统一生成，本批不写概述。"
     user_prompt = build_user_prompt(context)
     for slot in slots:
         messages: list[dict] = [{"role": "user", "content": user_prompt}]
@@ -439,7 +448,11 @@ def _generate_batch(
             except ValueError as error:
                 notes, errors, slot_warnings = None, [f"输出不是合法 JSON：{error}"], []
             else:
-                notes, errors, slot_warnings = validate_notes(payload, context, config)
+                # 批次概述不参与最终输出，避免文风/长度检查反复消耗更新归类的重试机会。
+                if not summarize:
+                    payload = {**payload, "summary": []}
+                validation_context = context if summarize else replace(context, channel="alpha")
+                notes, errors, slot_warnings = validate_notes(payload, validation_context, config)
             if notes is not None:
                 log.append(f"{slot.label} 第 {attempt} 次输出通过校验")
                 warnings.extend(slot_warnings)
@@ -516,7 +529,8 @@ def generate_with_llm(
         log.append(f"更新归类批次 {index}/{len(batches)}：{len(batch)} 个提交")
         # 批次可以包含许多独立更新，不用 18 条上限迫使模型丢掉细节。
         batch_config = {**config, "max_items": max(int(config.get("max_items", 18)), len(batch) * 2)}
-        outcome = _generate_batch(_batch_context(context, batch), batch_config, slots, log, warnings, session)
+        outcome = _generate_batch(_batch_context(context, batch), batch_config, slots, log, warnings, session,
+                                  summarize=False)
         if outcome is None:
             log.append(f"批次 {index} 未完成，禁止发布部分 AI 总结，改用整个范围的规则记录。")
             return None

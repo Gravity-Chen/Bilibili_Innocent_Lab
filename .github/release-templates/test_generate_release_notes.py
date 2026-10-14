@@ -338,6 +338,24 @@ class ProviderChainTest(unittest.TestCase):
 
 
 class CumulativeNotesTest(unittest.TestCase):
+    def test_batch_summary_never_consumes_commit_classification_retry(self) -> None:
+        context = make_context("stable")
+        payload = valid_payload()
+        payload["summary"] = ["阶段性概述" * 80 + "。", "第二句。", "第三句。", "第四句。", "第五句。"]
+        slot = llm_providers.ProviderSlot(1, "openai", "https://provider.example/v1", "m", "k")
+        with mock.patch("llm_providers.complete", return_value=json.dumps(payload)) as call:
+            outcome = notes_module._generate_batch(context, CONFIG, [slot], [], [],
+                                                    llm_providers.ProviderSession(), summarize=False)
+        self.assertIsNotNone(outcome)
+        self.assertEqual([], outcome[0].summary)
+        self.assertEqual(1, call.call_count)
+        system = call.call_args.args[1]
+        self.assertIn('"aaaaaaa"', system)
+        self.assertIn('"bbbbbbb"', system)
+        self.assertIn('"ccccccc"', system)
+        self.assertIn("其他批次的功能", system)
+        self.assertIn("summary 必须为空数组", system)
+
     def test_1050_commits_and_updates_survive_batch_merge_for_both_channels(self) -> None:
         import re
         for channel in ("stable", "alpha"):
