@@ -17,7 +17,7 @@ import com.lumen.coacervation.engine.model.SurfaceRole
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
-/** 视频前景面板的语义表面。只取样壁纸，不录制播放器、文字或玻璃自身。 */
+/** 视频前景和独立评论面板的语义表面。只取样壁纸，不录制播放器、文字或玻璃自身。 */
 internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMap<View, Drawable>) {
     private enum class Role { HEADER, BODY, DIVIDER, INPUT }
     private class Target(val role: Role, var binding: LumenSurfaceBinding? = null, var drawable: Drawable? = null)
@@ -38,9 +38,11 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
         val found = HashMap<View, Role>()
         fun visit(view: View, depth: Int) {
             if (depth > 24 || view is ImageView || HostBackgroundPages.protectedAncestor(view)) return
+            if (view !== panel && HostBackgroundPages.owner(view)?.let { it !== panel } == true) return
             val name = name(view)
             val role = when {
                 view.parent === panel && name == "tabs_back_board" -> Role.HEADER
+                name == "cmt3_page_title_container" -> Role.HEADER
                 view.parent === panel && name == "pager" -> Role.BODY
                 view.parent === panel && name == "shadow_dig" -> Role.DIVIDER
                 name == "fake_input_layout" -> Role.INPUT
