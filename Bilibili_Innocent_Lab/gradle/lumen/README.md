@@ -1,6 +1,6 @@
 # 凝光源码接入
 
-当前基线固定为上游 [1.4.1 标签](https://github.com/jichuo1/LumenCoacervationEngine/tree/1.4.1)，core 与 motion 同时接入，正式源码归档 SHA-256 为 `b21b1d98a0d83584492f996d78e391d57979c7d10ede392b24c94eb39d37d71f`。构建对齐 Android 复合工程需要的工具链版本，由引擎统一提供表面连续性修复。
+当前基线固定为上游 [1.4.2 标签](https://github.com/jichuo1/LumenCoacervationEngine/tree/1.4.2)，core 与 motion 同时接入，正式源码归档 SHA-256 为 `77739e81717cb6e82c09a1f93761a55816078ef39845cc201840021e9f048a5b`。构建对齐 Android 复合工程需要的工具链版本，由引擎统一提供表面连续性修复。
 
 引擎 1.2.3 已吸收历史三个扩展；它们作为历史记录保留，settings 不再应用。首次构建下载固定归档并核对哈希，此后支持 `--offline`。缓存键由版本和宿主工具链版本确定，缓存位于 `.gradle/lumen-source/`，不提交缓存。
 
@@ -20,7 +20,7 @@
 
 ## 历史：1.2.2 的公共扩展
 
-以下补丁与诊断后缀仅保留发生背景，不是当前 settings 的应用清单。当前 1.4.1 已由引擎吸收这些能力。
+以下补丁与诊断后缀仅保留发生背景，不是当前 settings 的应用清单。当前 1.4.2 已由引擎吸收这些能力。
 
 基线固定为上游 [1.2.2 发布版](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.2.2)。为保留迁移前的效果，在引擎原包名下应用小范围公共扩展；宿主适配只使用公开 API，不重新维护材质、探针或弹簧求解器。接入结构见 `app/src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/hook/hostui/README.md`。
 
