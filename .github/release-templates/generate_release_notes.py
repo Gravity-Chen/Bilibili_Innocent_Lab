@@ -524,7 +524,7 @@ def generate_with_llm(
                for offset in range(0, len(context.commits), COMMIT_BATCH_SIZE)]
     merged = ReleaseNotes([], [], [])
     sources = []
-    items: dict[tuple[str, str], NoteItem] = {}
+    items: dict[str, NoteItem] = {}
     for index, batch in enumerate(batches, start=1):
         log.append(f"更新归类批次 {index}/{len(batches)}：{len(batch)} 个提交")
         # 批次可以包含许多独立更新，不用 18 条上限迫使模型丢掉细节。
@@ -538,7 +538,9 @@ def generate_with_llm(
         if source not in sources:
             sources.append(source)
         for item in notes.items:
-            key = (item.category, item.text)
+            # 同一最终效果可能在不同批次被归为新增/优化；去重口径与最终文本校验一致。
+            # 保留首次分类与分组，合并所有引用，不能因分类漂移留下重复文字。
+            key = item.text
             if key in items:
                 previous = items[key]
                 previous.commits = list(dict.fromkeys([*previous.commits, *item.commits]))

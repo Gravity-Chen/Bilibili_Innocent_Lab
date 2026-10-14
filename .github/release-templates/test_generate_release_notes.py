@@ -338,6 +338,28 @@ class ProviderChainTest(unittest.TestCase):
 
 
 class CumulativeNotesTest(unittest.TestCase):
+    def test_identical_text_across_categories_merges_all_commit_references(self) -> None:
+        import re
+        context = make_context("alpha")
+        context.commits = [CommitInfo(f"{index:07x}" + "0" * 33, "2026-10-14", "回复脉络变更", "", 1, 1, 1, ())
+                           for index in range(1, 42)]
+        calls = 0
+        def complete(slot, system, messages, schema, *, session):
+            nonlocal calls
+            calls += 1
+            if messages[0]["content"].startswith("以下是已完整归类"):
+                return json.dumps({"summary": [], "items": [], "maintenance": []})
+            shas = list(dict.fromkeys(re.findall(r"^- ([0-9a-f]{7}) ", messages[0]["content"], re.MULTILINE)))
+            return json.dumps({"summary": [], "items": [{"category": "new" if calls == 1 else "improved",
+                "group": "回复", "text": "回复脉络支持关键词筛选。", "commits": shas}], "maintenance": []})
+        slot = llm_providers.ProviderSlot(1, "openai", "https://provider.example/v1", "m", "k")
+        with mock.patch("llm_providers.complete", side_effect=complete):
+            outcome = notes_module.generate_with_llm(context, CONFIG, [slot], [], [])
+        self.assertIsNotNone(outcome)
+        self.assertEqual(1, len(outcome[0].items))
+        self.assertEqual("new", outcome[0].items[0].category)
+        self.assertEqual(context.commit_shas(), set(outcome[0].items[0].commits))
+
     def test_batch_summary_never_consumes_commit_classification_retry(self) -> None:
         context = make_context("stable")
         payload = valid_payload()
