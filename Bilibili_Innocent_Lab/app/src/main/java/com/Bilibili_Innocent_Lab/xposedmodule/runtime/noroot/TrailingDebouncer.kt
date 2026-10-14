@@ -22,6 +22,7 @@ internal class TrailingDebouncer(
      * @return 是否成功排入。调度器已关闭时返回 false；调用方另有生命周期同步兜底，
      * 所以这里不抛异常、不重试。
      */
+    @Synchronized
     fun request(task: Runnable): Boolean {
         val scheduled = try {
             scheduler.schedule(task, delayMs, TimeUnit.MILLISECONDS)

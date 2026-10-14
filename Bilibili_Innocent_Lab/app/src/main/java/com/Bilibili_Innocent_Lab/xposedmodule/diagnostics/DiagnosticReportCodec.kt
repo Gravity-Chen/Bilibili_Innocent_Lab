@@ -311,7 +311,7 @@ internal object DiagnosticReportCodec {
             else feature.getString("installReasonCode")
             require(
                 reasonCode == null ||
-                    reasonCode in HostRuntimeDiagnosticsCodec.allowedInstallReasonCodes
+                    reasonCode in HostRuntimeDiagnosticsCodec.allowedInstallReasonCodes + "unknown"
             ) { "Invalid host feature install reason" }
             require(
                 when (installState) {

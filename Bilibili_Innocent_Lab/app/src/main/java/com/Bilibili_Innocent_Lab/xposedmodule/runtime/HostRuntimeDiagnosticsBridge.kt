@@ -25,11 +25,6 @@ import java.util.concurrent.atomic.AtomicInteger
  * 查询端通过当前会话 Binder 或签名权限保护的广播读取同一份白名单阶段证据。
  */
 internal object HostRuntimeDiagnosticsBridge {
-    private const val CACHE_PREFS = "innocent_lab_host_runtime_diagnostics"
-    private const val KEY_PAYLOAD = "payload"
-    private const val KEY_TARGET_VERSION = "target_version"
-    private const val KEY_TARGET_UPDATE_TIME = "target_update_time"
-    private const val KEY_MODULE_VERSION = "module_version"
     private const val PERSIST_DELAY_MS = 2_000L
     private const val MIN_PERSIST_INTERVAL_MS = 30_000L
 
@@ -377,51 +372,12 @@ internal object HostRuntimeDiagnosticsBridge {
     }
 
     private fun persist() {
-        val context = appContext ?: return
+        if (appContext == null) return
         val expectedSource = source ?: return
         val payload = runCatching { HostRuntimeDiagnosticsCodec.encode(snapshot()) }.getOrNull()
             ?: return
         HostReceiptHost.publish(HostReceiptWire.DIAGNOSTICS, payload, expectedSource)
-        runCatching {
-            context.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_PAYLOAD, payload)
-                .putLong(KEY_TARGET_VERSION, expectedSource.targetVersionCode)
-                .putLong(KEY_TARGET_UPDATE_TIME, expectedSource.targetUpdateTime)
-                .putLong(KEY_MODULE_VERSION, expectedSource.moduleVersionCode)
-                .commit()
-        }.getOrDefault(false).also { committed ->
-            if (committed) lastPersistAtEpochMs = System.currentTimeMillis()
-        }
-    }
-
-    private fun restoreLocked(context: Context, expectedSource: HostRuntimeDiagnosticsSource) {
-        evidence.clear()
-        stageMasks.clear()
-        bootstrap = HostRuntimeBootstrapEvidence()
-        capturedAtEpochMs = 1L
-        val prefs = context.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
-        val storedSource = HostRuntimeDiagnosticsSource(
-            prefs.getLong(KEY_TARGET_VERSION, 0L),
-            prefs.getLong(KEY_TARGET_UPDATE_TIME, 0L),
-            prefs.getLong(KEY_MODULE_VERSION, 0L)
-        )
-        if (storedSource != expectedSource) return
-        val restored = HostRuntimeDiagnosticsCodec.decodeOrNull(
-            prefs.getString(KEY_PAYLOAD, null).orEmpty()
-        ) ?: return
-        evidence.clear()
-        restored.features.forEach { feature ->
-            evidence[feature.featureId] = feature
-            var mask = 0
-            if (feature.adaptedCount > 0L) mask = mask or (1 shl FeatureRuntimeStage.ADAPTED.ordinal)
-            if (feature.observedCount > 0L) mask = mask or (1 shl FeatureRuntimeStage.OBSERVED.ordinal)
-            if (feature.appliedCount > 0L) mask = mask or (1 shl FeatureRuntimeStage.APPLIED.ordinal)
-            stageMasks[feature.featureId] = AtomicInteger(mask)
-        }
-        capturedAtEpochMs = restored.capturedAtEpochMs
-        bootstrap = restored.bootstrap
-        lastPersistAtEpochMs = restored.capturedAtEpochMs
+        lastPersistAtEpochMs = System.currentTimeMillis()
     }
 
     /** Binder 查询使用当前进程内存；不恢复上次进程的安装/运行证据。 */
