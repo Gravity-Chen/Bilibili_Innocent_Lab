@@ -238,6 +238,7 @@ internal object HostTopBarFxController {
         var sanitizePosted = false
         val sanitizeRunnable = Runnable {
             sanitizePosted = false
+            if (!topBarDock.isAttachedToWindow) return@Runnable
             configureOverlayConstraints(topBarDock, barHeight, marginH, marginV, density)
             stripTopBarArtifacts(topBarDock, isRoot = true)
             alignTopBarContent(topBarDock, density)
@@ -257,7 +258,7 @@ internal object HostTopBarFxController {
         }
 
         val requestSanitization = {
-            if (!sanitizePosted) {
+            if (!sanitizePosted && topBarDock.isAttachedToWindow) {
                 sanitizePosted = true
                 topBarDock.postOnAnimation(sanitizeRunnable)
             }
@@ -287,6 +288,8 @@ internal object HostTopBarFxController {
             }
 
             override fun onViewDetachedFromWindow(v: View) {
+                sanitizePosted = false
+                topBarDock.removeCallbacks(sanitizeRunnable)
                 backdrop?.detach()
                 materialObserver?.takeIf { it.isAlive }?.removeOnPreDrawListener(materialPreDraw)
                 materialObserver = null

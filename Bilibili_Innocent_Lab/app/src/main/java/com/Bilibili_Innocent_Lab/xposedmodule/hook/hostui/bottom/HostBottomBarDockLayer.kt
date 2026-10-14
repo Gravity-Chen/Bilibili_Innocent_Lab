@@ -574,7 +574,7 @@ internal class HostBottomBarDockLayer(
         super.onSizeChanged(w, h, oldw, oldh)
         if (w != oldw || h != oldh) {
             resetInteraction()
-            backdrop?.revalidate()
+            if (isAttachedToWindow) backdrop?.revalidate()
         }
     }
 

@@ -115,7 +115,7 @@ internal object HostBackgroundPageHooks {
         // 安装发生在 Application.attach；这里只解析字段，不能触发依赖 Foundation 的主题枚举初始化。
         val night = KavaMemberLookup.fieldOrNull(strategy, "ForceNight") ?: return@runCatching 0
         val method = owner.declaredMethods.singleOrNull { it.name == "BiliTheme" && it.parameterCount == 6 && it.parameterTypes[0] == strategy } ?: return@runCatching 0
-        val activities = HashMap<Class<*>, Boolean>()
+        val activities = java.util.concurrent.ConcurrentHashMap<Class<*>, Boolean>()
         environment.registrar.exact("host_background.compose_night", method.declaringClass, method.name, *method.parameterTypes) {
             before {
                 val defaults = argOrNull(5) as? Int ?: return@before
@@ -164,8 +164,8 @@ internal object HostBackgroundPageHooks {
 
     private fun installNative(environment: HookEnvironment, pages: HostBackgroundPages): Int {
         val resume = KavaMemberLookup.methodOrNull(Activity::class.java, "onPostResume") ?: return 0
-        val activities = HashMap<Class<*>, Boolean>()
-        val mediaDetails = HashMap<Class<*>, Boolean>()
+        val activities = java.util.concurrent.ConcurrentHashMap<Class<*>, Boolean>()
+        val mediaDetails = java.util.concurrent.ConcurrentHashMap<Class<*>, Boolean>()
         environment.registrar.exact("host_background.native_page", resume.declaringClass, resume.name, *resume.parameterTypes) {
             after {
                 if (hasThrowable) return@after
@@ -217,7 +217,7 @@ internal object HostBackgroundPageHooks {
         } ?: return@runCatching 0
         val dispatch = KavaMemberLookup.methodOrNull(view, "dispatchDraw", Canvas::class.java) ?: return@runCatching 0
         val backgroundColors = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
-        val fillTypes = HashMap<Class<*>, Boolean>()
+        val fillTypes = java.util.concurrent.ConcurrentHashMap<Class<*>, Boolean>()
         data class DrawPage(val width: Int, val density: Float, val native: Boolean, val preserveCards: Boolean)
         val scopes = ThreadLocal.withInitial { java.util.ArrayDeque<DrawPage>() }
         environment.registrar.exact("host_background.compose_color", bg.declaringClass, bg.name, *bg.parameterTypes) {

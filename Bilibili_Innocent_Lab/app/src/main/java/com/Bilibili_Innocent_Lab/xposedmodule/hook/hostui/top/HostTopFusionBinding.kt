@@ -30,6 +30,7 @@ internal class HostTopFusionBinding private constructor(
     isDark: Boolean
 ) {
     private val location = IntArray(2)
+    private var observer: ViewTreeObserver? = null
     private var preDraw: android.view.ViewTreeObserver.OnPreDrawListener? = null
 
     /** 固定胶囊行内边距；搜索区的占位由 pager 位移独立承担。 */
@@ -103,23 +104,41 @@ internal class HostTopFusionBinding private constructor(
         }
     }
 
-    private fun install() {
-        val observer = container.viewTreeObserver
-        if (!observer.isAlive) return
+    private fun observe() {
+        val current = container.viewTreeObserver
+        if (observer === current && preDraw != null && current.isAlive) return
+        unobserve(container)
+        if (!current.isAlive) return
         val listener = android.view.ViewTreeObserver.OnPreDrawListener {
             sync()
         }
-        observer.addOnPreDrawListener(listener)
+        current.addOnPreDrawListener(listener)
+        observer = current
         preDraw = listener
+    }
+
+    private fun unobserve(view: View = container) {
+        val listener = preDraw
+        if (listener != null) {
+            observer?.takeIf { it.isAlive }?.let { runCatching { it.removeOnPreDrawListener(listener) } }
+            view.viewTreeObserver.takeIf { it.isAlive && it !== observer }?.let {
+                runCatching { it.removeOnPreDrawListener(listener) }
+            }
+        }
+        observer = null
+        preDraw = null
+    }
+
+    private fun install() {
+        observe()
         container.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
-                if (preDraw == null) install()
+                observe()
                 sync()
             }
 
             override fun onViewDetachedFromWindow(v: View) {
-                preDraw?.let { runCatching { v.viewTreeObserver.removeOnPreDrawListener(it) } }
-                preDraw = null
+                unobserve(v)
             }
         })
         sync()

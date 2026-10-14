@@ -67,11 +67,11 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
             LumenSurfaceSessionOptions(maxSurfaces = 8)).also {
             session = it
             source = object : LumenContentSource {
-                override val coordinateView: View = panel
+                override val coordinateView: View get() = requireNotNull(this@HostDetailSurfaces.panel.get())
                 override val excludesSurfaces: Boolean = true
                 override fun drawContent(canvas: Canvas) {
                     // 只绘制原有壁纸，绝不调用 panel.draw()，避免祖先采样包含注入表面。
-                    (panel.background as? HostBackgroundDrawable)?.draw(canvas)
+                    (this@HostDetailSurfaces.panel.get()?.background as? HostBackgroundDrawable)?.draw(canvas)
                 }
             }
         }

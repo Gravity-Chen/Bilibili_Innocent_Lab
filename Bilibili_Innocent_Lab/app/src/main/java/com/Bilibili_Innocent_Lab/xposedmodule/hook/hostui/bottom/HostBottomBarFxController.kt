@@ -106,19 +106,27 @@ internal object HostBottomBarFxController {
         var sanitizePosted = false
         val sanitizeRunnable = Runnable {
             sanitizePosted = false
+            if (!tabHost.isAttachedToWindow) return@Runnable
             if (config.liquidGlass) stripAllHostArtifacts(tabHost, isRoot = true)
             alignTabContent(tabHost, container, density, insetH, config)
             // 冷启动时底栏还没有尺寸、找不到采样源；布局稳定后每次清理都顺手补一次定位（命中即 O(1)）。
             backdrop?.revalidate()
         }
         val requestSanitization = {
-            if (!sanitizePosted) {
+            if (!sanitizePosted && tabHost.isAttachedToWindow) {
                 sanitizePosted = true
                 tabHost.postOnAnimation(sanitizeRunnable)
             }
         }
         requestSanitization()
 
+        tabHost.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) = requestSanitization()
+            override fun onViewDetachedFromWindow(v: View) {
+                sanitizePosted = false
+                tabHost.removeCallbacks(sanitizeRunnable)
+            }
+        })
         tabHost.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> requestSanitization() }
 
 
