@@ -240,7 +240,7 @@ def validate_notes(
     warnings: list[str] = []
     full_shas = context.commit_shas()
     forbidden = config.get("forbidden_terms", [])
-    max_items = int(config.get("max_items", 18))
+    max_items = int(config.get("max_items", 100))
     if set(payload) != {"summary", "items", "maintenance"}:
         errors.append("顶层字段必须且只能是 summary/items/maintenance")
 
@@ -511,6 +511,75 @@ def _generate_overview(notes: ReleaseNotes, context: ReleaseContext, config: dic
             if context.channel == "stable" else [])
 
 
+def _consolidate_notes(notes: ReleaseNotes, context: ReleaseContext, config: dict,
+                       slots: list[llm_providers.ProviderSlot], session: llm_providers.ProviderSession,
+                       log: list[str]) -> ReleaseNotes | None:
+    """按原条目 ID 归并到正文上限，恢复全部 SHA 引用并校验每个原点都有归属。"""
+    limit = int(config.get("max_items", 100))
+    originals = {f"u{index:04d}": item for index, item in enumerate(notes.items, start=1)}
+    evidence = [{"id": key, **vars(item)} for key, item in originals.items()]
+    system = build_system_prompt(config, context.channel) + (
+        f"\n本次是完整更新的最终归并，正文最多 {limit} 条，尽量按场景、选项和具体问题写出"
+        f" {max(1, int(limit * .8))}～{limit} 条，避免把独立修复揉成笼统描述，也不凑数。"
+        "保持上面的文风、句式、分组与术语规范，只合并同一功能的阶段性或重复说明。"
+        "\n本次专用引用规则优先：items[].commits 填原条目的 u 编号而非 SHA，程序会恢复全部提交引用；"
+        "每个 u 编号都必须出现在某个条目的 commits 或 maintenance 中。"
+        "maintenance 只能收纳无用户行为变化、已撤回或纯内部维护的原条目。"
+        "禁止遗漏原点，禁止引用不存在的编号，禁止加入原证据没有的新效果。"
+    )
+    prompt = "将以下全部原始更新点归并为更细且无重复的最终正文，并撰写概述：\n" + json.dumps(evidence, ensure_ascii=False)
+    # 完整细分证据留在报告中，正文压缩不会丢失审计来源。
+    log.append("原始细分条目（完整复核证据）：" + json.dumps(evidence, ensure_ascii=False))
+    for slot in slots:
+        messages = [{"role": "user", "content": prompt}]
+        for attempt in (1, 2):
+            try:
+                raw = llm_providers.complete(slot, system, messages, OUTPUT_SCHEMA, session=session)
+                payload = extract_json(raw)
+            except (llm_providers.ProviderError, ValueError) as error:
+                log.append(f"最终归并 {slot.label} 请求失败：{error}")
+                break
+            covered = set()
+            errors = []
+            converted = []
+            for item in payload.get("items", []) if isinstance(payload.get("items"), list) else []:
+                if not isinstance(item, dict) or not isinstance(item.get("commits"), list):
+                    errors.append("归并条目及引用数组无效")
+                    continue
+                ids = item["commits"]
+                if any(not isinstance(key, str) or key not in originals for key in ids):
+                    errors.append("归并条目引用了不存在的原点编号")
+                    continue
+                covered.update(ids)
+                shas = list(dict.fromkeys(sha for key in ids for sha in originals[key].commits))
+                converted.append({**item, "commits": shas})
+            maintenance = list(notes.maintenance)
+            raw_maintenance = payload.get("maintenance")
+            if not isinstance(raw_maintenance, list):
+                errors.append("归并 maintenance 必须是数组")
+            else:
+                for key in raw_maintenance:
+                    if not isinstance(key, str) or key not in originals:
+                        errors.append("归并 maintenance 引用了不存在的原点编号")
+                    else:
+                        covered.add(key)
+                        maintenance.extend(originals[key].commits)
+            missing = set(originals) - covered
+            if missing:
+                errors.append("遗漏原始更新点：" + ", ".join(sorted(missing)))
+            result, validation_errors, _ = validate_notes(
+                {"summary": payload.get("summary"), "items": converted,
+                 "maintenance": list(dict.fromkeys(maintenance))}, context, config)
+            errors.extend(validation_errors)
+            if result is not None and not errors:
+                log.append(f"最终归并通过：{len(originals)} 个原点完整映射为 {len(result.items)} 条正文，上限 {limit}。")
+                return result
+            log.append("最终归并未通过：" + "；".join(errors[:8]))
+            messages.extend([{"role": "assistant", "content": raw},
+                             {"role": "user", "content": "修正全部问题，保持完整原点覆盖：\n" + "\n".join(errors)}])
+    return None
+
+
 def generate_with_llm(
     context: ReleaseContext, config: dict, slots: list[llm_providers.ProviderSlot], log: list[str], warnings: list[str]
 ) -> tuple[ReleaseNotes, str] | None:
@@ -551,10 +620,18 @@ def generate_with_llm(
     merged.items = list(items.values())
     merged.maintenance = list(dict.fromkeys(merged.maintenance))
     # 合并只去掉文字完全相同的条目，并合并其引用；不设正文总条数上限。
-    merged.summary = _generate_overview(merged, context, config, slots, session, log)
+    limit = int(config.get("max_items", 100))
+    if len(merged.items) > limit:
+        consolidated = _consolidate_notes(merged, context, config, slots, session, log)
+        if consolidated is None:
+            log.append("最终归并未满足条数与原点覆盖，禁止发布超限或不完整的正文。")
+            return None
+        merged = consolidated
+    else:
+        merged.summary = _generate_overview(merged, context, config, slots, session, log)
     payload = {"summary": merged.summary,
                "items": [vars(item) for item in merged.items], "maintenance": merged.maintenance}
-    checked, errors, _ = validate_notes(payload, context, {**config, "max_items": len(merged.items)})
+    checked, errors, _ = validate_notes(payload, context, config)
     if checked is None:
         log.append("合并后校验失败：" + "；".join(errors))
         return None

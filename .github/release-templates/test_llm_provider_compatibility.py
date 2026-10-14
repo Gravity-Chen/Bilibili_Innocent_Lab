@@ -29,6 +29,15 @@ def chat_reply():
 
 
 class ProviderCompatibilityTests(unittest.TestCase):
+    def test_river_deepseek_uses_json_and_bounded_non_reasoning_generation(self):
+        slot = providers.ProviderSlot(2, "openai", "https://api.river.ai/v1", "deepseek-ai/DeepSeek-V4.1-Flash", "key")
+        with mock.patch("urllib.request.urlopen", return_value=chat_reply()) as request:
+            self.call(slot)
+        body = json.loads(request.call_args.args[0].data)
+        self.assertEqual({"type": "json_object"}, body["response_format"])
+        self.assertEqual("none", body["reasoning_effort"])
+        self.assertEqual(providers.MAX_OUTPUT_TOKENS, body["max_tokens"])
+
     def call(self, slot, session=None):
         return providers.complete(slot, "Output JSON", [{"role": "user", "content": "hi"}], OUTPUT_SCHEMA,
                                   session=session)

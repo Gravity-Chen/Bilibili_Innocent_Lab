@@ -338,6 +338,29 @@ class ProviderChainTest(unittest.TestCase):
 
 
 class CumulativeNotesTest(unittest.TestCase):
+    def test_hundred_item_limit_preserves_every_original_point_and_commit(self) -> None:
+        context = make_context("alpha")
+        context.commits = [CommitInfo(f"{index:07x}" + "0" * 33, "2026-10-15", "独立更新", "", 1, 1, 1, ())
+                           for index in range(1, 106)]
+        notes = notes_module.ReleaseNotes([], [notes_module.NoteItem("fixed", "", f"修复第 {index} 项问题。", [info.sha])
+                                               for index, info in enumerate(context.commits, 1)], [])
+        payload = {"summary": [], "items": [
+            {"category": "fixed", "group": "", "text": f"修复第 {index} 项问题。", "commits": [f"u{index:04d}"]}
+            for index in range(1, 100)], "maintenance": []}
+        payload["items"].append({"category": "fixed", "group": "", "text": "修复相关六项边界问题。",
+                                 "commits": [f"u{index:04d}" for index in range(100, 106)]})
+        slot = llm_providers.ProviderSlot(1, "openai", "https://provider.example/v1", "m", "k")
+        with mock.patch("llm_providers.complete", return_value=json.dumps(payload)):
+            result = notes_module._consolidate_notes(notes, context, {**CONFIG, "max_items": 100}, [slot],
+                                                      llm_providers.ProviderSession(), [])
+        self.assertIsNotNone(result)
+        self.assertEqual(100, len(result.items))
+        self.assertEqual(context.commit_shas(), {sha for item in result.items for sha in item.commits})
+        payload["items"][-1]["commits"].pop()
+        with mock.patch("llm_providers.complete", return_value=json.dumps(payload)):
+            self.assertIsNone(notes_module._consolidate_notes(notes, context, {**CONFIG, "max_items": 100}, [slot],
+                                                              llm_providers.ProviderSession(), []))
+
     def test_identical_text_across_categories_merges_all_commit_references(self) -> None:
         import re
         context = make_context("alpha")
@@ -407,7 +430,7 @@ class CumulativeNotesTest(unittest.TestCase):
                 slot = llm_providers.ProviderSlot(1, "openai", "https://provider.example/v1", "m", "k")
                 log = []
                 with mock.patch("llm_providers.complete", side_effect=complete):
-                    outcome = notes_module.generate_with_llm(context, CONFIG, [slot], log, [])
+                    outcome = notes_module.generate_with_llm(context, {**CONFIG, "max_items": 2000}, [slot], log, [])
                 self.assertIsNotNone(outcome)
                 notes, source = outcome
                 self.assertEqual(1050, len(notes.items))

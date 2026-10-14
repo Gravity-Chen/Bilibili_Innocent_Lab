@@ -257,6 +257,10 @@ def _openai_complete(
     }
     if urllib.parse.urlsplit(slot.base_url).hostname == "api.deepseek.com":
         payload.update({"max_tokens": MAX_OUTPUT_TOKENS, "thinking": {"type": "disabled"}})
+    if urllib.parse.urlsplit(slot.base_url).hostname == "api.river.ai":
+        payload["max_tokens"] = MAX_OUTPUT_TOKENS
+        if slot.model.startswith("deepseek-ai/"):
+            payload["reasoning_effort"] = "none"
     payload.update(slot.extra_body)
     if response_format is not None:
         payload["response_format"] = response_format
@@ -431,7 +435,8 @@ def _complete(slot: ProviderSlot, system: str, messages: list[dict], schema: dic
         if slot.output_format == "text":
             start = len(formats) - 1
         elif slot.output_format == "json_object" or (slot.output_format == "auto" and slot.protocol == "openai"
-                and urllib.parse.urlsplit(slot.base_url).hostname == "api.deepseek.com"):
+                and (urllib.parse.urlsplit(slot.base_url).hostname == "api.deepseek.com"
+                     or (urllib.parse.urlsplit(slot.base_url).hostname == "api.river.ai" and slot.model.startswith("deepseek-ai/")))):
             start = 1
         else:
             start = 0
