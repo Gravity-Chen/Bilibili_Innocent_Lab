@@ -38,6 +38,8 @@ class AgentWiringContractTest {
     }
     @Test fun permissionsAreRecheckedAtActionBoundaryAndServiceDestructionIsTaskScoped() {
         val runner = SourceContract.read("agent/AgentController.kt")
+        val launch = runner.after("@Synchronized fun start(").before("@Synchronized fun cancel(")
+        assertTrue(launch.indexOf("context.startActivity(launch)") < launch.indexOf("app.startForegroundService("))
         val boundary = runner.after("private fun host(").before("private fun completeClose(")
         assertTrue(boundary.contains("check(authorized(task))"))
         assertTrue(runner.contains("registerOnSharedPreferenceChangeListener"))
@@ -46,6 +48,8 @@ class AgentWiringContractTest {
         val service = SourceContract.read("agent/AgentSessionService.kt")
         assertTrue(service.contains("ownerTaskId?.takeIf(AgentController::owns)"))
         assertTrue(service.contains("START_NOT_STICKY"))
+        val startCommand = service.after("override fun onStartCommand(").before("private fun synchronizeLogOwner(")
+        assertTrue(startCommand.before("stopSelf(startId)").contains("promoteForeground("))
     }
     @Test fun visionIsASeparateReadOnlyModelRequestAndDoesNotEnterPlannerHistory() {
         val runner = SourceContract.read("agent/AgentController.kt")

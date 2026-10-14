@@ -112,11 +112,11 @@ internal object AgentController {
         active = task
         return try {
             publish(task, AgentTaskState(true, "connecting"))
-            app.startForegroundService(Intent(app, classOf<AgentSessionService>()))
             val launch = context.packageManager.getLaunchIntentForPackage(AgentWire.TARGET_PACKAGE)
                 ?: throw IllegalStateException("host_missing")
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(launch)
+            app.startForegroundService(Intent(app, classOf<AgentSessionService>()))
             task.future = worker.submit { run(app, task) }
             null
         } catch (_: Exception) {

@@ -426,6 +426,7 @@ internal object HostAgentRuntime {
             val accepted = runCatching { app.bindService(Intent().setComponent(component), connection, Context.BIND_AUTO_CREATE) }
                 .getOrDefault(false)
             if (accepted) binding = Binding(lease, connection)
+            else runCatching { app.unbindService(connection) }
             return accepted
         }
 

@@ -57,16 +57,25 @@ class AgentSessionService : Service() {
             delay?.let { wait -> main.postDelayed(update, wait) }
         }
     }
+    private fun promoteForeground(task: String) {
+        val notification = AgentTaskNotification.create(this, task, AgentController.state, logMode.showing(task))
+        if (Build.VERSION.SDK_INT >= 34) startForeground(AgentTaskNotification.ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        else startForeground(AgentTaskNotification.ID, notification)
+    }
     override fun onCreate() {
         super.onCreate()
         ownerTaskId = AgentController.currentTaskId()
         synchronizeLogOwner(ownerTaskId)
         AgentExecutionLogStore.initialize(applicationContext)
-        val task = ownerTaskId ?: return
+        val task = ownerTaskId
+        if (task == null) {
+            promoteForeground("")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
         activeService = WeakReference(this)
-        val notification = AgentTaskNotification.create(this, task, AgentController.state, logMode.showing(task))
-        if (Build.VERSION.SDK_INT >= 34) startForeground(AgentTaskNotification.ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        else startForeground(AgentTaskNotification.ID, notification)
+        promoteForeground(task)
         if (!AgentUiPolicy.systemNotification(Build.VERSION.SDK_INT)) island = runCatching { AgentIslandOverlay(this) }.getOrNull()
         AgentController.observe(observer)
     }
@@ -92,11 +101,12 @@ class AgentSessionService : Service() {
         val current = AgentController.currentTaskId()
         if (ownerTaskId != current) { ownerTaskId = current; synchronizeLogOwner(current) }
         val task = ownerTaskId
-        if (!AgentController.state.running || task == null) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(startId) }
-        else {
-            val notification = AgentTaskNotification.create(this, task, AgentController.state, logMode.showing(task))
-            if (Build.VERSION.SDK_INT >= 34) startForeground(AgentTaskNotification.ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-            else startForeground(AgentTaskNotification.ID, notification)
+        if (!AgentController.state.running || task == null) {
+            promoteForeground(task.orEmpty())
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
+        } else {
+            promoteForeground(task)
             notificationPolicy.offer(AgentController.state, SystemClock.elapsedRealtime())?.let { main.postDelayed(update, it) }
         }
         return START_NOT_STICKY
