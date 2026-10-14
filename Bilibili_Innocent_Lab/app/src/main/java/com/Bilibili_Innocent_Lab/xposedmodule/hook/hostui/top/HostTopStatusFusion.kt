@@ -83,6 +83,7 @@ internal class HostTopStatusFusionView(
     private var fadeEnd = 1f
     private var dockingBottom = 0
     private var wallpaper = false
+    private var preserveHostArtwork = false
     private val glass = View(context)
     private val docked = View(context)
     val profile: LumenSurfaceSampling get() = options().sampling
@@ -108,8 +109,9 @@ internal class HostTopStatusFusionView(
         backdrop?.surface(docked, HostSurfaceStyle.fusion(dark, hold, fadeEnd).copy(
             material = LumenSurfaceMaterial.STATIC,
             color = if (dark) palette.surface else 0xFFFFFFFF.toInt(),
-            // 回顶时内容已经退到搜索栏下方；背景模式透出窗口壁纸，避免实色承托遮住首页顶部。
-            tintOpacity = if (wallpaper) 0f else 1f, fallbackTintOpacity = if (wallpaper) 0f else 1f,
+            // 回顶后透出模块壁纸或宿主装扮图；滚动时仍由实时玻璃承托前景。
+            tintOpacity = if (wallpaper || preserveHostArtwork) 0f else 1f,
+            fallbackTintOpacity = if (wallpaper || preserveHostArtwork) 0f else 1f,
             backdropOpacity = 0f
         ))
     }
@@ -126,9 +128,10 @@ internal class HostTopStatusFusionView(
         }
     }
 
-    fun updateMaterial(palette: LumenPalette) {
-        if (this.palette == palette) return
+    fun updateMaterial(palette: LumenPalette, preserveHostArtwork: Boolean = false) {
+        if (this.palette == palette && this.preserveHostArtwork == preserveHostArtwork) return
         this.palette = palette
+        this.preserveHostArtwork = preserveHostArtwork
         dark = palette.background == LumenPalette.neutral(true).background
         updateSurfaces()
     }

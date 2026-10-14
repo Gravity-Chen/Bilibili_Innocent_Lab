@@ -39,6 +39,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private val surfaces = WeakHashMap<View, Surface>()
     private var palette: LumenPalette = colors.palette()
     private var dark = colors.dark
+    private var garbAccent = colors.garbAccent
     private var session: LumenSurfaceSession? = null
     private var content: View? = null
     private var contentSource: HostChromeContentSource? = null
@@ -103,7 +104,9 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         palette = next
         contentSource?.windowBaseColor = next.background
         dark = colors.dark
+        garbAccent = colors.garbAccent
         session?.updatePalette(next)
+        surfaces.values.forEach { spec -> spec.binding?.update(effectiveOptions(spec.options)) }
         resetLegibility()
         surfaces.forEach { (view, spec) -> spec.binding?.let { legibility?.bind(view, it, effectiveOptions(spec.options)) } }
     }
@@ -158,11 +161,16 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     fun onVisualMovement() = session?.notifyPositionChanged() ?: Unit
 
     private fun effectiveOptions(options: LumenSurfaceOptions): LumenSurfaceOptions {
+        val styled = garbAccent?.let { accent ->
+            val rim = HostGarbColors.blend(accent, 0xFFFFFFFF.toInt(), .65f) and 0xFFFFFF
+            options.copy(edgeTopColor = ((if (dark) 80 else 150) shl 24) or rim,
+                edgeBottomColor = (24 shl 24) or rim)
+        } ?: options
         val backend = if (samplingBackend != LumenSurfaceBackend.AUTO) samplingBackend
             else if (appearance.compatible(Build.VERSION.SDK_INT).effectiveRenderer == HostGlassRenderer.SOFTWARE)
-                LumenSurfaceBackend.SOFTWARE else options.sampling.backend
-        return if (backend == options.sampling.backend) options
-            else options.copy(sampling = options.sampling.copy(backend = backend))
+                LumenSurfaceBackend.SOFTWARE else styled.sampling.backend
+        return if (backend == styled.sampling.backend) styled
+            else styled.copy(sampling = styled.sampling.copy(backend = backend))
     }
 
     fun diagnostics(): LumenSurfaceDiagnostics? = session?.diagnostics()

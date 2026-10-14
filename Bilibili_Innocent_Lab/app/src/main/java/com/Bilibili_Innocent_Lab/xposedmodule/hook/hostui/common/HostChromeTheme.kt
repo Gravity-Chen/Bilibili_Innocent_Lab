@@ -16,6 +16,7 @@ internal class HostChromeTheme(private val context: Context) {
             .getMethod("getColorById", Context::class.java, Int::class.javaPrimitiveType)
     }.getOrNull()
     private val accentId = context.resources.getIdentifier("theme_color_secondary", "color", context.packageName)
+    private var previous: HostChromeColors? = null
 
     /** 逐帧只读换肤值；反射方法和资源 id 在绑定时解析一次，不跑壁纸取色/HCT。 */
     fun read(): HostChromeColors {
@@ -26,20 +27,33 @@ internal class HostChromeTheme(private val context: Context) {
             runCatching { hostColor?.invoke(null, context, accentId) as? Int }.getOrNull()
                 ?: runCatching { context.getColor(accentId) }.getOrNull()
         }
-        return HostChromeColors.resolve(hostDark, systemDark, accent)
+        val base = HostChromeColors.resolve(hostDark, systemDark, accent)
+        val next = HostGarbTheme.accent(context)?.let { base.copy(accent = it, garbAccent = it) } ?: base
+        return previous?.takeIf { it == next } ?: next.also { previous = it }
     }
 }
 
-internal data class HostChromeColors(val dark: Boolean, val accent: Int) {
+internal data class HostChromeColors(val dark: Boolean, val accent: Int, val garbAccent: Int? = null) {
+    private val resolvedPalette by lazy(LazyThreadSafetyMode.NONE) { resolvePalette() }
+    fun palette(): LumenPalette = resolvedPalette
+
     /** 与凝光引擎的 modern 调色板一致：中性深浅表面 + 宿主强调色。 */
-    fun palette(): LumenPalette {
+    private fun resolvePalette(): LumenPalette {
         fun channel(shift: Int): Double {
             val value = (accent ushr shift and 255) / 255.0
             return if (value <= .04045) value / 12.92 else ((value + .055) / 1.055).pow(2.4)
         }
         val luminance = .2126 * channel(16) + .7152 * channel(8) + .0722 * channel(0)
-        return LumenPalette.modern(accent,
+        val base = LumenPalette.modern(accent,
             if (luminance > .179) 0xFF000000.toInt() else 0xFFFFFFFF.toInt(), accent, accent, dark)
+        val tint = garbAccent ?: return base
+        val surface = HostGarbColors.blend(base.surface, tint, .07f)
+        val readable = HostGarbColors.readable(tint, surface, dark)
+        return base.copy(surface = surface,
+            surfaceVariant = HostGarbColors.blend(base.surfaceVariant, tint, .09f),
+            primary = readable, secondary = readable, tertiary = readable,
+            onPrimary = if (HostGarbColors.contrast(readable, 0xFF000000.toInt()) >= 4.5)
+                0xFF000000.toInt() else 0xFFFFFFFF.toInt())
     }
 
     companion object {

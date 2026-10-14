@@ -144,7 +144,8 @@ internal class HostBackgroundPages(
         private val wallpaperSystemBars = background.requiresNight || window?.context?.javaClass?.name == HostBackgroundPagePolicy.SIDE_CENTER_ACTIVITY
         private var sideCenter: WeakReference<View>? = null
         private var windowBackground = WeakReference<Drawable>(null)
-        private val detailSurfaces = if (kind == HostBackgroundPagePolicy.Kind.NATIVE && videoPanel(root))
+        private val detailSurfaces = if (kind == HostBackgroundPagePolicy.Kind.NATIVE && videoPanel(root) ||
+            kind == HostBackgroundPagePolicy.Kind.COMMENT)
             HostDetailSurfaces(root, detailBackgrounds) else null
         private var opusChrome: HostOpusChrome? = null
         private var mediaWindow = window?.context?.let { context ->

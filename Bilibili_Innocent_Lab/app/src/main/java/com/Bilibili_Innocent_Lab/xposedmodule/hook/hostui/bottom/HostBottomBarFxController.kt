@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeArtwork
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
@@ -108,7 +110,7 @@ internal object HostBottomBarFxController {
             sanitizePosted = false
             if (!tabHost.isAttachedToWindow) return@Runnable
             if (config.liquidGlass) stripAllHostArtifacts(tabHost, isRoot = true)
-            alignTabContent(tabHost, container, density, insetH, config)
+            alignTabContent(tabHost, container, density, insetH, config, theme.read())
             // 冷启动时底栏还没有尺寸、找不到采样源；布局稳定后每次清理都顺手补一次定位（命中即 O(1)）。
             backdrop?.revalidate()
         }
@@ -190,6 +192,39 @@ internal object HostBottomBarFxController {
      * 按需触发，这里再做一层缓存，让偶发的整树扫描也不产生这批查询。
      */
     private val resourceNames = HashMap<Int, String>()
+    private data class IconSize(var width: Int, var height: Int, var appliedWidth: Int = -1, var appliedHeight: Int = -1)
+    private val iconSizes = WeakHashMap<View, IconSize>()
+
+    private fun fitGarbIcons(group: ViewGroup, density: Float, config: HostBottomBarFxConfig, personalized: Boolean) {
+        for (i in 0 until group.childCount) {
+            val child = group.getChildAt(i)
+            val name = resourceName(child, child.id)
+            if (name == "tab_svg" || name == "tab_icon") {
+                val lp = child.layoutParams ?: continue
+                if (!personalized) {
+                    val old = iconSizes.remove(child) ?: continue
+                    if (lp.width == old.appliedWidth && lp.height == old.appliedHeight) {
+                        lp.width = old.width; lp.height = old.height; child.layoutParams = lp
+                    }
+                    continue
+                }
+                if (lp.width <= 0 || lp.height <= 0) continue
+                val size = iconSizes.getOrPut(child) { IconSize(lp.width, lp.height) }
+                if (lp.width != size.appliedWidth || lp.height != size.appliedHeight) {
+                    size.width = lp.width; size.height = lp.height
+                }
+                val maxHeight = minOf(if (config.iconOnly) 36f else 32f,
+                    config.heightDp - if (config.iconOnly) 12f else 26f) * density
+                val scale = minOf(1f, maxHeight / size.height, 48f * density / size.width)
+                val width = (size.width * scale).roundToInt().coerceAtLeast(1)
+                val height = (size.height * scale).roundToInt().coerceAtLeast(1)
+                size.appliedWidth = width; size.appliedHeight = height
+                if (lp.width != width || lp.height != height) {
+                    lp.width = width; lp.height = height; child.layoutParams = lp
+                }
+            } else if (child is ViewGroup) fitGarbIcons(child, density, config, personalized)
+        }
+    }
 
     private fun resourceName(view: View, id: Int): String {
         if (id == 0 || id == View.NO_ID) return ""
@@ -212,7 +247,8 @@ internal object HostBottomBarFxController {
         container: ViewGroup?,
         density: Float,
         insetH: Int,
-        config: HostBottomBarFxConfig = HostBottomBarFxConfig()
+        config: HostBottomBarFxConfig = HostBottomBarFxConfig(),
+        colors: HostChromeColors? = null
     ) {
         if (container == null || !config.liquidGlass) return
         if (config.iconOnly) {
@@ -303,6 +339,7 @@ internal object HostBottomBarFxController {
                 val name = resourceName(child, cId)
 
                 if (name.contains("normal") || child is ConstraintLayout) {
+                    if (child is ViewGroup) fitGarbIcons(child, density, config, colors?.garbAccent != null)
                     if (config.iconOnly && child is ViewGroup) {
                         hideTabLabels(child)
                         child.setPadding(0, 0, 0, 0)
@@ -329,7 +366,7 @@ internal object HostBottomBarFxController {
                     }
                     // 切页绑定会重新显示文字。pre-draw 中隐藏它以后，旧 measuredHeight
                     // 仍包含文字；必须当帧重测，否则图标先按图文高度上移，下一帧才居中。
-                    val remeasured = config.iconOnly && child.isLayoutRequested && barHeight > 0
+                    val remeasured = (config.iconOnly || colors?.garbAccent != null) && child.isLayoutRequested && barHeight > 0
                     if (remeasured) {
                         val margins = clp as? ViewGroup.MarginLayoutParams
                         val parentWidth = tab.width.takeIf { it > 0 } ?: tab.measuredWidth
@@ -361,6 +398,11 @@ internal object HostBottomBarFxController {
                             if (subChild is TextView) {
                                 subChild.includeFontPadding = false
                                 subChild.gravity = Gravity.CENTER
+                                if (colors?.garbAccent != null) {
+                                    val palette = colors.palette()
+                                    val foreground = if (tab.isSelected) palette.primary else palette.textPrimary
+                                    if (subChild.currentTextColor != foreground) subChild.setTextColor(foreground)
+                                }
                             }
                         }
                     }
@@ -460,7 +502,7 @@ internal object HostBottomBarFxController {
         }
 
         // 彻底隐藏官方底栏底图与非 icon 纯色遮罩
-        if (resName.contains("bg") && view !is ViewGroup) {
+        if (HostChromeArtwork.isBackdrop(resName) || resName.contains("bg") && view !is ViewGroup) {
             if (view.visibility != View.GONE) view.visibility = View.GONE
             if (view.alpha != 0f) view.alpha = 0f
             (view as? android.widget.ImageView)?.setImageDrawable(null)

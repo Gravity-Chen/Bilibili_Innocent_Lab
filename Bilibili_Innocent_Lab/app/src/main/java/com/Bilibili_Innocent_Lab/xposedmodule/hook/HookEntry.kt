@@ -2782,6 +2782,8 @@ class HookEntry : XposedModule() {
                             false
                         ),
                         points = hostAdaptResult?.homeTopBar,
+                        backgroundPreset = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset.read(
+                            prefs.getString(FeaturePreferences.HOST_BACKGROUND_PRESET, "off")),
                         appearance = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance.read(
                             prefs.getString(FeaturePreferences.HOST_TOP_BAR_GLASS_MATERIAL, "soft"),
                             prefs.getString(FeaturePreferences.HOST_TOP_BAR_GLASS_RENDERER, "legacy"),

@@ -2,11 +2,13 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeArtwork
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostTouchGlowBinding
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 
 import android.annotation.SuppressLint
@@ -33,7 +35,8 @@ import kotlin.math.roundToInt
 internal data class HostTopBarFxConfig(
     val liquidGlass: Boolean = true,
     val touchGlow: Boolean = true,
-    val appearance: HostChromeAppearance = HostChromeAppearance()
+    val appearance: HostChromeAppearance = HostChromeAppearance(),
+    val backgroundPreset: HostBackgroundPreset = HostBackgroundPreset.OFF
 )
 
 /** 保留原生分类与搜索区；引擎表面、触控柔光、收岛和状态栏融合分别装配。 */
@@ -207,11 +210,21 @@ internal object HostTopBarFxController {
                 island?.updateMaterial(current)
                 materialColors = current
             }
-            fusion?.refreshMaterial(current)
+            fusion?.refreshMaterial(current,
+                preserveHostArtwork = config.backgroundPreset == HostBackgroundPreset.OFF && current.garbAccent != null)
         }
         val artifacts = HostTopBarArtifactBinding(topBarDock)
+        // 首页搜索区的主视觉在 Fragment 外；跟随宿主时保留装扮图及其原生底色。
+        // 只在模块背景接管页面时剥离，个人中心 main_top_bg_imageview 始终保留原画。
+        val headId = context.resources.getIdentifier("main_top_bg", "id", context.packageName)
+        val headArtwork = if (headId != 0) root.rootView.findViewById<View>(headId) else null
         val materialPreDraw = ViewTreeObserver.OnPreDrawListener {
-            artifacts.clear()
+            val current = theme.read()
+            artifacts.clear(current)
+            if (config.backgroundPreset != HostBackgroundPreset.OFF && current.garbAccent != null) headArtwork?.let {
+                HostChromeArtwork.clear(it)
+                (it.parent as? View)?.let { head -> if (head.background != null) head.background = null }
+            }
             refreshTheme()
             true
         }
@@ -338,7 +351,7 @@ internal object HostTopBarFxController {
         }
 
         // 隐藏纯色底图或装饰背景
-        if (resName.contains("tabs_bg") || (resName.contains("bg") && view !is ViewGroup)) {
+        if (HostChromeArtwork.isBackdrop(resName) || resName.contains("tabs_bg") || (resName.contains("bg") && view !is ViewGroup)) {
             if (view.visibility != View.GONE) view.visibility = View.GONE
             if (view.alpha != 0f) view.alpha = 0f
             (view as? ImageView)?.setImageDrawable(null)
