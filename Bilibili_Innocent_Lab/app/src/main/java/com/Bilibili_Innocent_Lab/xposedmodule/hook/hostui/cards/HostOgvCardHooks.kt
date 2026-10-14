@@ -137,12 +137,15 @@ internal object HostOgvCardHooks {
         private inner class Painter(view: View, private val radius: Float, private val night: Boolean) {
             private val view = WeakReference(view)
             private var surface: Drawable? = null
+            private var surfaceColor: Int? = null
             fun draw(scope: Any) {
                 val owner = view.get() ?: return
                 val packed = size.invoke(scope) as Long
                 val width = Float.fromBits((packed ushr 32).toInt()).toInt()
                 val height = Float.fromBits(packed.toInt()).toInt()
                 if (width <= 0 || height <= 0) return
+                val color = HostVideoCardSurface.color(night, owner.context)
+                if (surfaceColor != color) { surface = null; surfaceColor = color }
                 val drawable = surface ?: HostVideoCardSurface.create(owner,
                     radius * owner.resources.displayMetrics.density, night)?.also { surface = it } ?: return
                 val target = nativeCanvas.invoke(null, canvas.invoke(context.invoke(scope))) as Canvas

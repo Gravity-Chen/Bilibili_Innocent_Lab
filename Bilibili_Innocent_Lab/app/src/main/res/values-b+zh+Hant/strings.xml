@@ -198,13 +198,13 @@
     <string name="host_video_card_radius_current">影片卡片圓角：%1$s</string>
     <string name="host_video_card_radius_default">預設</string>
     <string name="host_video_card_radius_tip">可選 0–40 dp，0 為直角。需開啟影片卡片懸浮美化，重新啟動嗶哩嗶哩後生效。</string>
-    <string name="host_video_cards_tip">為影片封面增加大圓角，為卡片加入極淡的柔和灰色陰影，並加大雙欄間距及螢幕邊緣留白。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="host_video_cards_tip">為影片封面增加大圓角，為卡片加入極淡的柔和灰色陰影，並加大雙欄間距及螢幕邊緣留白。個性主題裝扮的配色會輕柔融入卡片。重新啟動嗶哩嗶哩後生效。</string>
     <string name="host_bottom_bar_liquid_glass">底部導覽列懸浮膠囊</string>
-    <string name="host_bottom_bar_liquid_glass_tip">將嗶哩嗶哩底部導覽列改為懸浮膠囊，並以即時取樣的玻璃材質透出下方內容，保留上緣高光；輕微提升渲染壓力。</string>
+    <string name="host_bottom_bar_liquid_glass_tip">將嗶哩嗶哩底部導覽列改為懸浮膠囊，並以即時取樣的玻璃材質透出下方內容，保留上緣高光。個性主題裝扮自動融合配色，保留角色圖示及動畫，並適配小底欄；輕微提升渲染壓力。</string>
     <string name="host_bottom_bar_touch_glow">底部導覽列觸控光暈</string>
     <string name="host_bottom_bar_touch_glow_tip">觸摸底部導覽列圖示時綻放自適應光暈，跟隨手指觸點即時形變。</string>
     <string name="host_top_bar_liquid_glass">頂欄懸浮膠囊</string>
-    <string name="host_top_bar_liquid_glass_tip">將嗶哩嗶哩頂欄改為懸浮膠囊，並以即時取樣的磨砂玻璃材質透出下方內容，保留原版下劃線指示器；影片流一路上延到狀態列下方，在頂欄之下凝成一層向下漸漸消隱的模糊；輕微提升渲染壓力。</string>
+    <string name="host_top_bar_liquid_glass_tip">將嗶哩嗶哩頂欄改為懸浮膠囊，並以即時取樣的玻璃材質透出下方內容，保留原版下劃線指示器。個性主題裝扮自動融合配色，裝飾底圖不再遮住玻璃；影片流一路上延到狀態列下方，在頂欄之下凝成一層向下漸漸消隱的模糊；輕微提升渲染壓力。</string>
     <string name="host_glass_material">玻璃材質</string>
     <string name="host_glass_material_current">玻璃材質：%1$s</string>
     <string name="host_glass_renderer">進階設定：算繪方式</string>

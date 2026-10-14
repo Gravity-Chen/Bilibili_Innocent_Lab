@@ -120,7 +120,7 @@ internal class HostVideoCardStyle(
             val night = host.isNight(list.context)
             background?.apply(list, night)
             if (!decorateCards) return true
-            val color = HostVideoCardSurface.color(night)
+            val color = HostVideoCardSurface.color(night, list.context)
             // 宿主换肤可能同时替换列表背景和卡片背景，当前帧绘制前一并恢复。
             for (i in 0 until list.childCount) {
                 val root = list.getChildAt(i) as? ViewGroup ?: continue
@@ -351,7 +351,7 @@ internal class HostVideoCardStyle(
             HostVideoCardStyleSpec.coverRadius(single.width, single.height, radiusDp, density)
             else HostVideoCardStyleSpec.cardRadius(root.width, root.height, radiusDp, density)
         val resized = state.updateGeometry(root.width, root.height, radius)
-        val color = HostVideoCardSurface.color(night)
+        val color = HostVideoCardSurface.color(night, root.context)
         if (state.surface == null || state.surfaceRadius != radius || state.color != color) {
             val surface = HostVideoCardSurface.create(root, radius, night) ?: return
             state.color = color

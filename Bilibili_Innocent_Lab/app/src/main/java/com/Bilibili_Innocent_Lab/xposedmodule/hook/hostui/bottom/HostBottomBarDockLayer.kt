@@ -2,6 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeArtwork
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGarbHeroBinding
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
@@ -51,6 +53,9 @@ internal class HostBottomBarDockLayer(
     private val maximumTravel = dp(HostNavigationMotion.MAX_TRAVEL_DP)
     private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     private val publishViewId = resources.getIdentifier("home_publish_icon", "id", context.packageName)
+    private val artworkId = resources.getIdentifier("tab_background", "id", context.packageName)
+    private val hero = HostGarbHeroBinding(tabHost)
+    private val heroLayoutListener = ViewTreeObserver.OnGlobalLayoutListener { hero.invalidate() }
     private var materialColors = HostChromeColors(isDark, palette.primary)
 
     // 1. 独立大胶囊晶体滑块 (硬件加速子 View)
@@ -107,10 +112,13 @@ internal class HostBottomBarDockLayer(
         if (disposed) return@OnPreDrawListener true
         refreshTabSlots()
         refreshMaterial()
+        if (config.liquidGlass) hero.refresh(materialColors.garbAccent != null)
+        // 装扮异步图片/切页可只重置 visibility，不触发布局或普通 Tab 背景检查。
+        if (config.liquidGlass && artworkId != 0) tabHost.findViewById<View>(artworkId)?.let(HostChromeArtwork::clear)
         // 宿主会在按压/切页/重建 tab 时重新挂上官方背景并重新布局：这里逐帧只做 O(items) 空判，
         // 命中才请求一次合并后的整树清理；不再每帧全树递归 + 资源名解析（快速切换掉帧的来源）。
         if (hostReappliedArtifacts()) requestSanitization()
-        HostBottomBarFxController.alignTabContent(tabHost, container, density, inset.roundToInt(), config)
+        HostBottomBarFxController.alignTabContent(tabHost, container, density, inset.roundToInt(), config, materialColors)
         // 同步外部切页
         val detected = detectSelectedTab()
         if (!touchActive && !indicatorSettling && detected != selectedIndex) {
@@ -581,12 +589,16 @@ internal class HostBottomBarDockLayer(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         disposed = false
+        hero.invalidate()
         container?.viewTreeObserver?.addOnPreDrawListener(preDrawListener)
+        container?.viewTreeObserver?.addOnGlobalLayoutListener(heroLayoutListener)
         backdrop?.attach(tabHost)
     }
 
     override fun onDetachedFromWindow() {
         container?.viewTreeObserver?.removeOnPreDrawListener(preDrawListener)
+        container?.viewTreeObserver?.removeOnGlobalLayoutListener(heroLayoutListener)
+        hero.restore()
         resetInteraction()
         backdrop?.detach()
         super.onDetachedFromWindow()

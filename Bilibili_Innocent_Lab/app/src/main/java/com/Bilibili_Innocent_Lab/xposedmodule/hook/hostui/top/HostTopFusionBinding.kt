@@ -54,6 +54,7 @@ internal class HostTopFusionBinding private constructor(
 
     /** 融合带当前生效的材质深浅色，见 [refreshMaterial]。 */
     private var materialDark = isDark
+    private var materialColors: HostChromeColors? = null
 
     companion object {
         fun attach(
@@ -181,7 +182,8 @@ internal class HostTopFusionBinding private constructor(
     /** 深浅色/主题切换后刷新融合带的色罩（采样纹理只带 alpha 曲线，不受影响）。 */
     fun refreshMaterial(colors: HostChromeColors) {
         val isDark = colors.dark
-        if (isDark == materialDark) return
+        if (colors == materialColors) return
+        materialColors = colors
         materialDark = isDark
         band.updateMaterial(
             colors.palette()
