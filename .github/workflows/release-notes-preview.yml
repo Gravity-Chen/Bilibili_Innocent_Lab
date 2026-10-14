@@ -16,9 +16,14 @@ on:
         description: Full source commit SHA; empty uses this workflow's commit
         required: false
         type: string
+      reuse_details_run:
+        description: Optional prior preview run with complete classified evidence; reruns only final refinement
+        required: false
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   preview:
@@ -43,6 +48,7 @@ jobs:
           RELEASE_CHANNEL: ${{ inputs.channel }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           SOURCE_COMMIT: ${{ inputs.source_commit }}
+          REUSE_DETAILS_RUN: ${{ inputs.reuse_details_run }}
           RELEASE_NOTES_LLM_1_API_KEY: ${{ secrets.RELEASE_NOTES_LLM_1_API_KEY }}
           RELEASE_NOTES_LLM_1_PROTOCOL: ${{ vars.RELEASE_NOTES_LLM_1_PROTOCOL }}
           RELEASE_NOTES_LLM_1_BASE_URL: ${{ secrets.RELEASE_NOTES_LLM_1_BASE_URL || vars.RELEASE_NOTES_LLM_1_BASE_URL }}
@@ -73,6 +79,18 @@ jobs:
           fi
           git cat-file -e "${source_commit}^{commit}"
           mkdir -p release-notes-preview
+          if [[ -n "$REUSE_DETAILS_RUN" ]]; then
+            [[ "$REUSE_DETAILS_RUN" =~ ^[0-9]+$ ]]
+            gh run download "$REUSE_DETAILS_RUN" --repo "$GITHUB_REPOSITORY" \
+              --name release-notes-preview --dir cached-release-notes
+            python3 .github/release-templates/refine_release_notes.py \
+              --report cached-release-notes/REPORT.md --repo-root . --channel "$RELEASE_CHANNEL" \
+              --release-tag "$RELEASE_TAG" --commit "$source_commit" \
+              --repository-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+              --output-dir release-notes-preview
+            cat release-notes-preview/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           python3 .github/release-templates/generate_release_notes.py \
             --channel "$RELEASE_CHANNEL" --repo-root . \
             --repository-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \

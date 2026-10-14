@@ -338,6 +338,35 @@ class ProviderChainTest(unittest.TestCase):
 
 
 class CumulativeNotesTest(unittest.TestCase):
+    def test_small_group_budgets_keep_hundred_limit_and_full_point_coverage(self) -> None:
+        import re
+        context = make_context("alpha")
+        context.commits = [CommitInfo(f"{index:07x}" + "0" * 33, "2026-10-15", "独立更新", "", 1, 1, 1, ())
+                           for index in range(1, 106)]
+        notes = notes_module.ReleaseNotes([], [notes_module.NoteItem("fixed", "", f"修复第 {index} 项问题。", [info.sha])
+                                               for index, info in enumerate(context.commits, 1)], [])
+        budgets = []
+        def complete(slot, system, messages, schema, *, session):
+            if messages[0]["content"].startswith("以下是已完整归类"):
+                return json.dumps({"summary": [], "items": [], "maintenance": []})
+            budget = int(re.search(r"正文最多 (\d+) 条", system).group(1))
+            budgets.append(budget)
+            rows = json.loads(messages[0]["content"].split("\n", 1)[1])
+            items = [{"category": "fixed", "group": "", "text": row["text"], "commits": [row["id"]]}
+                     for row in rows[:budget-1]]
+            tail = rows[budget-1:]
+            items.append({"category": "fixed", "group": "", "text": tail[0]["text"] + "相关边界一并修复。",
+                          "commits": [row["id"] for row in tail]})
+            return json.dumps({"summary": ["不参与最终输出的阶段概述。"], "items": items, "maintenance": []})
+        slot = llm_providers.ProviderSlot(1, "openai", "https://provider.example/v1", "m", "k")
+        with mock.patch("llm_providers.complete", side_effect=complete):
+            result = notes_module.limit_notes(notes, context, {**CONFIG, "max_items": 100}, [slot],
+                                              llm_providers.ProviderSession(), [])
+        self.assertIsNotNone(result)
+        self.assertLessEqual(len(result.items), 100)
+        self.assertEqual(100, sum(budgets))
+        self.assertEqual(context.commit_shas(), {sha for item in result.items for sha in item.commits})
+
     def test_hundred_item_limit_preserves_every_original_point_and_commit(self) -> None:
         context = make_context("alpha")
         context.commits = [CommitInfo(f"{index:07x}" + "0" * 33, "2026-10-15", "独立更新", "", 1, 1, 1, ())

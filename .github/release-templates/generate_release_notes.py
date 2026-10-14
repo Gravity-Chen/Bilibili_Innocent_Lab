@@ -513,7 +513,7 @@ def _generate_overview(notes: ReleaseNotes, context: ReleaseContext, config: dic
 
 def _consolidate_notes(notes: ReleaseNotes, context: ReleaseContext, config: dict,
                        slots: list[llm_providers.ProviderSlot], session: llm_providers.ProviderSession,
-                       log: list[str]) -> ReleaseNotes | None:
+                       log: list[str], *, summarize: bool = True) -> ReleaseNotes | None:
     """按原条目 ID 归并到正文上限，恢复全部 SHA 引用并校验每个原点都有归属。"""
     limit = int(config.get("max_items", 100))
     originals = {f"u{index:04d}": item for index, item in enumerate(notes.items, start=1)}
@@ -526,7 +526,12 @@ def _consolidate_notes(notes: ReleaseNotes, context: ReleaseContext, config: dic
         "每个 u 编号都必须出现在某个条目的 commits 或 maintenance 中。"
         "maintenance 只能收纳无用户行为变化、已撤回或纯内部维护的原条目。"
         "禁止遗漏原点，禁止引用不存在的编号，禁止加入原证据没有的新效果。"
+        "\n执行顺序：先列原点归属，再归并同义或同功能阶段项，最后核对条数；超过预算时继续合并，不能输出超限结果。"
+        "独立功能、不同页面的独立故障、重要的适用条件必须保留；同一问题的修复、收尾和重复提交合为最终效果。"
+        "同一条中可用分号连接两项紧密相关的具体效果，禁止使用‘修复了诸多问题’等吞掉细节的概括。"
     )
+    if not summarize:
+        system += "\n本次仅归并小组，summary 必须为空数组，全部小组合并后才撰写版本概述。"
     prompt = "将以下全部原始更新点归并为更细且无重复的最终正文，并撰写概述：\n" + json.dumps(evidence, ensure_ascii=False)
     # 完整细分证据留在报告中，正文压缩不会丢失审计来源。
     log.append("原始细分条目（完整复核证据）：" + json.dumps(evidence, ensure_ascii=False))
@@ -568,8 +573,9 @@ def _consolidate_notes(notes: ReleaseNotes, context: ReleaseContext, config: dic
             if missing:
                 errors.append("遗漏原始更新点：" + ", ".join(sorted(missing)))
             result, validation_errors, _ = validate_notes(
-                {"summary": payload.get("summary"), "items": converted,
-                 "maintenance": list(dict.fromkeys(maintenance))}, context, config)
+                {"summary": payload.get("summary") if summarize else [], "items": converted,
+                 "maintenance": list(dict.fromkeys(maintenance))},
+                context if summarize else replace(context, channel="alpha"), config)
             errors.extend(validation_errors)
             if result is not None and not errors:
                 log.append(f"最终归并通过：{len(originals)} 个原点完整映射为 {len(result.items)} 条正文，上限 {limit}。")
@@ -578,6 +584,48 @@ def _consolidate_notes(notes: ReleaseNotes, context: ReleaseContext, config: dic
             messages.extend([{"role": "assistant", "content": raw},
                              {"role": "user", "content": "修正全部问题，保持完整原点覆盖：\n" + "\n".join(errors)}])
     return None
+
+
+def limit_notes(notes: ReleaseNotes, context: ReleaseContext, config: dict,
+                slots: list[llm_providers.ProviderSlot], session: llm_providers.ProviderSession,
+                log: list[str]) -> ReleaseNotes | None:
+    """先按类别/分组聚拢，再用小组硬预算归并；保留每个原点与所有提交。"""
+    limit = int(config.get("max_items", 100))
+    if len(notes.items) <= limit:
+        return notes
+    ordered = sorted(notes.items, key=lambda item: (list(CATEGORY_KEYS).index(item.category), item.group))
+    count = min(8, limit, max(1, (len(ordered) + 39) // 40))
+    size = (len(ordered) + count - 1) // count
+    chunks = [ordered[offset:offset + size] for offset in range(0, len(ordered), size)]
+    result = ReleaseNotes([], [], list(notes.maintenance))
+    for index, chunk in enumerate(chunks):
+        budget = limit // len(chunks) + (1 if index < limit % len(chunks) else 0)
+        shas = {sha for item in chunk for sha in item.commits}
+        local_context = replace(context, commits=[info for info in context.commits if info.sha in shas])
+        log.append(f"归并小组 {index + 1}/{len(chunks)}：{len(chunk)} 个原点，正文预算 {budget} 条。")
+        combined = _consolidate_notes(ReleaseNotes([], chunk, []), local_context,
+                                      {**config, "max_items": budget}, slots, session, log, summarize=False)
+        if combined is None:
+            return None
+        result.items.extend(combined.items)
+        result.maintenance.extend(combined.maintenance)
+    unique: dict[str, NoteItem] = {}
+    for item in result.items:
+        if item.text in unique:
+            previous = unique[item.text]
+            previous.commits = list(dict.fromkeys([*previous.commits, *item.commits]))
+        else:
+            unique[item.text] = item
+    result.items = list(unique.values())
+    result.maintenance = list(dict.fromkeys(result.maintenance))
+    result.summary = _generate_overview(result, context, config, slots, session, log)
+    checked, errors, _ = validate_notes({"summary": result.summary, "items": [vars(item) for item in result.items],
+                                       "maintenance": result.maintenance}, context, config)
+    if checked is None:
+        log.append("小组归并总校验失败：" + "；".join(errors))
+        return None
+    log.append(f"小组归并完成：{len(notes.items)} 个原点全部有归属，保留 {len(checked.items)} 条，上限 {limit}。")
+    return checked
 
 
 def generate_with_llm(
@@ -622,7 +670,7 @@ def generate_with_llm(
     # 合并只去掉文字完全相同的条目，并合并其引用；不设正文总条数上限。
     limit = int(config.get("max_items", 100))
     if len(merged.items) > limit:
-        consolidated = _consolidate_notes(merged, context, config, slots, session, log)
+        consolidated = limit_notes(merged, context, config, slots, session, log)
         if consolidated is None:
             log.append("最终归并未满足条数与原点覆盖，禁止发布超限或不完整的正文。")
             return None
