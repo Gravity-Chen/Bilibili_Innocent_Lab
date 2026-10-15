@@ -138,6 +138,7 @@ internal class HostBackgroundPages(
         private var containers = emptyList<WeakReference<View>>()
         private var lists = emptyList<WeakReference<ViewGroup>>()
         private var texts = emptyList<WeakReference<TextView>>()
+        private val textContrast = HostWallpaperText()
         private val positions = WeakHashMap<ViewGroup, Position>()
         private var activeList: WeakReference<ViewGroup>? = null
         private val window = WeakReference(window)
@@ -150,6 +151,8 @@ internal class HostBackgroundPages(
         private var opusChrome: HostOpusChrome? = null
         private val pageChrome = if (kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.DYNAMIC)
             HostPageChrome(root, detailBackgrounds) else null
+        private val readingSurfaces = if (kind == HostBackgroundPagePolicy.Kind.NATIVE)
+            HostReadingSurfaces(root, detailBackgrounds) else null
         private var mediaWindow = window?.context?.let { context ->
             HostBackgroundPagePolicy.mediaDetailActivity(generateSequence(context.javaClass as Class<*>?) { it.superclass }
                 .map { it.name }.toList())
@@ -198,6 +201,8 @@ internal class HostBackgroundPages(
             detailSurfaces?.detach()
             opusChrome?.close(); opusChrome = null
             pageChrome?.close()
+            readingSurfaces?.close()
+            textContrast.restore()
         }
 
         fun dispose() {
@@ -219,7 +224,7 @@ internal class HostBackgroundPages(
                 if (depth > (if (nativeContainers) 32 else 12) || node is ImageView) return
                 if (node !== root && kinds.containsKey(node)) return
                 if (node is TextView) {
-                    if (nativeContainers) nextTexts += WeakReference(node)
+                    nextTexts += WeakReference(node)
                     return
                 }
                 val id = name(node)
@@ -255,7 +260,8 @@ internal class HostBackgroundPages(
                     }
                     // 评论、详情、历史等原生列表的背景可能位于行内多层容器，且详情列表会嵌套评论列表。
                     // 只检查已经挂载的可见行，不遍历适配器、不触及图片和播放器。
-                    if (nativeContainers) for (i in 0 until node.childCount) visit(node.getChildAt(i), depth + 1)
+                    if (nativeContainers || background.requiresNight)
+                        for (i in 0 until node.childCount) visit(node.getChildAt(i), depth + 1)
                     return
                 }
                 if (node !== root && (wholePage || id in sectionNames)) nextContainers += WeakReference(node)
@@ -267,6 +273,7 @@ internal class HostBackgroundPages(
             texts = nextTexts
             detailSurfaces?.discover()
             pageChrome?.discover()
+            readingSurfaces?.discover()
             dirty = false
         }
 
@@ -312,7 +319,8 @@ internal class HostBackgroundPages(
                     }
                 }
                 for (ref in containers) ref.get()?.takeIf { owner(it) === page }?.let { clearNeutral(it, page, nativeContainers) }
-                if (night) for (ref in texts) ref.get()?.takeIf { owner(it) === page }?.let { readableText(it, page) }
+                if (night) for (ref in texts) ref.get()?.takeIf { owner(it) === page }?.let { textContrast.apply(it, page) }
+                else textContrast.restore()
                 for (ref in lists) ref.get()?.takeIf { owner(it) === page }?.let(background::prepareList)
                 if ((wholePage || wallpaperOwner != null) && kind != HostBackgroundPagePolicy.Kind.COMPOSE) {
                     if (kind == HostBackgroundPagePolicy.Kind.OPUS) updateDetailWallpaper(page)
@@ -322,6 +330,7 @@ internal class HostBackgroundPages(
                 detailSurfaces?.apply(night)
                 opusChrome?.apply(night)
                 pageChrome?.apply(night)
+                readingSurfaces?.apply(night)
             }.onFailure(onError)
             return true
         }
@@ -430,24 +439,6 @@ internal class HostBackgroundPages(
         }
         if (view.paddingLeft != left || view.paddingTop != top || view.paddingRight != right || view.paddingBottom != bottom)
             view.setPadding(left, top, right, bottom)
-    }
-
-    private fun readableText(view: TextView, page: ViewGroup) {
-        val color = view.currentTextColor
-        if (view.textColors.isStateful || !HostBackgroundPagePolicy.neutral(color) || (color and 255) > 95) return
-        // 纯色底板移除后，少数固定黑色数字需要深色主题文字；有自身按钮/浅色面板的文字沿用业务样式。
-        var node: View? = view
-        while (node != null && node !== page) {
-            val drawable = node.background
-            val solid = when (drawable) {
-                is ColorDrawable -> drawable.color
-                is GradientDrawable -> drawable.color?.defaultColor
-                else -> null
-            }
-            if (solid != null && solid ushr 24 != 0 && (!HostBackgroundPagePolicy.neutral(solid) || (solid and 255) > 160)) return
-            node = node.parent as? View
-        }
-        view.setTextColor(0xffe3e5e7.toInt())
     }
 
     private fun plainGradient(drawable: GradientDrawable): Boolean = drawable.shape == GradientDrawable.RECTANGLE &&

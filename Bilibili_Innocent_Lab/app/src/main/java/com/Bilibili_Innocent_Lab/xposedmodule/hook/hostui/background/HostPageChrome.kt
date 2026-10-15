@@ -47,7 +47,7 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
             if (view !== root && HostBackgroundPages.owner(view)?.let { it !== root } == true) return
             val name = name(view)
             val role = when (name) {
-                "nav_top_bar" -> Role.TOOLBAR
+                "nav_top_bar", "search_input_layout" -> Role.TOOLBAR
                 "tab_box", "container_strip", "header_container" -> Role.FILTER
                 "top_container" -> if (view is ViewGroup && (0 until view.childCount).any {
                     name(view.getChildAt(it)) == "tab_layout"
