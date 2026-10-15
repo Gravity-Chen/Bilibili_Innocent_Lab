@@ -96,6 +96,19 @@ def _validated_headers(raw: str) -> tuple[tuple[str, str], ...]:
     return tuple(headers.items())
 
 
+def _openai_output_limit(base_url: str, extra_body: dict) -> dict[str, int]:
+    fields = [name for name in ("max_tokens", "max_completion_tokens") if name in extra_body]
+    if len(fields) > 1:
+        raise ValueError("BODY_JSON 只能设置一个输出 token 上限字段")
+    name = fields[0] if fields else (
+        "max_completion_tokens" if urllib.parse.urlsplit(base_url).hostname == "api.openai.com" else "max_tokens"
+    )
+    value = extra_body[name] if fields else MAX_OUTPUT_TOKENS
+    if type(value) is not int or not 1 <= value <= MAX_OUTPUT_TOKENS:
+        raise ValueError(f"BODY_JSON 的输出 token 上限必须是 1 到 {MAX_OUTPUT_TOKENS} 的整数")
+    return {name: value}
+
+
 def load_slots(environ: dict[str, str] | None = None) -> tuple[list[ProviderSlot], list[str]]:
     """读取已配置的槽位；返回（可用槽位, 配置问题说明）。"""
     env = os.environ if environ is None else environ
@@ -134,6 +147,8 @@ def load_slots(environ: dict[str, str] | None = None) -> tuple[list[ProviderSlot
                         "response_format", "text", "output_config", "fallbacks"}
             if reserved.intersection(extra_body):
                 raise ValueError("BODY_JSON 不能覆盖模型、消息、工具或输出格式字段")
+            if protocol == "openai":
+                _openai_output_limit(base_url, extra_body)
             if "generationConfig" in extra_body:
                 generation = extra_body["generationConfig"]
                 if not isinstance(generation, dict) or {"responseMimeType", "responseSchema", "responseJsonSchema"}.intersection(generation):
@@ -251,17 +266,21 @@ def _anthropic_complete(slot: ProviderSlot, system: str, messages: list[dict], s
 def _openai_complete(
     slot: ProviderSlot, system: str, messages: list[dict], response_format: dict | None, session: ProviderSession
 ) -> str:
+    try:
+        output_limit = _openai_output_limit(slot.base_url, slot.extra_body)
+    except ValueError as error:
+        raise ProviderError(str(error)) from None
     payload: dict = {
         "model": slot.model,
         "messages": [{"role": "system", "content": system}, *messages],
     }
     if urllib.parse.urlsplit(slot.base_url).hostname == "api.deepseek.com":
-        payload.update({"max_tokens": MAX_OUTPUT_TOKENS, "thinking": {"type": "disabled"}})
+        payload["thinking"] = {"type": "disabled"}
     if urllib.parse.urlsplit(slot.base_url).hostname == "api.river.ai":
-        payload["max_tokens"] = MAX_OUTPUT_TOKENS
         if slot.model.startswith("deepseek-ai/"):
             payload["reasoning_effort"] = "none"
     payload.update(slot.extra_body)
+    payload.update(output_limit)
     if response_format is not None:
         payload["response_format"] = response_format
     response = _post_json(
