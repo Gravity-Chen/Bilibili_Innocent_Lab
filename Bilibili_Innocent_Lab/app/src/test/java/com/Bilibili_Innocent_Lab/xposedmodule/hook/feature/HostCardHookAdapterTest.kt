@@ -15,6 +15,8 @@ class HostCardHookAdapterTest {
         val args = arrayOf<Any?>(CardModifier(), CardComposer(), 18)
         assertTrue(point.accepts(receiver, args))
         assertNull(captured(CapturedPage::class.java))
+        val single = requireNotNull(captured(SingleModelCapture::class.java))
+        assertTrue(single.accepts(SingleModelCapture(CardModel()), args))
         assertNull(captured(WrongConstructor::class.java))
         assertNull(captured(DoubleModel::class.java))
         receiver.model = null
@@ -124,7 +126,10 @@ class HostCardHookAdapterTest {
     class CapturedPage(@JvmField val models: List<CardModel>, follow: FollowCapture) : Function3<Any, Any, Any, Any> {
         override fun invoke(modifier: Any, composer: Any, flags: Any): Any = modifier
     }
-    class WrongConstructor(@JvmField val model: CardModel) : Function3<Any, Any, Any, Any> {
+    class SingleModelCapture(@JvmField val model: CardModel) : Function3<Any, Any, Any, Any> {
+        override fun invoke(modifier: Any, composer: Any, flags: Any): Any = modifier
+    }
+    class WrongConstructor(@JvmField val model: CardModel, unrelated: String) : Function3<Any, Any, Any, Any> {
         override fun invoke(modifier: Any, composer: Any, flags: Any): Any = modifier
     }
     class DoubleModel(@JvmField val model: CardModel, follow: FollowCapture) : Function3<Any, Any, Any, Any> {

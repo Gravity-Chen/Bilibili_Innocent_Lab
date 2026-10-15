@@ -61,7 +61,7 @@ internal object HostOgvCardAdapter {
         val followCapture = type(FOLLOW_CAPTURE)
         listOf("hcards2x2" to HCARDS, "vcards3x2" to VCARDS).forEach { (id, name) ->
             val owner = type(name)
-            val point = if (owner != null && model != null && followCapture != null) {
+            val point = if (owner != null && model != null) {
                 captured(owner, model, followCapture, modifier, composer)
             } else null
             families += Family(id, owner != null, listOfNotNull(point))
@@ -101,12 +101,13 @@ internal object HostOgvCardAdapter {
         return Resolution(families)
     }
 
-    internal fun captured(owner: Class<*>, model: Class<*>, follow: Class<*>, modifier: Class<*>, composer: Class<*>): Point? {
+    internal fun captured(owner: Class<*>, model: Class<*>, follow: Class<*>?, modifier: Class<*>, composer: Class<*>): Point? {
         if (owner.interfaces.none { it.name == "kotlin.jvm.functions.Function3" }) return null
         val field = KavaMemberLookup.declaredFields(owner, makeAccessible = true) {
             !Modifier.isStatic(it.modifiers) && it.type == model
         }.singleOrNull() ?: return null
-        if (owner.declaredConstructors.none { it.parameterTypes.contentEquals(arrayOf(model, follow)) }) return null
+        if (owner.declaredConstructors.none { follow != null && it.parameterTypes.contentEquals(arrayOf(model, follow)) ||
+            it.parameterTypes.contentEquals(arrayOf(model)) }) return null
         val entry = methods(owner) { it.name == "invoke" && it.returnType == Any::class.java &&
             it.parameterTypes.contentEquals(arrayOf(Any::class.java, Any::class.java, Any::class.java)) }.singleOrNull() ?: return null
         return Point(entry, 0, 1, 2, modifier = modifier, composer = composer, model = field)

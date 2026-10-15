@@ -194,6 +194,15 @@
     <string name="custom_bottom_bar_hide_dialog_title">底部導覽列隱藏規則</string>
     <string name="custom_bottom_bar_hide_hint">例如：動態, 會員購</string>
     <string name="host_video_cards">影片卡片懸浮美化</string>
+    <string name="host_card_material">卡片材質</string>
+    <string name="host_card_material_current">卡片材質：%1$s</string>
+    <string name="host_card_material_tip">統一設定影片、追番影視、動態等卡片的材質，預設為原版。需開啟影片卡片懸浮美化，重新啟動嗶哩嗶哩後生效。</string>
+    <string name="host_card_material_original">原版</string>
+    <string name="host_card_material_original_tip">保持現有的純色卡片表面。</string>
+    <string name="host_card_material_acrylic">壓克力</string>
+    <string name="host_card_material_acrylic_tip">模糊應用程式內背景，呈現半透明的壓克力質感。</string>
+    <string name="host_card_material_mica">雲母（Mica）</string>
+    <string name="host_card_material_mica_tip">從靜態宿主背景擷取柔和色彩，呈現不透明的雲母質感；未設定背景時使用純色。</string>
     <string name="host_video_card_radius">影片卡片圓角</string>
     <string name="host_video_card_radius_current">影片卡片圓角：%1$s</string>
     <string name="host_video_card_radius_default">預設</string>

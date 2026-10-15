@@ -42,16 +42,16 @@ class HostVideoCardSharedInstallerInstrumentedTest {
         assertEquals(1, recorder.ids.count { it.endsWith(".measure") })
         assertEquals(1, recorder.ids.count { it.endsWith(".linear_measure") })
         assertEquals(listOf("host_video_cards.androidx.divider"), recorder.ids.filter { it.endsWith(".divider") })
-        assertEquals(FeatureInstallResult.Installed(8), records[0].result)
-        assertEquals(FeatureInstallResult.Installed(5), records[1].result)
+        assertEquals(FeatureInstallResult.Installed(7), records[0].result)
+        assertEquals(FeatureInstallResult.Installed(4), records[1].result)
     }
     @Test fun backgroundAloneDoesNotInstallCardMeasurements() {
         val recorder = Recorder()
         val records = install(false, true, recorder)
         assertEquals(listOf("host_background.native_page", "host_background.page", "host_background.list_attached",
-            "host_background.background_scroll", "host_background.bind"), recorder.ids)
+            "host_background.bind"), recorder.ids)
         assertEquals(FeatureInstallResult.Skipped("disabled"), records[0].result)
-        assertEquals(FeatureInstallResult.Installed(5), records[1].result)
+        assertEquals(FeatureInstallResult.Installed(4), records[1].result)
     }
     @Test fun disabledBackgroundKeepsItsIndependentDiagnosticState() {
         val recorder = Recorder()
@@ -66,7 +66,7 @@ class HostVideoCardSharedInstallerInstrumentedTest {
         val recorder = Recorder(failMeasurement = true)
         val records = install(true, true, recorder)
         assertEquals(FeatureInstallResult.Skipped("registration-failed"), records[0].result)
-        assertEquals(FeatureInstallResult.Installed(5), records[1].result)
+        assertEquals(FeatureInstallResult.Installed(4), records[1].result)
         assertEquals(1, recorder.ids.count { it.endsWith(".bind") })
     }
 
@@ -83,7 +83,7 @@ class HostVideoCardSharedInstallerInstrumentedTest {
         val recorder = Recorder(failMeasurement = true)
         val records = install(false, true, recorder, HostHomeCardSpacingSpec(8, 12))
         assertEquals(FeatureInstallResult.Skipped("registration-failed"), records[0].result)
-        assertEquals(FeatureInstallResult.Installed(5), records[1].result)
+        assertEquals(FeatureInstallResult.Installed(4), records[1].result)
         assertEquals(1, recorder.ids.count { it.endsWith(".bind") })
     }
 }

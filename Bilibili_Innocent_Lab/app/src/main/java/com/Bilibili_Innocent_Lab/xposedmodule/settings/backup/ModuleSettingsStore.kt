@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.AtomicFile
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.FreeCopyConfigStore
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -18,6 +20,12 @@ internal class ModuleSettingsStore(
 ) : SettingsReader {
 
     override fun read(spec: SettingSpec): StoredSetting {
+        if (spec.storageKey == FeaturePreferences.HOST_CARD_MATERIAL) {
+            val raw = bridge.all
+            return StoredSetting(explicit = bridge.contains(spec.storageKey) ||
+                raw[FeaturePreferences.HOST_CARD_ACRYLIC] is Boolean,
+                value = SettingValue.Text(HostCardMaterial.resolve(raw).value))
+        }
         val value = when (val default = spec.defaultValue) {
             is SettingValue.Bool -> SettingValue.Bool(
                 bridge.getBoolean(spec.storageKey, default.value)

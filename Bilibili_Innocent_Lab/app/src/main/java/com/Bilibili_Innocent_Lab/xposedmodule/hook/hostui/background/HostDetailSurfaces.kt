@@ -133,6 +133,5 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
         }
     }
 
-    private fun name(view: View) = if (view.id == View.NO_ID) "" else
-        runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+    private fun name(view: View) = HostViewResourceNames.name(view)
 }

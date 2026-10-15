@@ -2,6 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.settings
 
 import android.content.SharedPreferences
 import android.util.Log
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 
@@ -77,7 +79,8 @@ internal class ModuleUiSettings private constructor(private val values: Map<Stri
          */
         fun of(source: () -> Map<String, Any?>?): ModuleUiSettings {
             val snapshot = runCatching(source).getOrNull()
-            return if (snapshot.isNullOrEmpty()) EMPTY else ModuleUiSettings(snapshot.toMap())
+            return if (snapshot.isNullOrEmpty()) EMPTY else ModuleUiSettings(snapshot.toMap() +
+                (FeaturePreferences.HOST_CARD_MATERIAL to HostCardMaterial.resolve(snapshot).value))
         }
 
         private fun defaultBool(key: String): Boolean =

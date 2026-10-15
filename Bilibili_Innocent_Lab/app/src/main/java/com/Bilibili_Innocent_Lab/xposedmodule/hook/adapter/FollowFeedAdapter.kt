@@ -68,6 +68,7 @@ internal object FollowFeedAdapter {
     private const val STATE = "$RECYCLER\$State"
     private const val HOME = "com.bilibili.bplus.followinglist.home."
     private const val PERSONAL = "com.bilibili.bplus.followinglist.quick.consume."
+    private const val PERSONAL_PAGE = PERSONAL + "VideoQuickConsumeFragment"
     private val painterOwners = listOf("gv1.c", "iU.d")
     // z0 是已核旧家族，T/Q 是双 9.15.0 的真实 home 装饰器；不把其它页面拼成 home 候选。
     private val homeDecorations = listOf(HOME + "z0", HOME + "T", HOME + "Q")
@@ -107,11 +108,17 @@ internal object FollowFeedAdapter {
             it.name in homeDecorations && it.superclass == owner
         } ?: return@runCatching null
         val personal = cached.personalDecorationClass?.let { Lookup.classOrNull(loader, it) }
-            ?.takeIf { it.name in personalDecorations && it.superclass == owner }
+            ?.takeIf { it.name in personalDecorations && it.superclass == owner ||
+                it == owner && legacyPersonal(loader, owner) != null }
+            ?: personal(loader, owner)
         val separator = cached.personalSeparatorClass?.takeIf { it in personalSeparators }
             ?.let { separator(loader, it) }
+            ?: personalSeparators.mapNotNull { separator(loader, it) }.singleOrNull()
         val header = cached.headerMethod?.let { name -> header(loader)?.takeIf { it.name == name } }
-        Resolved(cached, host, paint, home, personal, separator, header)
+        // 旧缓存的首页入口有效，不代表当时缺失的 UP 主页描述可以永久跳过。
+        val refreshed = cached.copy(personalDecorationClass = personal?.name ?: cached.personalDecorationClass,
+            personalSeparatorClass = separator?.declaringClass?.name ?: cached.personalSeparatorClass)
+        Resolved(refreshed, host, paint, home, personal, separator, header)
     }.getOrNull() }
 
     private fun fromOwner(loader: ClassLoader, owner: Class<*>): FollowFeedPoints? = runCatching {
@@ -132,12 +139,25 @@ internal object FollowFeedAdapter {
         val (paint, item, family) = paints.singleOrNull() ?: return@runCatching null
         val home = homeDecorations.mapNotNull { Lookup.classOrNull(loader, it) }
             .filter { it.superclass == owner }.singleOrNull() ?: return@runCatching null
-        val personal = personalDecorations.mapNotNull { Lookup.classOrNull(loader, it) }
-            .filter { it.superclass == owner }.singleOrNull()
+        val personal = personal(loader, owner)
         val separator = personalSeparators.mapNotNull { separator(loader, it) }.singleOrNull()
         FollowFeedPoints(owner.name, paint.name, paint.parameterTypes[3].name, item.name, home.name, family,
             personal?.name, separator?.declaringClass?.name, header(loader)?.name)
     }.getOrNull()
+
+    private fun personal(loader: ClassLoader, owner: Class<*>): Class<*>? =
+        (personalDecorations.mapNotNull { Lookup.classOrNull(loader, it) }.filter { it.superclass == owner } +
+            listOfNotNull(legacyPersonal(loader, owner))).distinct().singleOrNull()
+
+    private fun legacyPersonal(loader: ClassLoader, owner: Class<*>): Class<*>? {
+        // 已读 9.14 的 Fragment 构造和 addItemDecoration：直接持有 gv1.c，不存在 F/E 子类。
+        // 仅接受这对已核名称、唯一同类型字段和专用回调，不放宽其它页面的装饰器匹配。
+        if (owner.name != "gv1.c" || Lookup.classOrNull(loader, PERSONAL_PAGE + "\$cardBgPainter\$1") == null) return null
+        val page = Lookup.classOrNull(loader, PERSONAL_PAGE) ?: return null
+        return owner.takeIf { Lookup.declaredFields(page) {
+            !Modifier.isStatic(it.modifiers) && it.type == owner
+        }.size == 1 }
+    }
 
     private fun paintAbi(method: Method, recycler: Class<*>, module: Class<*>) =
         !Modifier.isStatic(method.modifiers) && !Modifier.isAbstract(method.modifiers) && !method.isBridge &&

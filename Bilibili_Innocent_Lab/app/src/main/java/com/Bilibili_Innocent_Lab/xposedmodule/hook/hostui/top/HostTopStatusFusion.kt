@@ -4,6 +4,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostViewResourceNames
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -13,6 +14,8 @@ import com.lumen.coacervation.engine.host.LumenSurfaceMaterial
 import com.lumen.coacervation.engine.host.LumenSurfaceSampling
 import com.lumen.coacervation.engine.model.LumenPalette
 import kotlin.math.roundToInt
+import java.lang.ref.WeakReference
+import java.util.WeakHashMap
 internal object HostTopFusionPolicy {
 
     /** 回顶前最后一段手势距离；进度直接跟手，两端的速度均收敛到零。 */
@@ -76,6 +79,25 @@ internal class HostTopStatusFusionView(
     private val statusBarInset: Int,
     initialHeight: Int
 ) : FrameLayout(context), HostDockLayer {
+    companion object {
+        private val windows = WeakHashMap<View, WeakReference<HostTopStatusFusionView>>()
+
+        /** 首页搜索栏和状态栏由同一条渐隐带负责，通用页面材质不能再次覆盖。 */
+        fun ownsToolbar(view: View): Boolean =
+            (view.parent as? View)?.let { HostViewResourceNames.name(it) == "app_bar" } == true &&
+                windows[view.rootView]?.get()?.isAttachedToWindow == true
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        windows[rootView] = WeakReference(this)
+    }
+
+    override fun onDetachedFromWindow() {
+        if (windows[rootView]?.get() === this) windows.remove(rootView)
+        super.onDetachedFromWindow()
+    }
+
     var bandHeight = initialHeight
         private set
     private var palette = palette

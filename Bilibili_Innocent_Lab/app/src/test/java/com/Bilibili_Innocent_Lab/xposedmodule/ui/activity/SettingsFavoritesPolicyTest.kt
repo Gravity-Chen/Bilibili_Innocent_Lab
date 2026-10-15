@@ -6,6 +6,12 @@ import org.junit.Test
 class SettingsFavoritesPolicyTest {
     private fun decode(ids: String) = SettingsFavoritesPolicy.decode(mapOf("schema" to 1, "ids" to ids))
 
+    @Test fun legacyAcrylicFavoriteOpensTheMaterialChoiceAndKeepsItsPosition() {
+        val state = decode("other.setting\nhost.cards.acrylic.enabled\nhost.cards.material\nlast.setting")
+        assertEquals(listOf("other.setting", "host.cards.material", "last.setting"), state.ids)
+        assertEquals(state, decode(requireNotNull(SettingsFavoritesPolicy.encode(state))))
+    }
+
     @Test fun freshStateCanBeEditedAndRoundTripsInUserOrder() {
         val empty = SettingsFavoritesPolicy.decode(emptyMap<String, Any>())
         assertTrue(empty.canWrite)

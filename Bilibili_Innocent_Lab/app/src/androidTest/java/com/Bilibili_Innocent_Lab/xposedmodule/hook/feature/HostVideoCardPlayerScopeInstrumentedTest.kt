@@ -21,6 +21,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -44,6 +45,8 @@ class HostVideoCardPlayerScopeInstrumentedTest {
                 assertFalse(style.replacesSeparators(list))
                 style.bind(card.root)
                 assertTrue(style.replacesSeparators(list))
+                // 亚克力默认关闭，原生信息区底板不能被新增功能清除。
+                assertSame(card.panelBackground, card.panel.background)
                 val surface = card.root.background
                 card.root.background = card.background
                 assertFalse(style.replacesSeparators(list))
@@ -71,6 +74,8 @@ class HostVideoCardPlayerScopeInstrumentedTest {
         val cover = ImageView(context).apply { id = id("cover") }
         val info = FrameLayout(context).apply { id = id("cover_bottom_info_container") }
         val background = ColorDrawable(Color.TRANSPARENT)
+        val panelBackground = ColorDrawable(Color.BLACK)
+        val panel = com.bilibili.magicasakura.widgets.TintView(context).apply { background = panelBackground }
 
         init {
             root.background = background
@@ -78,6 +83,7 @@ class HostVideoCardPlayerScopeInstrumentedTest {
             coverRoot.addView(cover, FrameLayout.LayoutParams(200, 100))
             if (endPage) coverRoot.addView(View(context).apply { id = id("endpage_progess_root") })
             root.addView(coverRoot, FrameLayout.LayoutParams(200, 100))
+            root.addView(panel, FrameLayout.LayoutParams(200, 100).apply { topMargin = 100 })
             root.addView(TextView(context).apply { id = id("title"); text = "Video" })
             root.addView(info, FrameLayout.LayoutParams(200, 20))
         }
@@ -104,6 +110,27 @@ class HostVideoCardPlayerScopeInstrumentedTest {
             assertEquals(0, params.leftMargin)
             assertEquals(0, params.rightMargin)
             assertEquals(0, params.bottomMargin)
+        }
+    }
+
+    @Test fun opaqueInfoPanelIsRemovedAndRestoredWhenTheCardDetaches() {
+        val host = InstrumentationRegistry.getInstrumentation().targetContext.createPackageContext("tv.danmaku.bili", 0)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = object : ContextWrapper(activity) { override fun getResources() = host.resources }
+                val card = Card(context, endPage = false)
+                card.attach(player = false)
+                val list = card.root.parent as ViewGroup
+                activity.setContentView(list.parent as View)
+                val style = HostVideoCardStyle(null, HostVideoCardHostAccess(javaClass.classLoader!!), -1,
+                    onApplied = {}, onError = { throw AssertionError(it) }, material = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.ACRYLIC)
+                style.bind(card.root)
+                assertNull(card.panel.background)
+                list.removeView(card.root)
+                assertSame(card.panelBackground, card.panel.background)
+                assertSame(card.background, card.root.background)
+            }
         }
     }
 

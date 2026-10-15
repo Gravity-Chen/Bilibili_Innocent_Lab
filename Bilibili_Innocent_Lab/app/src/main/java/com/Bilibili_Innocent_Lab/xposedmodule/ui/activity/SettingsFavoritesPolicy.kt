@@ -31,7 +31,9 @@ internal object SettingsFavoritesPolicy {
         if (ids.size > MAX_ITEMS || ids.any { !isValidId(it) }) {
             return SettingsFavoritesState(status = SettingsFavoritesStatus.CORRUPT)
         }
-        return SettingsFavoritesState(ids.distinct())
+        return SettingsFavoritesState(ids.map {
+            if (it == "host.cards.acrylic.enabled") "host.cards.material" else it
+        }.distinct())
     }
 
     fun encode(state: SettingsFavoritesState): String? {

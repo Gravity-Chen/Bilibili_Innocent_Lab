@@ -5,12 +5,14 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
 
 import android.os.Bundle
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.util.concurrent.atomic.AtomicBoolean
 
-internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private val points: FollowFeedPoints? = null) : FeatureInstaller {
+internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private val points: FollowFeedPoints? = null,
+    private val material: HostCardMaterial = HostCardMaterial.ORIGINAL) : FeatureInstaller {
     override val id = "follow_feed_style"
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
@@ -60,7 +62,7 @@ internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private 
         val failed = AtomicBoolean(false)
         val applied = AtomicBoolean(false)
         val reportedModelSkips = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-        val controller = FollowFeedController(host, compactHeaderSupported = headerPadding != null, report = {
+        val controller = FollowFeedController(host, compactHeaderSupported = headerPadding != null, material = material, report = {
             // 日志入口按 key 去重；每个固定生命周期阶段各输出一次，不泄漏业务身份。
             environment.logInfo("follow_feed_diagnostics_${it.substringBefore(':')}", it)
             if (applied.compareAndSet(false, true)) environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
@@ -163,7 +165,7 @@ internal class FollowFeedFeatureInstaller(private val enabled: Boolean, private 
                 before { argOrNull(0)?.let { itemView.get(it) as? View }?.let(controller::recycle) }
             }
         }
-        environment.logInfo("follow_feed_installed", "[BIL] 关注页凝光接入完成（卡片/分段无采样，状态栏按需融合，UP 主页=$personalSupported，正文内视频=${host.embeddedVideoSupported}）")
+        environment.logInfo("follow_feed_installed", "[BIL] 关注页凝光接入完成（卡片=${material.value}，状态栏按需融合，UP 主页=$personalSupported，正文内视频=${host.embeddedVideoSupported}）")
         return FeatureInstallResult.Installed((if (headerPadding == null) 9 else 10) + if (personalSupported) 6 else 0,
             complete = host.embeddedVideoSupported && headerPadding != null &&
                 (!personalExpected || personalSupported))

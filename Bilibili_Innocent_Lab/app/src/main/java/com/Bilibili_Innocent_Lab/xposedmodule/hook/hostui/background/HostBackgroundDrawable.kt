@@ -39,6 +39,23 @@ internal class HostBackgroundDrawable(
     private var key: HostBackgroundRasterCache.Key? = null
     private var raster: Bitmap? = null
     internal val isRasterReady get() = scene?.isReady ?: (raster != null)
+    /** 云母借用独立的静态背景配方，忽略页面滚动和已发布 Drawable 的可变绘制状态。 */
+    private var staticMicaSource: MicaSource? = null
+    internal fun micaSource(): MicaSource = staticMicaSource?.takeIf { it.night == night }
+        ?: MicaSource(config, night, image).also { staticMicaSource = it }
+
+    internal data class MicaSource(val config: HostBackgroundConfig, val night: Boolean, val image: Bitmap?) {
+        fun snapshot(width: Int, height: Int): Bitmap {
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            try {
+                HostBackgroundDrawable(config, night, image, cacheEnabled = false).apply {
+                    setBounds(0, 0, width, height)
+                    draw(Canvas(bitmap))
+                }
+                return bitmap
+            } catch (failure: Throwable) { bitmap.recycle(); throw failure }
+        }
+    }
     /** Scene inputs that can change independently of the feed's own invalidation. */
     internal val samplingState: Long
         get() {
