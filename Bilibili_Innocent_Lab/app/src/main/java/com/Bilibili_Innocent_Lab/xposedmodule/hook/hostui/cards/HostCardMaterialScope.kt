@@ -16,6 +16,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
@@ -32,7 +33,8 @@ import java.util.WeakHashMap
 /** 每个内容视口只绑定一个材质场，View / Compose / 动态分组仅裁剪这份共享结果。 */
 internal open class HostCardMaterialScope(private val owner: ViewGroup, night: Boolean,
     private val context: Context = owner.context,
-    internal val materialKind: HostCardMaterial = HostCardMaterial.ACRYLIC) : AutoCloseable,
+    internal val materialKind: HostCardMaterial = HostCardMaterial.ACRYLIC,
+    private val gpuScale: Float = .5f) : AutoCloseable,
     View.OnAttachStateChangeListener, ViewTreeObserver.OnPreDrawListener {
     private var palette = HostVideoCardSurface.palette(night, context)
     private var night = night
@@ -53,6 +55,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     private var hardwareScene: HostCardMaterialScene? = null
     private var softwareScene: HostCardMaterialScene? = null
     private val location = IntArray(2)
+    private val visibleBounds = Rect()
     private val mapping = ViewSamplingMatrix()
     private val source = object : View(context) {
         override fun onDraw(canvas: Canvas) { content?.drawContent(canvas) }
@@ -68,7 +71,8 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     }
     private val session = if (materialKind == HostCardMaterial.ACRYLIC) LumenSurfaceSession(context, palette, LumenSurfaceSessionOptions(
         maxSurfaces = 1, autoPauseWhenHidden = false, pauseWhenWindowUnfocused = false,
-        maxGpuSurfacePixels = 8_388_608)) else null
+        // 模糊输入和共享混色层降采样；卡片边框、圆角、封面与前景不经过这个层。
+        gpuScale = gpuScale, maxGpuSurfacePixels = 8_388_608)) else null
     private val material: LumenFluentControl?
     private val mica: HostCardMicaField?
     var closed = false
@@ -105,6 +109,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         if (closed) return true
         frame++
         refresh(night)
+        if (visible != true) return true
         // 先更新一次共享节点，已有 View / Compose 显示列表可继续引用同一个节点。
         record(owner.isHardwareAccelerated)
         for ((view, paint) in cards) {
@@ -120,8 +125,9 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     fun refresh(night: Boolean) {
         if (closed || refreshedFrame == frame && this.night == night) return
         refreshedFrame = frame
-        val shown = owner.isShown
+        val shown = HostViewVisibility.visible(owner, visibleBounds)
         if (visible != shown) { visible = shown; if (shown) session?.resume() else session?.pause() }
+        if (!shown) return
         val now = SystemClock.uptimeMillis()
         if (this.night != night || now - themeReadAt >= 250) {
             this.night = night; themeReadAt = now
@@ -159,10 +165,11 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         cornerRadiusDp = radius, stateLayerEnabled = false, focusVisualEnabled = false)
 
     private fun record(hardware: Boolean): HostCardMaterialScene? {
-        if (closed || !owner.isShown || owner.width <= 0 || owner.height <= 0) return null
+        if (closed || visible != true || owner.width <= 0 || owner.height <= 0) return null
         val useHardware = hardware && AndroidVersion.isAtLeast(AndroidVersion.Q)
         // 顶栏的软件采样会重画这些卡片，不能因此丢弃屏幕显示列表引用的 GPU 节点。
-        val scene = if (useHardware) hardwareScene ?: HostCardMaterialSceneApi29().also { hardwareScene = it }
+        val scene = if (useHardware) hardwareScene ?: HostCardMaterialSceneApi29(
+            if (materialKind == HostCardMaterial.ACRYLIC) gpuScale else 1f).also { hardwareScene = it }
             else softwareScene ?: HostCardMaterialPicture().also { softwareScene = it }
         if (useHardware) {
             if (!hardwareDirty || hardwareRecordedFrame == frame) return scene
@@ -197,6 +204,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     fun positionChanged(view: View) { cards[view]?.invalidateSelf() }
     internal fun diagnostics(view: View) = if (cards.containsKey(view)) material?.diagnostics() else null
     internal fun samplingDiagnostics() = requireNotNull(session).diagnostics()
+    internal fun samplingPerformance() = requireNotNull(session).performanceDiagnostics()
     internal fun micaDiagnostics() = mica?.diagnostics()
     internal fun micaPreparations() = mica?.preparations ?: 0L
 

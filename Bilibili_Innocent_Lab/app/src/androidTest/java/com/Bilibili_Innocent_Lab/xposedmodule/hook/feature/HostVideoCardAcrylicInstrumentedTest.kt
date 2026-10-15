@@ -5,6 +5,8 @@ import android.graphics.Color
 import android.graphics.Canvas
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.Shader
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -32,6 +34,74 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class HostVideoCardAcrylicInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+
+    @Test fun smallerSharedMaterialKeepsTheSettledAcrylicPixelsAndQuarterOfTheContentArea() {
+        val texture = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).apply {
+            for (y in 0 until height) for (x in 0 until width)
+                setPixel(x, y, Color.rgb(x * 4, if ((x / 4 + y / 4) % 2 == 0) 220 else 30, y * 4))
+        }
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                lateinit var window: Window
+                lateinit var reduced: HostCardMaterialScope
+                lateinit var reference: HostCardMaterialScope
+                lateinit var reducedCard: View
+                lateinit var referenceCard: View
+                scenario.onActivity { activity ->
+                    activity.activeConfirmDialog?.dismiss()
+                    window = activity.window
+                    val root = FrameLayout(activity)
+                    fun fixture(left: Int): Pair<FrameLayout, View> {
+                        val page = FrameLayout(activity).apply {
+                            background = BitmapDrawable(resources, texture).apply {
+                                tileModeX = Shader.TileMode.REPEAT; tileModeY = Shader.TileMode.REPEAT
+                                isFilterBitmap = true
+                            }
+                        }
+                        val card = View(activity)
+                        page.addView(card, FrameLayout.LayoutParams(300, 180).apply { leftMargin = 70; topMargin = 250 })
+                        root.addView(page, FrameLayout.LayoutParams(480, 900).apply { leftMargin = left })
+                        return page to card
+                    }
+                    val optimized = fixture(0)
+                    val full = fixture(520)
+                    reducedCard = optimized.second; referenceCard = full.second
+                    activity.setContentView(root)
+                    reduced = HostCardMaterialScope(optimized.first, false)
+                    reference = HostCardMaterialScope(full.first, false, gpuScale = 1f)
+                    reduced.apply(reducedCard, 20f); reference.apply(referenceCard, 20f)
+                }
+                try {
+                    SystemClock.sleep(1000)
+                    instrumentation.runOnMainSync {
+                        assertEquals(LumenSurfaceBackend.GPU, reduced.diagnostics(reducedCard)?.backdropBackend)
+                        assertEquals(LumenSurfaceBackend.GPU, reference.diagnostics(referenceCard)?.backdropBackend)
+                        val small = reduced.samplingPerformance().logicalGpuContentPixels
+                        val large = reference.samplingPerformance().logicalGpuContentPixels
+                        assertTrue("Input area did not shrink: $small / $large", small > 0 && small * 4 <= large)
+                    }
+                    val image = capture(window)
+                    try {
+                        val a = IntArray(2); val b = IntArray(2)
+                        instrumentation.runOnMainSync {
+                            reducedCard.getLocationInWindow(a); referenceCard.getLocationInWindow(b)
+                        }
+                        var total = 0L; var count = 0; var maximum = 0
+                        for (y in 16 until 164 step 6) for (x in 16 until 284 step 6) {
+                            val reducedPixel = image.getPixel(a[0] + x, a[1] + y)
+                            val referencePixel = image.getPixel(b[0] + x, b[1] + y)
+                            for (shift in intArrayOf(0, 8, 16)) {
+                                val difference = abs((reducedPixel ushr shift and 255) - (referencePixel ushr shift and 255))
+                                total += difference; count++; maximum = maxOf(maximum, difference)
+                            }
+                        }
+                        assertTrue("Acrylic changed visibly: mean=${total.toDouble() / count}, max=$maximum",
+                            total.toDouble() / count <= 2.0 && maximum <= 8)
+                    } finally { image.recycle() }
+                } finally { instrumentation.runOnMainSync { reduced.close(); reference.close() } }
+            }
+        } finally { texture.recycle() }
+    }
 
     @Test fun releaseRestoresOnlyOwnedBackgroundAndKeepsHostPadding() {
         instrumentation.runOnMainSync {
@@ -235,7 +305,15 @@ class HostVideoCardAcrylicInstrumentedTest {
                             abs(Color.red(raw) - Color.red(clear)) <= 2 &&
                                 abs(Color.blue(raw) - Color.blue(clear)) <= 2)
                     } finally { transparent.recycle() }
+                    instrumentation.runOnMainSync { list.translationX = list.width * 2f }
+                    SystemClock.sleep(150)
                     instrumentation.runOnMainSync {
+                        assertTrue("An attached offscreen page must stop acrylic sampling", scope.samplingDiagnostics().paused)
+                        list.translationX = 0f
+                    }
+                    SystemClock.sleep(400)
+                    instrumentation.runOnMainSync {
+                        assertFalse("Returning to the page must resume its shared field", scope.samplingDiagnostics().paused)
                         paint.close()
                         scope.close()
                         assertEquals(0, scope.samplingDiagnostics().attachedSurfaces)

@@ -23,7 +23,7 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
     override val excludesSurfaces: Boolean get() = !includeViewContent
     override val availability: LumenSourceAvailability get() = LumenSourceAvailability.READY
     override val contentVersion: Long
-        get() {
+        get() = mapping.withAncestorMemo {
             // Backgrounds can change without invalidating the feed. A pure snapshot also catches
             // the source moving relative to the wallpaper and asynchronous artwork completion.
             var signature = 17L
@@ -49,10 +49,10 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
                 }
                 view = view.parent as? View
             }
-            return signature and Long.MAX_VALUE
+            signature and Long.MAX_VALUE
         }
 
-    override fun drawContent(canvas: Canvas) {
+    override fun drawContent(canvas: Canvas) = mapping.withAncestorMemo {
         // Window fallback backgrounds are not always exposed as View.background. Complete the
         // input's alpha before compositing the actual backgrounds and translucent feed layers.
         canvas.drawColor(windowBaseColor or 0xFF000000.toInt())

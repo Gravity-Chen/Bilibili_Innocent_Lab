@@ -1,10 +1,12 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards
 
 import android.graphics.Outline
+import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.util.SparseIntArray
 import android.util.TypedValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -125,6 +127,7 @@ internal class HostVideoCardStyle(
         private val parent = WeakReference(parent)
         private var observer: WeakReference<ViewTreeObserver>? = null
         private var surfaces: HostVideoCardSurface.Scope? = null
+        private val visibleBounds = Rect()
 
         fun surfaceScope(night: Boolean, context: android.content.Context): HostVideoCardSurface.Scope? {
             val list = parent.get() ?: return null
@@ -156,7 +159,7 @@ internal class HostVideoCardStyle(
 
         override fun onPreDraw(): Boolean {
             val list = parent.get() ?: return true
-            if (isInPlayer(list)) return true
+            if (!HostViewVisibility.visible(list, visibleBounds) || isInPlayer(list)) return true
             val night = host.isNight(list.context)
             background?.apply(list, night)
             if (!decorateCards) return true

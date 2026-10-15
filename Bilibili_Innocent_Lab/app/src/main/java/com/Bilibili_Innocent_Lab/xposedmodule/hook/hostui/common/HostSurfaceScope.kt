@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common
 
 import android.graphics.drawable.Drawable
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.os.Build
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
@@ -43,11 +44,13 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private var session: LumenSurfaceSession? = null
     private var content: View? = null
     private var contentSource: HostChromeContentSource? = null
+    private var viewportSource: HostChromeViewportSource? = null
     private var legibility: LumenSurfaceLegibilityController? = null
     private var closed = false
     private var focusObserver: ViewTreeObserver? = null
     private var backdropVersion: Long? = null
     private val backdropPreDraw = ViewTreeObserver.OnPreDrawListener {
+        if (viewportSource?.sync() == true) session?.notifyPositionChanged()
         val version = contentSource?.contentVersion
         if (version != backdropVersion) {
             backdropVersion = version
@@ -64,14 +67,17 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
 
     fun attach(surface: View, explicitContent: View? = null) {
         if (closed) return
+        val previous = viewportSource
         content = explicitContent ?: HostBackdropLocator.find(surface)
         contentSource = content?.let { HostChromeContentSource(it, palette.background) }
+        viewportSource = createViewportSource()
         if (session == null) session = LumenSurfaceSession(surface.context, palette,
             // Recents snapshots are drawn after focus is lost. Keep the glass in that frame.
             LumenSurfaceSessionOptions(pauseWhenWindowUnfocused = false))
         observeFocus(surface)
         resetLegibility()
         surfaces.forEach { (view, spec) -> bind(view, spec) }
+        previous?.close()
     }
 
     fun surface(view: View, options: LumenSurfaceOptions) {
@@ -119,11 +125,16 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         if (session == null) { attach(anchor, next); return }
         val changed = content !== next
         content = next
-        if (changed) contentSource = next?.let { HostChromeContentSource(it, palette.background) }
+        val previous = viewportSource
+        if (changed) {
+            contentSource = next?.let { HostChromeContentSource(it, palette.background) }
+            viewportSource = createViewportSource()
+        }
         if (changed) resetLegibility()
         surfaces.forEach { (view, spec) ->
             if (changed || spec.binding?.isBound != true || view.background !== spec.background) bind(view, spec)
         }
+        if (changed) previous?.close()
     }
 
     /** 几何只通过公开输入更新，不在宿主 Canvas 中代画引擎背景。 */
@@ -151,7 +162,9 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private fun bind(view: View, spec: Surface) {
         val active = session ?: return
         spec.binding?.close()
-        spec.binding = active.bindSource(view, effectiveOptions(spec.options), contentSource.takeIf { spec.options.sampling.enabled })
+        viewportSource?.sync()
+        spec.binding = active.bindSource(view, effectiveOptions(spec.options),
+            (viewportSource ?: contentSource).takeIf { spec.options.sampling.enabled })
         spec.background = view.background
         spec.binding?.let { legibility?.bind(view, it, effectiveOptions(spec.options)) }
         spec.shapeWidth = -1
@@ -175,6 +188,8 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
 
     fun diagnostics(): LumenSurfaceDiagnostics? = session?.diagnostics()
 
+    internal fun samplingPerformance() = session?.performanceDiagnostics()
+
     private fun observeFocus(view: View) {
         val observer = view.viewTreeObserver
         if (focusObserver === observer && observer.isAlive) return
@@ -191,7 +206,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
 
     private fun resetLegibility() {
         legibility?.close()
-        legibility = content?.takeIf { dark }?.let {
+        legibility = (viewportSource?.coordinateView ?: content)?.takeIf { dark }?.let {
             LumenSurfaceLegibilityController(it, palette.surface, 0xFF9EA3AB.toInt())
         }
     }
@@ -212,6 +227,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         legibility = null
         session?.close()
         session = null
+        viewportSource?.close(); viewportSource = null
         content = null
         contentSource = null
         surfaces.values.forEach { it.binding = null; it.background = null }
@@ -222,5 +238,19 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         detach()
         closed = true
         surfaces.clear()
+    }
+
+    private fun createViewportSource(): HostChromeViewportSource? {
+        val source = contentSource ?: return null
+        if (source.coordinateView !is ViewGroup) return null
+        return HostChromeViewportSource(source) { consume ->
+            for ((view, spec) in surfaces) {
+                val sampling = effectiveOptions(spec.options).sampling
+                if (!spec.options.sampling.enabled) continue
+                val blur = maxOf(sampling.blurRadiusDp, sampling.softwareBlurRadiusDp ?: sampling.blurRadiusDp)
+                val padding = maxOf(blur * 4f, 20f * sampling.refractionStrength) * view.resources.displayMetrics.density + 4f
+                consume(view, spec.insetX, spec.insetY, padding)
+            }
+        }.also { it.sync() }
     }
 }

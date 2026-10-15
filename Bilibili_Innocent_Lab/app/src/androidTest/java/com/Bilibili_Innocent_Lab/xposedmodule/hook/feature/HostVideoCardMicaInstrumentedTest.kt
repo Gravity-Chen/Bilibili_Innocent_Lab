@@ -135,6 +135,24 @@ class HostVideoCardMicaInstrumentedTest {
                         assertTrue(abs(Color.blue(bottomPixel) - Color.blue(pixel(moved, compose))) < 5)
                     } finally { moved.recycle() }
                     instrumentation.runOnMainSync {
+                        list.translationX = list.width * 2f
+                        list.background = null
+                        list.invalidate()
+                    }
+                    SystemClock.sleep(150)
+                    instrumentation.runOnMainSync {
+                        assertEquals("Offscreen pages must defer wallpaper processing", LumenMicaFallbackReason.NONE,
+                            scope.micaDiagnostics()?.fallbackReason)
+                        list.background = wallpaper
+                        list.translationX = 0f
+                        list.invalidate()
+                    }
+                    SystemClock.sleep(200)
+                    instrumentation.runOnMainSync {
+                        assertTrue(scope.micaDiagnostics()?.micaVisible == true)
+                        assertEquals(1L, scope.micaPreparations())
+                    }
+                    instrumentation.runOnMainSync {
                         list.background = null
                         list.invalidate()
                     }

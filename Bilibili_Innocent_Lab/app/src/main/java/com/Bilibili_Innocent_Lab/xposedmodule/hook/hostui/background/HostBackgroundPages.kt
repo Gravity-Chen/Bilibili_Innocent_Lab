@@ -18,6 +18,7 @@ import android.webkit.WebView
 import android.widget.ImageView
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHostAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
@@ -134,6 +135,8 @@ internal class HostBackgroundPages(
         private val root = WeakReference(root)
         private var observer: WeakReference<ViewTreeObserver>? = null
         private var dirty = true
+        private var prepared = false
+        private val visibleBounds = Rect()
         private var containers = emptyList<WeakReference<View>>()
         private var lists = emptyList<WeakReference<ViewGroup>>()
         private var texts = emptyList<WeakReference<TextView>>()
@@ -279,7 +282,10 @@ internal class HostBackgroundPages(
         override fun onPreDraw(): Boolean {
             HostViewResourceNames.inPass { runCatching {
                 val page = root.get()?.takeIf { it.isShown } ?: return@runCatching
+                // 预加载页也需一次初始适配，建立共享壁纸归属并清除旧底板；之后才跳过离屏帧。
+                if (prepared && !HostViewVisibility.visible(page, visibleBounds)) return@runCatching
                 if (dirty) discover(page)
+                prepared = true
                 // 播放窗口只给前景面板铺壁纸，状态栏、播放器及其工具栏保留宿主材质。
                 if (mediaWindow) return@runCatching
                 val night = host.isNight(page.context) || background.requiresNight
