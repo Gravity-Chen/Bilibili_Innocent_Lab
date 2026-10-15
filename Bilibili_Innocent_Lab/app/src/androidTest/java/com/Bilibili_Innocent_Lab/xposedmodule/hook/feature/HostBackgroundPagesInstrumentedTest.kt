@@ -16,6 +16,7 @@ import android.widget.TextView
 import com.google.android.material.shape.MaterialShapeDrawable
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager2.widget.ViewPager2
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -26,9 +27,77 @@ import com.Bilibili_Innocent_Lab.xposedmodule.test.R as TestR
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import com.highcapable.betterandroid.ui.extension.insets.factory.createRootWindowInsetsWrapper
+import java.util.WeakHashMap
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    private fun resourceContext(activity: MainActivity) =
+        object : ContextWrapper(InstrumentationRegistry.getInstrumentation().context) {
+            override fun getApplicationContext() = activity.applicationContext
+        }
+
+    @Test fun statusBarFollowsAdjacentChromeAndReleasesItsNonInteractiveBand() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val root = activity.window.decorView as FrameLayout
+                val context = resourceContext(activity)
+                val inset = root.createRootWindowInsetsWrapper()?.statusBars()?.top ?: 0
+                assertTrue("The fixture needs a visible system status bar", inset > 0)
+                val originalCount = root.childCount
+                val toolbar = View(context).apply { id = TestR.id.nav_top_bar }
+                val authors = View(context).apply { id = TestR.id.dy_recycler; visibility = View.GONE }
+                root.addView(toolbar, FrameLayout.LayoutParams(-1, 100).apply { topMargin = inset })
+                root.addView(authors, FrameLayout.LayoutParams(-1, 100).apply { topMargin = inset })
+                // 先确定栏位的窗口坐标，后续切换不挪动宿主布局。
+                toolbar.layout(0, inset, root.width, inset + 100)
+                authors.layout(0, inset, root.width, inset + 100)
+                val chrome = HostPageChrome(root, WeakHashMap())
+                try {
+                    chrome.discover(); chrome.apply(true)
+                    assertEquals(originalCount + 3, root.childCount)
+                    val band = root.getChildAt(root.childCount - 1)
+                    assertEquals(inset, band.layoutParams.height)
+                    assertNotNull(band.background)
+                    assertFalse(band.isClickable)
+                    assertFalse(band.isFocusable)
+                    assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, band.importantForAccessibility)
+                    val toolbarMaterial = band.background
+                    toolbar.visibility = View.GONE
+                    chrome.apply(true)
+                    assertEquals("A page without adjacent chrome must expose its wallpaper", View.GONE, band.visibility)
+                    authors.visibility = View.VISIBLE
+                    chrome.discover(); chrome.apply(true)
+                    assertSame("Page switches must reuse one status band", band, root.getChildAt(root.childCount - 1))
+                    assertEquals(View.VISIBLE, band.visibility)
+                    assertNotSame("The authors' lighter material must replace the toolbar material", toolbarMaterial, band.background)
+                    authors.translationX = root.width.toFloat()
+                    chrome.apply(true)
+                    assertEquals("Offscreen pages must not leave their status tint behind", View.GONE, band.visibility)
+                    authors.translationX = 0f
+                    authors.alpha = 0f
+                    chrome.apply(true)
+                    assertEquals(View.GONE, band.visibility)
+                    authors.alpha = 1f
+                    authors.layout(0, inset, root.width, inset)
+                    chrome.apply(true)
+                    assertEquals("Collapsed bars must not leave a status tint", View.GONE, band.visibility)
+                    authors.layout(0, inset, root.width, inset + 100)
+                    chrome.apply(false)
+                    assertEquals(originalCount + 3, root.childCount)
+                    assertEquals(inset, toolbar.top)
+                } finally {
+                    chrome.close()
+                    root.removeView(toolbar); root.removeView(authors)
+                }
+                assertEquals("The added status surface must leave with its session", originalCount, root.childCount)
+                assertNull(toolbar.background)
+                assertNull(authors.background)
+            }
+        }
+    }
+
     @Test fun embeddedCommentImageViewerKeepsItsBackdropAndControlsInsideNativePages() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
@@ -71,11 +140,11 @@ class HostBackgroundPagesInstrumentedTest {
         }
     }
 
-    @Test fun embeddedOpusCommentsShareTheArticleWorldButReplyOverlaysStayIndependent() {
+    @Test fun embeddedOpusCommentsShareFixedWallpaperButReplyOverlaysStayIndependent() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val context = resourceContext(activity)
                 val decor = activity.window.decorView as ViewGroup
                 for (childFirst in listOf(false, true)) {
                     val root = FrameLayout(context)
@@ -104,15 +173,15 @@ class HostBackgroundPagesInstrumentedTest {
                     assertNull(list.background)
                     assertNull(tabs.background)
                     val wallpaper = root.background as HostBackgroundDrawable
-                    assertTrue(pages.scroll(article, 200))
-                    assertEquals(200L, wallpaper.scrollOffset)
-                    assertTrue(pages.scroll(list, 80))
+                    article.scrollBy(0, 200)
+                    assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
+                    list.scrollBy(0, 80)
                     draw()
-                    assertEquals(280L, wallpaper.scrollOffset)
+                    assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                     // 正文已移出视口，不能丢掉其累计距离，也不能由绘制回调顺序覆写评论距离。
                     article.translationY = -640f
                     draw()
-                    assertEquals(280L, wallpaper.scrollOffset)
+                    assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                     controller.apply(list, true)
                     assertNull(comment.background)
                     val reply = FrameLayout(context).apply { setBackgroundColor(Color.WHITE) }
@@ -122,9 +191,9 @@ class HostBackgroundPagesInstrumentedTest {
                     assertNull(HostBackgroundPages.sharedWallpaperOwner(reply))
                     assertTrue(reply.background is HostBackgroundDrawable)
                     root.removeView(reply)
-                    assertTrue(pages.scroll(list, -80))
+                    list.scrollBy(0, -80)
                     draw()
-                    assertEquals(200L, wallpaper.scrollOffset)
+                    assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                     decor.removeView(root)
                 }
             }
@@ -135,7 +204,7 @@ class HostBackgroundPagesInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val context = resourceContext(activity)
                 val decor = activity.window.decorView as ViewGroup
                 val root = FrameLayout(context)
                 val tabs = FrameLayout(context).apply { id = TestR.id.top_container }
@@ -147,7 +216,19 @@ class HostBackgroundPagesInstrumentedTest {
                 tabs.addView(View(context).apply { id = TestR.id.tab_layout }, FrameLayout.LayoutParams(240, 60))
                 tabs.addView(shade, FrameLayout.LayoutParams(12, 60).apply { leftMargin = 240 })
                 tabs.addView(button, FrameLayout.LayoutParams(68, 60).apply { leftMargin = 252 })
-                root.addView(tabs, FrameLayout.LayoutParams(-1, 60))
+                // 收藏的筛选栏实际位于 ViewPager2 的内部 RecyclerView 中。
+                val pager = ViewPager2(context).apply {
+                    adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+                        override fun getItemCount() = 1
+                        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
+                            object : RecyclerView.ViewHolder(FrameLayout(context).apply {
+                                layoutParams = ViewGroup.LayoutParams(-1, -1)
+                                addView(tabs, FrameLayout.LayoutParams(-1, -1))
+                            }) {}
+                        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) = Unit
+                    }
+                }
+                root.addView(pager, FrameLayout.LayoutParams(-1, 60))
                 // 同名但不属于收藏标签栏的业务渐变必须保留。
                 val unrelated = View(context).apply {
                     id = TestR.id.right_button_start_bg
@@ -171,6 +252,7 @@ class HostBackgroundPagesInstrumentedTest {
                     repeat(2) {
                         root.viewTreeObserver.dispatchOnGlobalLayout()
                         root.viewTreeObserver.dispatchOnPreDraw()
+                        assertNotNull("The favorite filter inside ViewPager2 needs its own material", tabs.background)
                         if (color == Color.MAGENTA) assertSame(background, shade.background) else assertNull(shade.background)
                         if (color == Color.MAGENTA) {
                             assertSame(buttonBackground, button.background)
@@ -193,7 +275,7 @@ class HostBackgroundPagesInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val context = resourceContext(activity)
                 val decor = activity.window.decorView as ViewGroup
                 val root = FrameLayout(context)
                 val media = FrameLayout(context).apply { id = TestR.id.story_activity_root; setBackgroundColor(Color.BLACK) }
@@ -225,7 +307,7 @@ class HostBackgroundPagesInstrumentedTest {
                         assertTrue(HostBackgroundPages.protectedAncestor(view))
                         assertSame(root, HostBackgroundPages.owner(view))
                     }
-                    assertFalse(pages.scroll(list, 200))
+                    list.scrollBy(0, 200)
                 }
                 decor.removeView(root)
             }
@@ -236,7 +318,7 @@ class HostBackgroundPagesInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val context = resourceContext(activity)
                 val decor = activity.window.decorView as ViewGroup
                 val root = FrameLayout(context)
                 val strip = FrameLayout(context).apply { id = TestR.id.container_strip }
@@ -298,7 +380,7 @@ class HostBackgroundPagesInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val context = resourceContext(activity)
                 val decor = activity.window.decorView as ViewGroup
                 val root = FrameLayout(context)
                 val splash = FrameLayout(context).apply { id = TestR.id.splash_layout; setBackgroundColor(Color.BLACK) }
@@ -379,8 +461,8 @@ class HostBackgroundPagesInstrumentedTest {
                     assertNull(layer.background)
                     assertNull(input.background)
                     assertNull(list.background)
-                    assertTrue(pages.scroll(list, 137))
-                    assertEquals(137L, (root.background as HostBackgroundDrawable).scrollOffset)
+                    list.scrollBy(0, 137)
+                    assertEquals("The wallpaper must remain fixed in its viewport", 0L, (root.background as HostBackgroundDrawable).scrollOffset)
                     controller.apply(list, false)
                     assertNull(list.background)
                     decor.removeView(root)
@@ -389,7 +471,7 @@ class HostBackgroundPagesInstrumentedTest {
         }
     }
 
-    @Test fun embeddedVideoTabsMoveTheHeaderWithTheirScrollAndInterpolateDuringPaging() {
+    @Test fun embeddedVideoTabsKeepTheWallpaperFixedDuringScrollingAndPaging() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
@@ -461,38 +543,38 @@ class HostBackgroundPagesInstrumentedTest {
                 assertEquals(View.VISIBLE, pager.visibility)
                 panel.removeView(overlayHost)
                 val wallpaper = panel.background as HostBackgroundDrawable
-                assertTrue(pages.scroll(list, 281))
-                assertEquals(281L, wallpaper.scrollOffset)
-                assertFalse("Offscreen introduction must not move the header", pages.scroll(introList, 50))
+                list.scrollBy(0, 281)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
+                introList.scrollBy(0, 50)
                 intro.translationX = 0f
                 comment.translationX = 320f
                 round.viewTreeObserver.dispatchOnPreDraw()
-                assertEquals("The header must restore introduction's position", 0L, wallpaper.scrollOffset)
-                assertTrue(pages.scroll(introList, 137))
-                assertEquals(137L, wallpaper.scrollOffset)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
+                introList.scrollBy(0, 137)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 controller.apply(introList, false)
                 assertNull(intro.background)
                 assertNull(introList.background)
                 intro.translationX = -80f
                 comment.translationX = 240f
                 round.viewTreeObserver.dispatchOnPreDraw()
-                assertEquals("A quarter swipe must interpolate the two scroll positions", 173L, wallpaper.scrollOffset)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 intro.translationX = -160f
                 comment.translationX = 160f
                 round.viewTreeObserver.dispatchOnPreDraw()
-                assertEquals("Halfway through paging, callback order must not select a tab abruptly", 209L, wallpaper.scrollOffset)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 intro.translationX = -320f
                 comment.translationX = 0f
                 round.viewTreeObserver.dispatchOnPreDraw()
-                assertEquals("Returning to comments must restore their position", 281L, wallpaper.scrollOffset)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 controller.apply(list, true)
                 assertTrue(wallpaper.night)
                 assertNull(list.background)
                 comment.visibility = View.GONE
-                assertFalse(pages.scroll(list, 50))
+                list.scrollBy(0, 50)
                 comment.visibility = View.VISIBLE
                 round.viewTreeObserver.dispatchOnPreDraw()
-                assertEquals(281L, wallpaper.scrollOffset)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 // 普通窗口/动态评论弹层不应借用视频前景面板。
                 round.id = View.NO_ID
                 assertNull(HostBackgroundPages.sharedWallpaperOwner(comment))
@@ -501,7 +583,72 @@ class HostBackgroundPagesInstrumentedTest {
         }
     }
 
-    @Test fun homeFeedsShareTheWindowWallpaperAndKeepTheirOwnScrollPositions() {
+    @Test fun personalFeedSharesWallpaperWithAuthorsAndKeepsChromeAcrossLayouts() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val decor = activity.window.decorView as ViewGroup
+                val context = resourceContext(activity)
+                val window = FrameLayout(context)
+                val authors = RecyclerView(context).apply {
+                    id = TestR.id.dy_recycler
+                    layoutManager = LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
+                }
+                val feed = FrameLayout(context).apply { setBackgroundColor(Color.WHITE) }
+                val header = FrameLayout(context).apply {
+                    id = TestR.id.header_container
+                    setPadding(7, 3, 9, 4)
+                }
+                var clicks = 0
+                val action = TextView(context).apply { text = "关闭"; setOnClickListener { clicks++ } }
+                header.addView(action)
+                val list = RecyclerView(context).apply {
+                    id = TestR.id.recycler
+                    layoutManager = LinearLayoutManager(activity)
+                    setBackgroundColor(Color.WHITE)
+                }
+                feed.addView(header, FrameLayout.LayoutParams(-1, 48))
+                feed.addView(list, FrameLayout.LayoutParams(-1, -1).apply { topMargin = 48 })
+                window.addView(authors, FrameLayout.LayoutParams(-1, 80))
+                window.addView(feed, FrameLayout.LayoutParams(-1, -1).apply { topMargin = 80 })
+                decor.addView(window, ViewGroup.LayoutParams(320, 640))
+                window.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                window.layout(0, 0, 320, 640)
+                val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.AURORA), { throw it })
+                val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                pages.attach(feed, HostBackgroundPagePolicy.Kind.DYNAMIC)
+                pages.attach(window, HostBackgroundPagePolicy.Kind.NATIVE)
+                fun draw() {
+                    window.viewTreeObserver.dispatchOnGlobalLayout()
+                    window.viewTreeObserver.dispatchOnPreDraw()
+                }
+                draw()
+                val wallpaper = window.background as HostBackgroundDrawable
+                assertSame(window, HostBackgroundPages.sharedWallpaperOwner(feed))
+                assertNull("Personal content must not restart the image below the authors", feed.background)
+                assertNull(list.background)
+                assertNotNull(authors.background)
+                assertNotNull(header.background)
+                val material = header.background
+                controller.apply(list, false)
+                assertNull(list.background)
+                list.scrollBy(0, 137)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
+                draw()
+                assertSame("Neutral clearing must retain the installed chrome", material, header.background)
+                assertEquals(7, header.paddingLeft)
+                assertEquals(4, header.paddingBottom)
+                action.performClick()
+                assertEquals(1, clicks)
+                assertEquals(80, feed.top)
+                decor.removeView(window)
+                assertNull("Detach must restore the original header background", header.background)
+            }
+        }
+    }
+
+    @Test fun homeFeedsKeepOneFixedWindowWallpaperAcrossScrollingAndPageSwitches() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
@@ -543,27 +690,27 @@ class HostBackgroundPagesInstrumentedTest {
                 val second = feeds[1].getChildAt(0) as ViewGroup
                 assertNull("Feed roots must expose the window wallpaper", feeds[0].background)
                 assertNull("Lists must not restart the wallpaper below the header", first.background)
-                assertTrue(pages.scroll(first, 137))
-                assertEquals(137L, wallpaper.scrollOffset)
+                first.scrollBy(0, 137)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 controller.apply(first, false) // 卡片监听器也不能重新创建列表壁纸。
                 assertNull(first.background)
                 feeds[0].translationY = -80f
                 draw()
                 assertSame(wallpaper, window.background)
-                assertEquals(137L, wallpaper.scrollOffset)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 feeds[0].visibility = View.GONE
                 feeds[1].visibility = View.VISIBLE
                 draw()
-                assertEquals(0L, wallpaper.scrollOffset)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 assertNull(feeds[1].background)
                 assertNull(second.background)
-                assertTrue(pages.scroll(second, 281))
-                assertEquals(281L, wallpaper.scrollOffset)
-                assertFalse("Hidden feeds must not move the visible wallpaper", pages.scroll(first, 50))
+                second.scrollBy(0, 281)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
+                first.scrollBy(0, 50)
                 feeds[1].visibility = View.GONE
                 feeds[0].visibility = View.VISIBLE
                 draw()
-                assertEquals("Returning to a feed must restore its own position", 137L, wallpaper.scrollOffset)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 decor.removeView(window)
             }
         }
@@ -622,21 +769,21 @@ class HostBackgroundPagesInstrumentedTest {
                 assertSame(wallpaper, root.background)
                 assertTrue(wallpaper.night)
                 assertNull(list.background)
-                assertTrue(pages.scroll(list, 120))
-                assertEquals(120L, wallpaper.scrollOffset)
+                list.scrollBy(0, 120)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 list.visibility = View.GONE
                 otherList.visibility = View.VISIBLE
                 root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
                 root.layout(0, 0, 320, 640)
                 root.viewTreeObserver.dispatchOnGlobalLayout()
                 root.viewTreeObserver.dispatchOnPreDraw()
-                assertEquals("Each dynamic tab must retain its own wallpaper position", 0L, wallpaper.scrollOffset)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 assertNull("Full-width vertical lists must not depend on a particular resource name", otherList.background)
                 list.visibility = View.VISIBLE
                 otherList.visibility = View.GONE
                 root.viewTreeObserver.dispatchOnGlobalLayout()
                 root.viewTreeObserver.dispatchOnPreDraw()
-                assertEquals(120L, wallpaper.scrollOffset)
+                assertEquals("The wallpaper must remain fixed in its viewport", 0L, wallpaper.scrollOffset)
                 decor.removeView(root)
                 decor.addView(root, ViewGroup.LayoutParams(320, 640))
                 container.setBackgroundColor(Color.WHITE)
@@ -734,7 +881,8 @@ class HostBackgroundPagesInstrumentedTest {
         assertSame(dynamic, HostBackgroundPages.owner(dynamic))
         assertSame(comment, HostBackgroundPages.owner(list))
         assertTrue(window.background is HostBackgroundDrawable)
-        assertTrue(dynamic.background is HostBackgroundDrawable)
+        assertNull("Dynamic content must expose the shared window wallpaper", dynamic.background)
+        assertSame(window, HostBackgroundPages.sharedWallpaperOwner(dynamic))
         assertTrue(comment.background is HostBackgroundDrawable)
         assertNull(list.background)
         assertTrue(list.childCount > 0)

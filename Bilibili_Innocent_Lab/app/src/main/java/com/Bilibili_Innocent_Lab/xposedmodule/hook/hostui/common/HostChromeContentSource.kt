@@ -11,7 +11,8 @@ import com.lumen.coacervation.engine.host.LumenVersionedContentSource
 import com.lumen.coacervation.engine.host.LumenSourceAvailability
 
 /** Supplies the scene behind transparent feed content through the engine's public source API. */
-internal class HostChromeContentSource(override val coordinateView: View, var windowBaseColor: Int) : LumenVersionedContentSource {
+internal class HostChromeContentSource(override val coordinateView: View, var windowBaseColor: Int,
+    private val includeViewContent: Boolean = true) : LumenVersionedContentSource {
     private val ancestors = ArrayList<View>()
     private val matrix = Matrix()
     private val mapping = ViewSamplingMatrix()
@@ -19,16 +20,17 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
     private val savedBounds = Rect()
 
     override val sourceEpoch: Long get() = 0L
+    override val excludesSurfaces: Boolean get() = !includeViewContent
     override val availability: LumenSourceAvailability get() = LumenSourceAvailability.READY
     override val contentVersion: Long
-        get() {
+        get() = mapping.withAncestorMemo {
             // Backgrounds can change without invalidating the feed. A pure snapshot also catches
             // the source moving relative to the wallpaper and asynchronous artwork completion.
             var signature = 17L
             fun mix(value: Long) { signature = signature * 31L + value }
             mix(windowBaseColor.toLong())
             mix(coordinateView.scrollX.toLong()); mix(coordinateView.scrollY.toLong())
-            var view = coordinateView.parent as? View
+            var view = if (includeViewContent) coordinateView.parent as? View else coordinateView
             var depth = 0
             while (view != null && depth++ < 128) {
                 val background = view.background
@@ -47,15 +49,15 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
                 }
                 view = view.parent as? View
             }
-            return signature and Long.MAX_VALUE
+            signature and Long.MAX_VALUE
         }
 
-    override fun drawContent(canvas: Canvas) {
+    override fun drawContent(canvas: Canvas) = mapping.withAncestorMemo {
         // Window fallback backgrounds are not always exposed as View.background. Complete the
         // input's alpha before compositing the actual backgrounds and translucent feed layers.
         canvas.drawColor(windowBaseColor or 0xFF000000.toInt())
         ancestors.clear()
-        var ancestor = coordinateView.parent as? View
+        var ancestor = if (includeViewContent) coordinateView.parent as? View else coordinateView
         while (ancestor != null && ancestors.size < 128) {
             ancestors.add(ancestor)
             ancestor = ancestor.parent as? View
@@ -82,12 +84,14 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
                     canvas.restoreToCount(save)
                 }
             }
-            val save = canvas.save()
-            try {
-                // View.draw expects its parent to have applied the View's scroll offset.
-                canvas.translate(-coordinateView.scrollX.toFloat(), -coordinateView.scrollY.toFloat())
-                coordinateView.draw(canvas)
-            } finally { canvas.restoreToCount(save) }
+            if (includeViewContent) {
+                val save = canvas.save()
+                try {
+                    // View.draw expects its parent to have applied the View's scroll offset.
+                    canvas.translate(-coordinateView.scrollX.toFloat(), -coordinateView.scrollY.toFloat())
+                    coordinateView.draw(canvas)
+                } finally { canvas.restoreToCount(save) }
+            }
         } finally { ancestors.clear() }
     }
 }

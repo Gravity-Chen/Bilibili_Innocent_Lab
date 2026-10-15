@@ -23,6 +23,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropBlurStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRenderer
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 
 /**
  * 可备份用户意图的唯一白名单。
@@ -33,7 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRende
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 53
+    const val CATALOG_VERSION = 55
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -649,6 +650,10 @@ internal object SettingsCatalog {
             default = false,
             introducedCatalogVersion = 42
         ),
+        text("host.cards.material", FeaturePreferences.HOST_CARD_MATERIAL,
+            R.string.host_card_material, default = "original",
+            allowed = HostCardMaterial.entries.map { it.value }.toSet(),
+            introducedCatalogVersion = 55),
         integer(
             "host.video_cards.radius_dp",
             FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP,
@@ -997,7 +1002,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 234) { "Expected 234 catalog settings, found ${specs.size}" }
+        check(specs.size == 235) { "Expected 235 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

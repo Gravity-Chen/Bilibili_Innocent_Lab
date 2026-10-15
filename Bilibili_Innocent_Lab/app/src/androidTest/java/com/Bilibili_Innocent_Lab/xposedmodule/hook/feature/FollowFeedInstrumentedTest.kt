@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow.FollowFeedController
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow.FollowFeedHeader
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow.FollowFeedHostAccess
@@ -53,6 +54,11 @@ class FollowFeedInstrumentedTest {
         val host = context.createPackageContext("tv.danmaku.bili",
             Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY)
         val access = requireNotNull(FollowFeedHostAccess.resolve(host.classLoader))
+        val points = requireNotNull(FollowFeedAdapter.direct(host.classLoader))
+        val adapted = requireNotNull(FollowFeedAdapter.resolve(host.classLoader,
+            points.copy(personalDecorationClass = null, personalSeparatorClass = null)))
+        assertEquals("gv1.c", requireNotNull(adapted.personalDecoration).name)
+        assertNotNull(adapted.separator)
         val item = host.classLoader.loadClass("com.bilibili.bplus.followinglist.model.q0")
         assertEquals(item, access.moduleClass.getDeclaredMethod("M").returnType)
         assertEquals(Long::class.javaPrimitiveType, item.getDeclaredMethod("f").returnType)
@@ -680,9 +686,10 @@ class FollowFeedInstrumentedTest {
                 val a = selection.choice.options.getChildAt(0) as TextView
                 val b = selection.choice.options.getChildAt(1) as TextView
                 assertTrue(a.width > 0 && a.right <= b.left)
-                assertTrue(a.height >= 48 * configured.resources.displayMetrics.density)
+                // 紧凑筛选栏已改为 40dp；仍核对大字号文本、点击宽度和动作区不重叠。
+                assertTrue(a.height >= 40 * configured.resources.displayMetrics.density)
                 assertTrue(a.height >= a.lineHeight)
-                assertTrue(native.publish.width >= 48 * configured.resources.displayMetrics.density)
+                assertTrue(native.publish.width >= 40 * configured.resources.displayMetrics.density)
                 assertTrue(selection.choice.left >= 12 * configured.resources.displayMetrics.density)
                 assertTrue(selection.choice.right <= native.publish.left)
                 if (widthDp >= 640) {

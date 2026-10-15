@@ -194,6 +194,15 @@
     <string name="custom_bottom_bar_hide_dialog_title">底栏隐藏规则</string>
     <string name="custom_bottom_bar_hide_hint">例如：动态, 会员购</string>
     <string name="host_video_cards">视频卡片悬浮美化</string>
+    <string name="host_card_material">卡片材质</string>
+    <string name="host_card_material_current">卡片材质：%1$s</string>
+    <string name="host_card_material_tip">统一设置视频、追番影视、动态等卡片的材质，默认为原版。需开启视频卡片悬浮美化，重启哔哩哔哩后生效。</string>
+    <string name="host_card_material_original">原版</string>
+    <string name="host_card_material_original_tip">保持现有的纯色卡片表面。</string>
+    <string name="host_card_material_acrylic">亚克力</string>
+    <string name="host_card_material_acrylic_tip">模糊应用内背景，呈现半透明的亚克力质感。</string>
+    <string name="host_card_material_mica">云母（Mica）</string>
+    <string name="host_card_material_mica_tip">从静态宿主背景提取柔和色彩，呈现不透明的云母质感；未设置背景时使用纯色。</string>
     <string name="host_video_card_radius">视频卡片圆角</string>
     <string name="host_video_card_radius_current">视频卡片圆角：%1$s</string>
     <string name="host_video_card_radius_default">默认</string>

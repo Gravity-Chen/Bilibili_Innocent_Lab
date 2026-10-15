@@ -171,7 +171,11 @@ internal object SettingsCatalogMigrations {
             CatalogV7ToV8,
             CatalogV8ToV9,
             CatalogV9ToV10
-        )
+        ) + (10 until 54).map { version -> object : CatalogMigration {
+            override val fromVersion = version
+            override val toVersion = version + 1
+            override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
+        } } + CatalogV54ToV55
     )
 
     private object CatalogV1ToV2 : CatalogMigration {
@@ -236,6 +240,25 @@ internal object SettingsCatalogMigrations {
         override val fromVersion = 9
         override val toVersion = 10
         override fun migrate(records: List<BackupSetting>) = MigrationStepResult(records)
+    }
+
+    /** 保留显式/缺省身份和重复记录，非法类型仍由导入规划器拒绝。 */
+    private object CatalogV54ToV55 : CatalogMigration {
+        override val fromVersion = 54
+        override val toVersion = 55
+        override fun migrate(records: List<BackupSetting>): MigrationStepResult {
+            var changed = false
+            val next = records.map { record ->
+                if (record.id != "host.cards.acrylic.enabled") record else {
+                    changed = true
+                    val value = record.value
+                    record.copy(id = "host.cards.material", value = if (record.valueVersion == 1 && value is SettingValue.Bool)
+                        SettingValue.Text(if (value.value) "acrylic" else "original") else value)
+                }
+            }
+            return MigrationStepResult(next, notesByResultId = if (changed)
+                mapOf("host.cards.material" to listOf("card-acrylic-to-material")) else emptyMap())
+        }
     }
 }
 

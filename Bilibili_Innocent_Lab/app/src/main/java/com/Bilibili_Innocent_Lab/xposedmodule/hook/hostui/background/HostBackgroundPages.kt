@@ -18,6 +18,7 @@ import android.webkit.WebView
 import android.widget.ImageView
 import android.widget.TextView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardHostAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
@@ -32,7 +33,6 @@ internal class HostBackgroundPages(
     private val detailBackgrounds = WeakHashMap<View, Drawable>()
     private val types = HashMap<Class<*>, Boolean>()
     private val materialFills = HashMap<Class<*>, Pair<java.lang.reflect.Method, java.lang.reflect.Method>?>()
-    private val visiblePageBounds = Rect()
     val requiresNight: Boolean get() = background.requiresNight
 
     fun attach(root: ViewGroup, kind: HostBackgroundPagePolicy.Kind, window: Window? = null) {
@@ -77,34 +77,6 @@ internal class HostBackgroundPages(
         if (vertical) attach(list, HostBackgroundPagePolicy.Kind.FEED)
     }
 
-    fun scroll(list: ViewGroup, dy: Int): Boolean {
-        var node: View? = list
-        while (node != null) {
-            val page = pages[node]
-            if (page != null) return page.scroll(list, dy)
-            node = node.parent as? View
-        }
-        return false
-    }
-
-    private fun updateDetailWallpaper(panel: ViewGroup) {
-        // 图文评论位于正文之后，继承正文已经滚过的距离；视频左右标签则各自从零开始。
-        val opus = kinds[panel] == HostBackgroundPagePolicy.Kind.OPUS
-        val baseOffset = if (opus) pages[panel]?.wallpaperOffset(includeHidden = true) ?: 0L else 0L
-        var weightedOffset = 0.0
-        var visibleWidth = 0L
-        for ((root, page) in pages) {
-            if (sharedWallpaperOwner(root) !== panel || !root.isShown || !root.getGlobalVisibleRect(visiblePageBounds)) continue
-            val offset = page.wallpaperOffset() ?: continue
-            val width = visiblePageBounds.width()
-            weightedOffset += offset.toDouble() * width
-            visibleWidth += width
-        }
-        // 左右滑动时两个标签都可见，按可见宽度连续过渡，避免最后一个回调抢走顶栏原点。
-        if (visibleWidth > 0) background.pageOffset(panel, baseOffset + kotlin.math.round(weightedOffset / visibleWidth).toLong())
-        else if (opus) background.pageOffset(panel, baseOffset)
-    }
-
     private fun recycler(view: View): Boolean = types.getOrPut(view.javaClass) {
         var type: Class<*>? = view.javaClass
         while (type != null) {
@@ -115,8 +87,7 @@ internal class HostBackgroundPages(
         false
     }
 
-    private fun name(view: View) = if (view.id == View.NO_ID) "" else
-        runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+    private fun name(view: View) = HostViewResourceNames.name(view)
 
     private fun vertical(list: ViewGroup): Boolean? {
         val manager = KavaMemberLookup.inheritedMethodOrNull(list.javaClass, "getLayoutManager")?.invoke(list) ?: return null
@@ -135,11 +106,12 @@ internal class HostBackgroundPages(
         private val root = WeakReference(root)
         private var observer: WeakReference<ViewTreeObserver>? = null
         private var dirty = true
+        private var prepared = false
+        private val visibleBounds = Rect()
         private var containers = emptyList<WeakReference<View>>()
         private var lists = emptyList<WeakReference<ViewGroup>>()
         private var texts = emptyList<WeakReference<TextView>>()
-        private val positions = WeakHashMap<ViewGroup, Position>()
-        private var activeList: WeakReference<ViewGroup>? = null
+        private val textContrast = HostWallpaperText()
         private val window = WeakReference(window)
         private val wallpaperSystemBars = background.requiresNight || window?.context?.javaClass?.name == HostBackgroundPagePolicy.SIDE_CENTER_ACTIVITY
         private var sideCenter: WeakReference<View>? = null
@@ -148,6 +120,10 @@ internal class HostBackgroundPages(
             kind == HostBackgroundPagePolicy.Kind.COMMENT)
             HostDetailSurfaces(root, detailBackgrounds) else null
         private var opusChrome: HostOpusChrome? = null
+        private val pageChrome = if (kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.DYNAMIC)
+            HostPageChrome(root, detailBackgrounds) else null
+        private val readingSurfaces = if (kind == HostBackgroundPagePolicy.Kind.NATIVE)
+            HostReadingSurfaces(root, detailBackgrounds) else null
         private var mediaWindow = window?.context?.let { context ->
             HostBackgroundPagePolicy.mediaDetailActivity(generateSequence(context.javaClass as Class<*>?) { it.superclass }
                 .map { it.name }.toList())
@@ -157,25 +133,6 @@ internal class HostBackgroundPages(
             kind == HostBackgroundPagePolicy.Kind.OPUS
 
         fun invalidate() { dirty = true }
-
-        private inner class Position(list: ViewGroup) {
-            val top = HostBackgroundListPosition(list.javaClass)
-            var offset = 0L
-        }
-
-        private fun visible(list: ViewGroup) = list.isShown && list.getGlobalVisibleRect(android.graphics.Rect())
-
-        private fun position(list: ViewGroup) = positions.getOrPut(list) { Position(list) }.also {
-            if (it.offset != 0L && it.top.isAtTop(list)) it.offset = 0L
-        }
-
-        fun wallpaperOffset(includeHidden: Boolean = false): Long? {
-            val page = root.get() ?: return null
-            if (dirty) discover(page)
-            val list = activeList?.get()?.takeIf { includeHidden || visible(it) }
-                ?: lists.firstNotNullOfOrNull { it.get()?.takeIf { list -> includeHidden || visible(list) } }
-            return list?.let { position(it).offset }
-        }
 
         fun start() {
             val tree = root.get()?.viewTreeObserver ?: return
@@ -195,6 +152,9 @@ internal class HostBackgroundPages(
             observer = null
             detailSurfaces?.detach()
             opusChrome?.close(); opusChrome = null
+            pageChrome?.close()
+            readingSurfaces?.close()
+            textContrast.restore()
         }
 
         fun dispose() {
@@ -216,7 +176,7 @@ internal class HostBackgroundPages(
                 if (depth > (if (nativeContainers) 32 else 12) || node is ImageView) return
                 if (node !== root && kinds.containsKey(node)) return
                 if (node is TextView) {
-                    if (nativeContainers) nextTexts += WeakReference(node)
+                    nextTexts += WeakReference(node)
                     return
                 }
                 val id = name(node)
@@ -252,7 +212,8 @@ internal class HostBackgroundPages(
                     }
                     // 评论、详情、历史等原生列表的背景可能位于行内多层容器，且详情列表会嵌套评论列表。
                     // 只检查已经挂载的可见行，不遍历适配器、不触及图片和播放器。
-                    if (nativeContainers) for (i in 0 until node.childCount) visit(node.getChildAt(i), depth + 1)
+                    if (nativeContainers || background.requiresNight)
+                        for (i in 0 until node.childCount) visit(node.getChildAt(i), depth + 1)
                     return
                 }
                 if (node !== root && (wholePage || id in sectionNames)) nextContainers += WeakReference(node)
@@ -263,13 +224,18 @@ internal class HostBackgroundPages(
             lists = nextLists
             texts = nextTexts
             detailSurfaces?.discover()
+            pageChrome?.discover()
+            readingSurfaces?.discover()
             dirty = false
         }
 
         override fun onPreDraw(): Boolean {
-            runCatching {
+            HostViewResourceNames.inPass { runCatching {
                 val page = root.get()?.takeIf { it.isShown } ?: return@runCatching
+                // 预加载页也需一次初始适配，建立共享壁纸归属并清除旧底板；之后才跳过离屏帧。
+                if (prepared && !HostViewVisibility.visible(page, visibleBounds)) return@runCatching
                 if (dirty) discover(page)
+                prepared = true
                 // 播放窗口只给前景面板铺壁纸，状态栏、播放器及其工具栏保留宿主材质。
                 if (mediaWindow) return@runCatching
                 val night = host.isNight(page.context) || background.requiresNight
@@ -308,38 +274,25 @@ internal class HostBackgroundPages(
                     }
                 }
                 for (ref in containers) ref.get()?.takeIf { owner(it) === page }?.let { clearNeutral(it, page, nativeContainers) }
-                if (night) for (ref in texts) ref.get()?.takeIf { owner(it) === page }?.let { readableText(it, page) }
+                if (night) for (ref in texts) ref.get()?.takeIf { owner(it) === page }?.let { textContrast.apply(it, page) }
+                else textContrast.restore()
                 for (ref in lists) ref.get()?.takeIf { owner(it) === page }?.let(background::prepareList)
-                if ((wholePage || wallpaperOwner != null) && kind != HostBackgroundPagePolicy.Kind.COMPOSE) {
-                    if (kind == HostBackgroundPagePolicy.Kind.OPUS) updateDetailWallpaper(page)
-                    else if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
-                    else wallpaperOffset()?.let { background.pageOffset(wallpaperOwner ?: page, it) }
-                }
                 detailSurfaces?.apply(night)
                 opusChrome?.apply(night)
-            }.onFailure(onError)
+                pageChrome?.apply(night)
+                readingSurfaces?.apply(night)
+            }.onFailure(onError) }
             return true
         }
 
-        fun scroll(list: ViewGroup, dy: Int): Boolean {
-            val page = root.get() ?: return false
-            val wallpaperOwner = sharedWallpaperOwner(page)
-            if ((!wholePage && wallpaperOwner == null) || kind == HostBackgroundPagePolicy.Kind.COMPOSE) return false
-            if (lists.none { it.get() === list } || !visible(list)) return false
-            val position = positions.getOrPut(list) { Position(list) }
-            position.offset += dy
-            activeList = WeakReference(list)
-            if (kind == HostBackgroundPagePolicy.Kind.OPUS) updateDetailWallpaper(page)
-            else if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
-            else background.pageOffset(wallpaperOwner ?: page, position.offset)
-            return true
-        }
     }
 
     private fun clearNeutral(view: View, page: ViewGroup, nativeContainers: Boolean) {
+        // 大部分行内容器已经透明。先排除空背景，避免每帧重新解析它们的保护规则。
+        val drawable = view.background ?: return
+        if (detailBackgrounds[view] === drawable) return
         if (nativeContainers && tabActionSurface(view)) {
-            val drawable = view.background
-            if (drawable != null && neutralTabActionBackground(drawable)) {
+            if (neutralTabActionBackground(drawable)) {
                 val padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
                 view.background = null
                 view.setPadding(padding[0], padding[1], padding[2], padding[3])
@@ -347,14 +300,13 @@ internal class HostBackgroundPages(
             return
         }
         if (protected(view)) return
-        if (detailBackgrounds[view]?.let { it === view.background } == true) return
         // 侧边中心会随标签切换，把同一容器从 Bg2 改成黑色。媒体页白色顶栏依赖这块黑底。
         if ((view.background as? ColorDrawable)?.color == android.graphics.Color.BLACK && name(view) == "sidecenter_layout") return
         val left = view.paddingLeft
         val top = view.paddingTop
         val right = view.paddingRight
         val bottom = view.paddingBottom
-        when (val drawable = view.background) {
+        when (drawable) {
             is ColorDrawable -> if (HostBackgroundPagePolicy.neutral(drawable.color)) view.background = null
             is LayerDrawable -> {
                 if (!nativeContainers || name(view) !in chromeNames || view.width < page.width * .9f) return
@@ -427,24 +379,6 @@ internal class HostBackgroundPages(
             view.setPadding(left, top, right, bottom)
     }
 
-    private fun readableText(view: TextView, page: ViewGroup) {
-        val color = view.currentTextColor
-        if (view.textColors.isStateful || !HostBackgroundPagePolicy.neutral(color) || (color and 255) > 95) return
-        // 纯色底板移除后，少数固定黑色数字需要深色主题文字；有自身按钮/浅色面板的文字沿用业务样式。
-        var node: View? = view
-        while (node != null && node !== page) {
-            val drawable = node.background
-            val solid = when (drawable) {
-                is ColorDrawable -> drawable.color
-                is GradientDrawable -> drawable.color?.defaultColor
-                else -> null
-            }
-            if (solid != null && solid ushr 24 != 0 && (!HostBackgroundPagePolicy.neutral(solid) || (solid and 255) > 160)) return
-            node = node.parent as? View
-        }
-        view.setTextColor(0xffe3e5e7.toInt())
-    }
-
     private fun plainGradient(drawable: GradientDrawable): Boolean = drawable.shape == GradientDrawable.RECTANGLE &&
         drawable.cornerRadius == 0f && drawable.cornerRadii?.any { it != 0f } != true && drawable.colors == null &&
         drawable.color?.let { !it.isStateful && HostBackgroundPagePolicy.neutral(it.defaultColor) } == true
@@ -474,7 +408,8 @@ internal class HostBackgroundPages(
             return owner(view)?.let { kinds[it] }
         }
         fun nativeFeedOwner(page: ViewGroup): ViewGroup? {
-            if (kinds[page] != HostBackgroundPagePolicy.Kind.FEED) return null
+            // 单个 UP 的正文和窗口头像栏也必须共享原点；不能在 dy_pager 下重新铺图。
+            if (kinds[page] != HostBackgroundPagePolicy.Kind.FEED && kinds[page] != HostBackgroundPagePolicy.Kind.DYNAMIC) return null
             var node = page.parent as? View
             while (node != null) {
                 if (node is ViewGroup && kinds[node] == HostBackgroundPagePolicy.Kind.NATIVE &&
@@ -507,7 +442,7 @@ internal class HostBackgroundPages(
             return null
         }
         fun contains(view: View) = kind(view) != null
-        private fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||
+        fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||
             HostBackgroundPagePolicy.imageViewer(view.javaClass.name) ||
             name(view) in protectedNames || selectionChrome(view) || view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
             view.javaClass.name.startsWith("com.bilibili.video.story.") ||
@@ -522,8 +457,9 @@ internal class HostBackgroundPages(
             return false
         }
 
-        private fun name(view: View) = if (view.id == View.NO_ID) "" else
-            runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+        fun pageRoot(view: View): Boolean = kinds.containsKey(view)
+
+        private fun name(view: View) = HostViewResourceNames.name(view)
         private fun tabActionSurface(view: View): Boolean {
             val parent = view.parent as? View ?: return false
             // 收藏二级标签的渐变、按钮容器和图标各自持有 Bg1，需一起接到壁纸。
@@ -537,12 +473,13 @@ internal class HostBackgroundPages(
                     (0 until favoriteStrip.childCount).any { name(favoriteStrip.getChildAt(it)) == "right_button" }
             if (view is ImageView) return name(view) == "filter_icon" && name(parent) == "filter_icon_container" &&
                 (parent.parent as? View)?.let(::name) == "container_strip"
-            return view is ViewGroup && name(parent) == "tab_box" && view.childCount == 1 &&
-                view.getChildAt(0) is ImageView && name(view.getChildAt(0)) == "history_manage"
+            return view is ViewGroup && view.childCount == 1 && view.getChildAt(0) is ImageView &&
+                name(view.getChildAt(0)) == "history_manage" && name(parent) == "tab_box"
         }
         // 合集的吸顶信息栏遮住列表，固定标题栏遮住收起中的信息栏；两层都不能当作页面底板清空。
         private fun selectionChrome(view: View): Boolean {
-            if (name(view) != "head_layout" && name(view) != "top_layout") return false
+            val name = name(view)
+            if (name != "head_layout" && name != "top_layout") return false
             val parent = view.parent as? ViewGroup ?: return false
             return (0 until parent.childCount).any { name(parent.getChildAt(it)) == "select_list" }
         }

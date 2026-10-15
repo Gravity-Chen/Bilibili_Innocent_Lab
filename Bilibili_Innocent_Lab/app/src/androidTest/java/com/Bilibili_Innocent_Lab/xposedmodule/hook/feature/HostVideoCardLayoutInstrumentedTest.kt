@@ -69,10 +69,10 @@ class HostVideoCardLayoutInstrumentedTest {
             controller.apply(preview, true)
             assertSame(page, outer.background)
             assertTrue((page as HostBackgroundDrawable).night)
-            controller.scroll(preview, 120)
+            preview.scrollBy(0, 120)
             assertEquals(0L, page.scrollOffset)
-            controller.scroll(outer, 120)
-            assertEquals(120L, page.scrollOffset)
+            outer.scrollBy(0, 120)
+            assertEquals(0L, page.scrollOffset)
         }
     }
 }

@@ -18,8 +18,9 @@ class FollowFeedStyleTest {
         assertEquals(0, FollowFeedStyle.contentTopPadding(0, 0))
         assertEquals(0, FollowFeedStyle.contentTopPadding(24, 40))
         assertEquals(48, FollowFeedStyle.contentTopPadding(72, 24))
-        assertEquals(176, FollowFeedStyle.segmentWidth(1f))
-        assertEquals(256, FollowFeedStyle.segmentWidth(2f))
+        assertEquals(160, FollowFeedStyle.segmentWidth(1f))
+        assertEquals(240, FollowFeedStyle.segmentWidth(2f))
+        assertEquals(46, FollowFeedStyle.segmentHeight(1f))
     }
     @Test fun cardUsesAuditedStaticPresetWithOpaqueReadingSupport() {
         val card = FollowFeedStyle.card()

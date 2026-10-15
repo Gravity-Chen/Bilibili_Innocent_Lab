@@ -41,7 +41,7 @@ include(":app")
 
 // Build the reviewed release source; core and motion always come from the same tag.
 // Original parity extensions are upstream since 1.2.3; surface continuity since 1.4.1.
-val lumenRevision = "1.4.2"
+val lumenRevision = "1.4.5"
 val hostVersionCatalog = file("gradle/libs.versions.toml").readText()
 check(hostVersionCatalog.contains("lumen-engine = \"$lumenRevision\"")) {
     "Update the Lumen source pin and archive checksum together with the catalog."
@@ -68,7 +68,7 @@ if (lumenDevelopmentSource != null) {
         channel.lock().use {
             if (!lumenSource.resolve(".prepared").isFile) {
                 val archive = lumenCache.resolve("$lumenRevision.zip")
-                val archiveHash = "77739e81717cb6e82c09a1f93761a55816078ef39845cc201840021e9f048a5b"
+                val archiveHash = "84fe647935878fc26a06aea5d15c0fe7d9aa4a23aa1ef8f33d5310a190ae06b3"
                 if (!archive.isFile) {
                     check(!gradle.startParameter.isOffline) {
                         "Lumen source is not cached. Run Gradle once without --offline to fetch the pinned archive."
