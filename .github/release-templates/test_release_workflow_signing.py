@@ -1,6 +1,8 @@
 import unittest
 from pathlib import Path
 
+from run_gradle_gates import TASKS
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIRECTORY = REPOSITORY_ROOT / ".github" / "workflows"
@@ -28,7 +30,8 @@ class ReleaseWorkflowSigningTest(unittest.TestCase):
                 self.assertIn("apk_build_type=release", content)
                 self.assertIn("apk_debuggable=false", content)
                 self.assertIn("apk_signer_certificate_sha256", content)
-                self.assertIn("minifyReleaseWithR8", content)
+                self.assertIn("run_gradle_gates.py", content)
+                self.assertIn("minifyReleaseWithR8", TASKS)
                 self.assertIn("app/build/outputs/mapping/release/mapping.txt", content)
                 self.assertIn("r8_mapping_id=", content)
                 self.assertIn("r8_mapping_sha256=", content)
