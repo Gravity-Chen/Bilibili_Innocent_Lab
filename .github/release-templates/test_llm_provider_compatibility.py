@@ -29,6 +29,57 @@ def chat_reply():
 
 
 class ProviderCompatibilityTests(unittest.TestCase):
+    def test_every_chat_endpoint_sends_exactly_one_bounded_output_field(self):
+        for base, model, field in (
+            ("https://api.openai.com/v1", "gpt-4o", "max_completion_tokens"),
+            ("https://API.OPENAI.COM/v1/chat/completions", "o3", "max_completion_tokens"),
+            ("https://api.openai.com/v1", "gpt-5.6", "max_completion_tokens"),
+            ("https://api.river.ai/v1", "deepseek-ai/DeepSeek-V4.1-Flash", "max_tokens"),
+            ("https://api.deepseek.com", "deepseek-flash", "max_tokens"),
+            ("https://opencode.ai/inference/v1", "model", "max_tokens"),
+            ("https://proxy.example/v1/chat/completions", "model", "max_tokens"),
+            ("https://api.openai.com.proxy.example/v1", "model", "max_tokens"),
+        ):
+            with self.subTest(base=base), mock.patch("urllib.request.urlopen", return_value=chat_reply()) as request:
+                self.call(providers.ProviderSlot(1, "openai", base, model, "key"))
+                body = json.loads(request.call_args.args[0].data)
+                limits = {key: value for key, value in body.items() if key in {"max_tokens", "max_completion_tokens"}}
+                self.assertEqual({field: providers.MAX_OUTPUT_TOKENS}, limits)
+
+    def test_explicit_chat_output_field_preserves_existing_gateway_configuration(self):
+        for base in ("https://api.openai.com/v1", "https://api.river.ai/v1", "https://proxy.example/v1"):
+            for field in ("max_tokens", "max_completion_tokens"):
+                for cap in (1, providers.MAX_OUTPUT_TOKENS):
+                    with self.subTest(base=base, field=field, cap=cap):
+                        slots, problems = providers.load_slots({
+                            "RELEASE_NOTES_LLM_1_PROTOCOL": "openai", "RELEASE_NOTES_LLM_1_API_KEY": "key",
+                            "RELEASE_NOTES_LLM_1_BASE_URL": base, "RELEASE_NOTES_LLM_1_MODEL": "model",
+                            "RELEASE_NOTES_LLM_1_BODY_JSON": json.dumps({field: cap, "reasoning_effort": "low"})})
+                        self.assertEqual([], problems)
+                        with mock.patch("urllib.request.urlopen", return_value=chat_reply()) as request:
+                            self.call(slots[0])
+                        body = json.loads(request.call_args.args[0].data)
+                        self.assertEqual({field: cap}, {key: body[key] for key in ("max_tokens", "max_completion_tokens") if key in body})
+                        self.assertEqual("low", body["reasoning_effort"])
+
+    def test_invalid_chat_budgets_are_rejected_by_loading_and_direct_calls(self):
+        invalid = [{field: value} for field in ("max_tokens", "max_completion_tokens")
+                   for value in (None, True, False, 0, -1, 1.5, "cap-secret", [], {}, providers.MAX_OUTPUT_TOKENS+1)]
+        invalid += [{"max_tokens": 1, "max_completion_tokens": 1}]
+        for body in invalid:
+            with self.subTest(body=body), mock.patch("urllib.request.urlopen") as request:
+                slots, problems = providers.load_slots({
+                    "RELEASE_NOTES_LLM_1_PROTOCOL": "openai", "RELEASE_NOTES_LLM_1_API_KEY": "key",
+                    "RELEASE_NOTES_LLM_1_MODEL": "model", "RELEASE_NOTES_LLM_1_BODY_JSON": json.dumps(body)})
+                self.assertEqual([], slots)
+                self.assertTrue(problems)
+                self.assertNotIn("cap-secret", " ".join(problems))
+                slot = providers.ProviderSlot(1, "openai", "https://proxy.example/v1", "model", "key", extra_body=body)
+                with self.assertRaises(providers.ProviderError) as failure:
+                    self.call(slot)
+                self.assertNotIn("cap-secret", str(failure.exception))
+                request.assert_not_called()
+
     def test_river_deepseek_uses_json_and_bounded_non_reasoning_generation(self):
         slot = providers.ProviderSlot(2, "openai", "https://api.river.ai/v1", "deepseek-ai/DeepSeek-V4.1-Flash", "key")
         with mock.patch("urllib.request.urlopen", return_value=chat_reply()) as request:
@@ -66,12 +117,14 @@ class ProviderCompatibilityTests(unittest.TestCase):
                                              BytesIO(b'{"error":"json_schema unsupported"}'))
             return chat_reply()
         session = providers.ProviderSession()
-        slot = providers.ProviderSlot(1, "openai", "https://proxy.example/v1", "model", "key")
+        slot = providers.ProviderSlot(1, "openai", "https://proxy.example/v1", "model", "key",
+                                      extra_body={"max_completion_tokens": 4096})
         with mock.patch("urllib.request.urlopen", side_effect=receive):
             self.call(slot, session)
             self.call(slot, session)
         self.assertEqual(["json_schema", "json_object", "json_object"],
                          [body["response_format"]["type"] for body in bodies])
+        self.assertTrue(all(body["max_completion_tokens"] == 4096 and "max_tokens" not in body for body in bodies))
 
     def test_all_formats_rejected_falls_back_to_prompt_json(self):
         bodies = []
@@ -87,6 +140,7 @@ class ProviderCompatibilityTests(unittest.TestCase):
             self.call(slot)
         self.assertEqual(3, len(bodies))
         self.assertNotIn("response_format", bodies[-1])
+        self.assertTrue(all(body["max_tokens"] == providers.MAX_OUTPUT_TOKENS for body in bodies))
 
     def test_unrelated_format_error_does_not_trigger_capability_downgrade(self):
         error = urllib.error.HTTPError("https://proxy.example/v1/chat/completions", 400, "bad", {},
@@ -179,6 +233,7 @@ class ProviderCompatibilityTests(unittest.TestCase):
         self.assertEqual("json_schema", body["text"]["format"]["type"])
         self.assertEqual("Output JSON", body["instructions"])
         self.assertEqual("hi", body["input"][0]["content"])
+        self.assertEqual(providers.MAX_OUTPUT_TOKENS, body["max_output_tokens"])
         for status in ("incomplete", "failed", "in_progress"):
             with self.subTest(status=status), mock.patch("urllib.request.urlopen", return_value=Response({**payload, "status": status})):
                 with self.assertRaises(providers.ProviderError):
@@ -204,6 +259,7 @@ class ProviderCompatibilityTests(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", return_value=Response({"content": [{"type": "text", "text": "{}"}]})) as request:
             self.assertEqual("{}", self.call(slot))
         self.assertEqual("https://opencode.ai/inference/v1/messages", request.call_args.args[0].full_url)
+        self.assertEqual(providers.MAX_OUTPUT_TOKENS, json.loads(request.call_args.args[0].data)["max_tokens"])
         for payload in ([], {"content": None}, {"content": [None, {"type": "text", "text": 1}]}):
             with self.subTest(payload=payload), mock.patch("urllib.request.urlopen", return_value=Response(payload)):
                 with self.assertRaises(providers.ProviderError):
@@ -224,6 +280,7 @@ class ProviderCompatibilityTests(unittest.TestCase):
         body = json.loads(wire.data)
         self.assertEqual(["user", "model", "user"], [content["role"] for content in body["contents"]])
         self.assertEqual(OUTPUT_SCHEMA, body["generationConfig"]["responseJsonSchema"])
+        self.assertEqual(providers.MAX_OUTPUT_TOKENS, body["generationConfig"]["maxOutputTokens"])
         for reason in ("MAX_TOKENS", "SAFETY", "CONTINUATION"):
             with self.subTest(reason=reason), mock.patch("urllib.request.urlopen", return_value=Response(
                     {"candidates": [{**payload["candidates"][0], "finishReason": reason}]})):

@@ -125,6 +125,14 @@ Environment 里）。`<N>` 为 1、2、3，至少配置一个槽位；未配置 
 选择 `json_object`，以 16000 输出 token 上限与非思考模式生成；`BODY_JSON` 可以显式调整。
 上述任一模式都要经过本地结构、提交归属与完整覆盖校验，JSON 模式不等于 Schema 校验。
 
+所有 `openai`（Chat Completions）槽位都会发送明确的输出 token 上限，默认 16000。
+官方 `api.openai.com` 默认使用 `max_completion_tokens`；River、DeepSeek 与其他兼容端默认使用
+`max_tokens`。若兼容端需要指定字段，可在 `BODY_JSON` 设置单一 `max_tokens` 或
+`max_completion_tokens`，例如 `{"max_completion_tokens":8000}`；显式字段会替代默认字段。
+两字段不能同时出现，值必须是 1–16000 的整数，布尔、空值、非正数或超上限均在请求前拒绝。
+若所选模型的输出上限低于 16000，应显式设置更小值；脚本不根据模型名猜测提供商规格。
+这只控制单次输出额度；模型推理 token 是否计入该额度，以提供商合同为准。
+
 ### 多提供商配置
 
 基础地址由各提供商与所选模型的官方接口表确定，脚本不会根据模型名字猜协议。支持根路径、
@@ -134,6 +142,7 @@ Environment 里）。`<N>` 为 1、2、3，至少配置一个槽位；未配置 
 | --- | --- | --- |
 | OpenCode Console/Zen | Claude 用 `anthropic`，GPT 用 `responses`，兼容模型用 `openai`；当前基础地址是 `https://opencode.ai/inference/v1`，历史 Zen/Go 地址按账户实际端点配置 | [模型与接口表](https://opencode.ai/v2/docs/console/models/) |
 | OpenCode Go | 按模型选择协议；自动发送真实客户端 User-Agent 与同次生成稳定的 `x-opencode-session`，每次请求单独 ID；支持自定义头覆盖 | [会话头与客户端要求](https://opencode.ai/v2/docs/console/go/) |
+| OpenAI 官方 Chat Completions | `openai`，基础地址 `https://api.openai.com/v1`；默认使用 `max_completion_tokens` 控制输出额度，包括推理模型 | [Chat Completions 参数](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) |
 | DeepSeek | `openai`，基础地址 `https://api.deepseek.com`；自动 JSON 模式。`responses` 可用于其 Responses 接口 | [Chat Completions](https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/) |
 | OpenRouter | `openai`，基础地址 `https://openrouter.ai/api/v1`；可在 HEADERS_JSON 设置 HTTP-Referer、X-OpenRouter-Title | [结构化输出](https://openrouter.ai/docs/guides/features/structured-outputs)、[归属头](https://openrouter.ai/docs/app-attribution) |
 | Gemini OpenAI 兼容接口 | `openai`，基础地址 `https://generativelanguage.googleapis.com/v1beta/openai`，API Key 使用 Gemini 凭据 | [官方兼容说明](https://ai.google.dev/gemini-api/docs/openai) |
