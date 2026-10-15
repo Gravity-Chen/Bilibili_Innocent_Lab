@@ -38,7 +38,7 @@ class HostBackgroundContinuousInstrumentedTest {
             if (reportEdge && direction == -1) false else super.canScrollVertically(direction)
     }
 
-    @Test fun transientEdgeReportsDoNotResetTheWorldDuringFastReverseScrolling() {
+    @Test fun listScrollingAndRestorationNeverMoveTheWallpaper() {
         lateinit var list: TransientEdgeRecycler
         val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.STARRY), { throw it })
         scenario.onActivity { activity ->
@@ -66,28 +66,28 @@ class HostBackgroundContinuousInstrumentedTest {
             val first = (list.layoutManager as LinearLayoutManager).findFirstVisibleItemPosition()
             assertTrue("Fixture must reach row 80 before simulating a transient edge: first=$first, children=${list.childCount}, size=${list.width}x${list.height}", first >= 80)
             controller.apply(list, false)
-            controller.scroll(list, 9600)
+            list.scrollBy(0, 9600)
             val background = list.background as HostBackgroundDrawable
             list.reportEdge = true // 模拟重新布局时 canScrollVertically 暂时返回 false。
             controller.apply(list, false)
-            assertEquals("A transient edge report at row 80 must not erase the scroll history", 9600L, background.scrollOffset)
+            assertEquals("Transient layout edges must leave the wallpaper fixed", 0L, background.scrollOffset)
             list.reportEdge = false
-            controller.scroll(list, -400)
-            assertEquals("The background must follow rapid upward scrolling", 9200L, background.scrollOffset)
+            list.scrollBy(0, -400)
+            assertEquals("Rapid reverse scrolling must leave the wallpaper fixed", 0L, background.scrollOffset)
         }
-        // 新列表恢复到中途时尚未知道顶部距离，也不能把向上滚动钳制成零。
+        // 列表恢复到中途并反向滚动，也不能改变壁纸原点。
         val restored = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.STARRY), { throw it })
         scenario.onActivity {
             restored.apply(list, false)
-            restored.scroll(list, -400)
-            assertEquals(-400L, (list.background as HostBackgroundDrawable).scrollOffset)
+            list.scrollBy(0, -400)
+            assertEquals(0L, (list.background as HostBackgroundDrawable).scrollOffset)
             (list.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(0, 0)
             layout()
         }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         scenario.onActivity {
             restored.apply(list, false)
-            assertEquals("A stable return to the first row must still align the world origin", 0L,
+            assertEquals("Returning to the first row must preserve the wallpaper origin", 0L,
                 (list.background as HostBackgroundDrawable).scrollOffset)
         }
     }

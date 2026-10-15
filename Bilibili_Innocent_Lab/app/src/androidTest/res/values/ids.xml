@@ -43,4 +43,5 @@
     <item name="title" type="id" />
     <item name="rv_messages" type="id" />
     <item name="im_top_hint" type="id" />
+    <item name="app_bar" type="id" />
 </resources>

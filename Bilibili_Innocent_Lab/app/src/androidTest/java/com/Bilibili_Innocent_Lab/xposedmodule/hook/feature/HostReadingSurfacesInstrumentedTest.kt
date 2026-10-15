@@ -3,6 +3,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.content.ContextWrapper
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
@@ -16,6 +18,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostPageChrome
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostReadingSurfaces
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostWallpaperText
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopStatusFusionView
+import com.lumen.coacervation.engine.model.LumenPalette
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.test.R as TestR
 import org.junit.Assert.*
@@ -46,7 +50,7 @@ class HostReadingSurfacesInstrumentedTest {
         root.layout(0, 0, 700, 900)
     }
 
-    @Test fun mineGroupsKeepHostLayoutAndReleaseSurfacesWhenReused() = fixture { root ->
+    @Test fun mineUsesOneCardAndKeepsHostRowsUnchangedAcrossReuse() = fixture { root ->
         val context = root.context
         val mine = RecyclerView(context).apply {
             id = TestR.id.mine_recycle
@@ -62,6 +66,7 @@ class HostReadingSurfacesInstrumentedTest {
             setOnClickListener { clicks++ }
         }
         val original = section.background
+        val originalList = mine.background
         val iconBackground = icon.background
         mine.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             override fun getItemCount() = 1
@@ -81,10 +86,11 @@ class HostReadingSurfacesInstrumentedTest {
             val left = params.leftMargin
             assertEquals(3, left)
             val top = params.topMargin
-            assertTrue("Groups need vertical separation", top > 5)
+            assertEquals("A continuous card must not add gaps between sections", 5, top)
             assertSame(params, section.layoutParams)
-            assertSame(section.background, owned[section])
-            assertNotSame(original, section.background)
+            assertSame(mine.background, owned[mine])
+            assertEquals(1, owned.size)
+            assertNull("Sections must share the list's single card", section.background)
             assertSame(iconBackground, icon.background)
             section.performClick()
             assertEquals(1, clicks)
@@ -95,15 +101,17 @@ class HostReadingSurfacesInstrumentedTest {
             assertEquals(left, params.leftMargin)
             // 模拟复用成非功能分组，旧材质必须释放，宿主布局保持不变。
             section.removeViewAt(0)
-            surfaces.discover()
+            surfaces.discover(); surfaces.apply(false)
             assertSame(original, section.background)
             assertEquals(3, params.leftMargin)
             assertEquals(5, params.topMargin)
             assertEquals(7, params.rightMargin)
             assertEquals(9, params.bottomMargin)
             assertEquals(3, section.paddingLeft)
-            assertTrue(owned.isEmpty())
+            assertEquals(1, owned.size)
         } finally { surfaces.close() }
+        assertSame(originalList, mine.background)
+        assertTrue(owned.isEmpty())
     }
 
     @Test fun readingPlanesAndSearchGroupsDoNotStyleUnrelatedRowsOrMedia() = fixture { root ->
@@ -159,6 +167,45 @@ class HostReadingSurfacesInstrumentedTest {
             assertTrue(input.isFocusable)
         }
         assertNull(search.background)
+    }
+
+    @Test fun existingHomeFusionKeepsExclusiveOwnershipOfTheSearchToolbar() = fixture { root ->
+        val appBar = FrameLayout(root.context).apply { id = TestR.id.app_bar }
+        val toolbar = View(root.context).apply { id = TestR.id.nav_top_bar; setBackgroundColor(Color.BLUE) }
+        appBar.addView(toolbar, FrameLayout.LayoutParams(-1, 100))
+        root.addView(appBar, FrameLayout.LayoutParams(-1, 100))
+        val fusion = HostTopStatusFusionView(root.context, 1f, LumenPalette.neutral(true), null, 40, 200)
+        root.addView(fusion, FrameLayout.LayoutParams(-1, 200))
+        val original = toolbar.background
+        layout(root)
+        val owned = WeakHashMap<View, Drawable>()
+        HostPageChrome(root, owned).use { chrome ->
+            chrome.discover(); chrome.apply(true)
+            assertSame("A uniform surface must never cover the existing home fade", original, toolbar.background)
+            assertTrue(owned.isEmpty())
+        }
+    }
+
+    @Test fun adjacentPageBarsShareTheirMaterialAndFadeOutAtTheLowerEdge() = fixture { root ->
+        val toolbar = View(root.context).apply { id = TestR.id.nav_top_bar }
+        val filter = View(root.context).apply { id = TestR.id.tab_box }
+        root.addView(toolbar, FrameLayout.LayoutParams(-1, 100))
+        root.addView(filter, FrameLayout.LayoutParams(-1, 100).apply { topMargin = 100 })
+        layout(root)
+        fun alphaAt(view: View, y: Int): Int {
+            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            return try {
+                view.background.setBounds(0, 0, view.width, view.height)
+                view.background.draw(Canvas(bitmap))
+                Color.alpha(bitmap.getPixel(view.width / 2, y))
+            } finally { bitmap.recycle() }
+        }
+        HostPageChrome(root, WeakHashMap()).use { chrome ->
+            chrome.discover(); chrome.apply(true)
+            assertEquals("Adjacent components must not change material strength at their seam",
+                alphaAt(toolbar, 98), alphaAt(filter, 0))
+            assertTrue("The lower edge must blend into the wallpaper", alphaAt(filter, 99) <= 2)
+        }
     }
 
     @Test fun contrastKeepsTextHierarchyAndRestoresHostColors() = fixture { root ->

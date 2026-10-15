@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardSurface
 
@@ -18,6 +19,7 @@ import android.widget.TextView
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceBackend
 import com.lumen.coacervation.engine.host.LumenSurfaceSession
+import com.lumen.coacervation.engine.host.LumenSurfaceSessionOptions
 import com.lumen.coacervation.engine.host.LumenSurfaceOptions
 import com.lumen.coacervation.engine.model.LumenPalette
 import java.lang.ref.WeakReference
@@ -245,7 +247,9 @@ internal class FollowFeedController(
         private var colors = theme.read()
         var palette = FollowFeedStyle.palette(colors)
             private set
-        private val session = LumenSurfaceSession(root.context, palette)
+        private val session = LumenSurfaceSession(root.context, palette,
+            LumenSurfaceSessionOptions(pauseWhenWindowUnfocused = false))
+        private val visibleBounds = Rect()
         private val cardOptions = FollowFeedStyle.card()
         private val edits = FollowFeedViewEdits()
         private val lists = HashMap<ViewGroup, FeedList>()
@@ -283,7 +287,7 @@ internal class FollowFeedController(
         }
 
         fun list(view: ViewGroup) { lists.getOrPut(view) { FeedList(view) } }
-        fun hasCardSurface(list: ViewGroup, identity: Long) = !closed && !paused &&
+        fun hasCardSurface(list: ViewGroup, identity: Long) = !closed &&
             lists[list]?.hasSurface(identity) == true
 
         fun start() {
@@ -395,9 +399,12 @@ internal class FollowFeedController(
 
         fun pause() {
             if (closed || paused) return
-            paused = true
             // onPause 可能发生在 UP 主筛选/空间页的入场动画中，此时底页仍会绘制。
-            // 只停采样和释放绑定；原标题、发布父容器与占位等到真正销毁 View 再恢复。
+            // 保留最后一帧和背景替换资格，直到 View 真正隐藏/销毁。
+            // 入场动画尚在绘制底页时释放表面会让整张动态瞬间退回宿主底色。
+            val view = root.get()
+            if (view != null && view.windowVisibility == View.VISIBLE && HostViewVisibility.visible(view, visibleBounds)) return
+            paused = true
             statusBar?.pause()
             selection?.pause(); lists.values.forEach { it.releasePanels() }
             session.pause()

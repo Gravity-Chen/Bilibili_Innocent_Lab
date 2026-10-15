@@ -18,11 +18,12 @@ import kotlin.math.roundToInt
 
 /** 为文字列表和功能分组保留阅读层；不逐行模糊，不接管列表、点击或媒体。 */
 internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMap<View, Drawable>) : AutoCloseable {
-    private enum class Role { READING, GROUP }
+    private enum class Role { READING, GROUP, MINE }
     private class Target(val role: Role) {
         var binding: LumenSurfaceBinding? = null
         var drawable: Drawable? = null
         var spacing: Spacing? = null
+        var mine: HostMineReadingCard? = null
     }
     private class Spacing(params: ViewGroup.MarginLayoutParams, val inset: Int) {
         val params = WeakReference(params)
@@ -54,10 +55,7 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
             val parentName = (view.parent as? View)?.let(::name)
             when {
                 name == "mine_recycle" -> {
-                    for (i in 0 until view.childCount) {
-                        val section = view.getChildAt(i) as? ViewGroup ?: continue
-                        if (hasChild(section, "item_recycle")) found[section] = Role.GROUP
-                    }
+                    found[view] = Role.MINE
                     return
                 }
                 name == "search_discover_list" -> {
@@ -101,6 +99,10 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
         if (changed) { active.updatePalette(palette); dark = night }
         for ((view, target) in targets) {
             if (!view.isShown) continue
+            if (target.role == Role.MINE && view is ViewGroup) {
+                val card = target.mine ?: HostMineReadingCard(view).also { target.mine = it }
+                card.sync(night)
+            }
             if (target.role == Role.GROUP) {
                 val params = view.layoutParams as? ViewGroup.MarginLayoutParams
                 if (params != null && target.spacing?.params?.get() !== params) {
@@ -124,12 +126,12 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
 
     private fun options(role: Role, night: Boolean) = LumenSurfaceOptions(
         material = LumenSurfaceMaterial.STATIC, role = SurfaceRole.CARD,
-        radiusDp = if (role == Role.GROUP) 16f else 0f,
-        color = if (night) (if (role == Role.GROUP) 0xFF242731.toInt() else 0xFF181A20.toInt())
+        radiusDp = if (role == Role.READING) 0f else 16f,
+        color = if (night) (if (role != Role.READING) 0xFF242731.toInt() else 0xFF181A20.toInt())
             else 0xFFF8F9FC.toInt(),
         tintOpacity = if (night) .90f else .94f,
         fallbackTintOpacity = if (night) .90f else .94f,
-        edgeEnabled = role == Role.GROUP,
+        edgeEnabled = false,
         sampling = LumenSurfaceSampling(enabled = false)
     )
 
@@ -137,6 +139,7 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
         val target = targets.remove(view) ?: return
         if (owned[view] === target.drawable) owned.remove(view)
         target.binding?.close()
+        target.mine?.close()
         target.spacing?.restore(view)
     }
 

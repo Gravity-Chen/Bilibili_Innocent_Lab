@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.view.Gravity
 import android.widget.FrameLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.top.HostTopStatusFusionView
 import com.highcapable.betterandroid.ui.extension.insets.factory.createRootWindowInsetsWrapper
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceMaterial
@@ -25,6 +26,7 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
     private class Target(val role: Role) {
         var binding: LumenSurfaceBinding? = null
         var drawable: Drawable? = null
+        var options: LumenSurfaceOptions? = null
     }
     private val root = WeakReference(root)
     private val targets = WeakHashMap<View, Target>()
@@ -49,7 +51,8 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
             if (view !== root && (externalOwner || HostBackgroundPages.pageRoot(view))) return
             val name = name(view)
             val role = when (name) {
-                "nav_top_bar", "search_input_layout" -> Role.TOOLBAR
+                "nav_top_bar" -> if (HostTopStatusFusionView.ownsToolbar(view)) null else Role.TOOLBAR
+                "search_input_layout" -> Role.TOOLBAR
                 "tab_box", "container_strip", "header_container" -> Role.FILTER
                 "top_container" -> if (view is ViewGroup && (0 until view.childCount).any {
                     name(view.getChildAt(it)) == "tab_layout"
@@ -91,14 +94,16 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         }
         for ((view, target) in targets) {
             if (!view.isShown) continue
+            val options = options(target.role, night, continuesBelow(view))
             if (target.binding?.isBound != true || view.background !== target.drawable) {
                 target.binding?.close()
                 val padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
-                target.binding = active.bindSource(view, options(target.role, night), source)
+                target.binding = active.bindSource(view, options, source)
                 target.drawable = view.background
                 target.drawable?.let { owned[view] = it }
                 view.setPadding(padding[0], padding[1], padding[2], padding[3])
-            } else if (changed) target.binding?.update(options(target.role, night))
+            } else if (target.options != options) target.binding?.update(options)
+            target.options = options
         }
         syncStatusBar(active, night, changed)
         val next = source?.contentVersion
@@ -139,9 +144,9 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         // 与相邻栏共用源、模糊半径和色罩，保留壁纸的窗口坐标，系统图标由系统照常绘制。
         if (statusBinding?.isBound != true || statusRole != role) {
             statusBinding?.close()
-            statusBinding = active.bindSource(band, options(role, night), source)
+            statusBinding = active.bindSource(band, options(role, night, true), source)
             statusRole = role
-        } else if (changed) statusBinding?.update(options(role, night))
+        } else if (changed) statusBinding?.update(options(role, night, true))
     }
 
     private fun visibleChrome(view: View, root: ViewGroup): Boolean {
@@ -155,14 +160,30 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         return true
     }
 
-    private fun options(role: Role, night: Boolean) = LumenSurfaceOptions(
+    private fun continuesBelow(view: View): Boolean {
+        val root = root.get() ?: return false
+        view.getLocationInWindow(location)
+        val bottom = location[1] + view.height
+        val tolerance = view.resources.displayMetrics.density * 2f
+        return targets.keys.any { next ->
+            if (next === view || !visibleChrome(next, root)) false
+            else {
+                next.getLocationInWindow(location)
+                kotlin.math.abs(location[1] - bottom) <= tolerance && next.height > 0
+            }
+        }
+    }
+
+    private fun options(role: Role, night: Boolean, continues: Boolean) = LumenSurfaceOptions(
         material = LumenSurfaceMaterial.FROSTED, role = SurfaceRole.TOP_BAR, radiusDp = 0f,
         color = if (night) 0xFF181A20.toInt() else 0xFFF8F9FC.toInt(),
-        tintOpacity = when (role) { Role.TOOLBAR -> .62f; Role.FILTER -> .48f; Role.AUTHORS -> .38f },
-        fallbackTintOpacity = .88f, backdropOpacity = 1f,
+        // 相邻栏位共用强度，只在最下沿平滑消隐，避免每个组件各自形成矩形色块。
+        tintOpacity = .42f, fallbackTintOpacity = .42f, backdropOpacity = 1f,
         edgeEnabled = false,
         sampling = LumenSurfaceSampling(refractionEnabled = false, blurRadiusDp = 18f,
-            softwareBlurRadiusDp = 12f, maxSoftwarePixels = 48_000)
+            softwareBlurRadiusDp = 12f, maxSoftwarePixels = 48_000,
+            fadeEnabled = true, fadeHold = if (continues) 1f else if (role == Role.AUTHORS) .15f else 0f,
+            fadeEnd = 1f)
     )
 
     override fun close() {
