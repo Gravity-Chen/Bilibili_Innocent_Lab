@@ -24,7 +24,7 @@ class AndroidSdkProbeTest(unittest.TestCase):
         self.platform = self.root / "platforms" / "android-37.0"
         self.platform.mkdir(parents=True)
         (self.platform / "android.jar").write_bytes(b"jar")
-        (self.platform / "source.properties").write_text("AndroidVersion.ApiLevel=37\n", encoding="utf-8")
+        (self.platform / "source.properties").write_text("AndroidVersion.ApiLevel=37.0\n", encoding="utf-8")
 
     def probe(self, platform=None):
         with mock.patch.object(sdk.os, "access", return_value=True):
@@ -35,6 +35,17 @@ class AndroidSdkProbeTest(unittest.TestCase):
         self.assertTrue(self.probe())
         (self.tools / "source.properties").write_text("Pkg.Revision=36.0.0\n", encoding="utf-8")
         self.assertFalse(self.probe())
+
+    def test_integer_and_decimal_platforms_require_exact_api_values(self):
+        integer = self.root / "platforms" / "android-37"
+        integer.mkdir()
+        (integer / "android.jar").write_bytes(b"jar")
+        (integer / "source.properties").write_text("AndroidVersion.ApiLevel=37\n", encoding="utf-8")
+        self.assertTrue(self.probe("android-37"))
+        self.assertTrue(self.probe("android-37.0"))
+        for wrong in ("37", "37.1", "36.0"):
+            (self.platform / "source.properties").write_text("AndroidVersion.ApiLevel=" + wrong + "\n", encoding="utf-8")
+            self.assertFalse(self.probe("android-37.0"))
 
     def test_missing_nonexecutable_and_wrong_platform_reject(self):
         with mock.patch.object(sdk.os, "access", return_value=False):

@@ -31,7 +31,7 @@ def probe(root: Path, build_tools: str, platform: str | None = None) -> bool:
         return False
     if platform is not None:
         directory = root / "platforms" / platform
-        api = platform.removeprefix("android-").split(".", 1)[0]
+        api = platform.removeprefix("android-")
         jar = directory / "android.jar"
         if not jar.is_file() or jar.stat().st_size == 0:
             return False
