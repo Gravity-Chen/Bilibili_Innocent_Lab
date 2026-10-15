@@ -1,4 +1,5 @@
 import com.android.build.api.artifact.SingleArtifact
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.compile.JavaCompile
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
@@ -203,9 +204,33 @@ androidComponents.onVariants(androidComponents.selector().withBuildType("debug")
     }
 }
 
-// 源码护栏必须检查本次 composite build 实际使用的引擎，不能读取旧模块副本。
+// 源码护栏读取真实文件，必须把文本也计入 Test 缓存键；仅有测试 classpath 不足以
+// 识别注释、工作流或未改变字节码的源码修改。只允许公开生产输入，不包含构建输出、
+// local.properties、签名文件、环境文件或整个 .gradle 缓存。
+val sourceContractInputs = files(
+    fileTree("src/main"),
+    fileTree(rootDir) {
+        include(
+            "build.gradle.kts", "settings.gradle.kts", "gradle.properties",
+            "gradle/libs.versions.toml", "gradle/wrapper/gradle-wrapper.properties",
+            "gradlew", "gradlew.bat", "app/build.gradle.kts",
+            "app/proguard-rules.pro", "app/lint-baseline.xml"
+        )
+    },
+    fileTree(rootDir.parentFile) {
+        include(".github/workflows/*.yml", ".github/workflows/*.yaml")
+        include(".github/release-templates/*.py")
+        exclude(".github/release-templates/test_*.py")
+    },
+    fileTree(File(gradle.extra["innocentLab.lumenSource"].toString())) {
+        include("lumen-engine/src/main/**", "lumen-motion/src/main/**")
+    }
+)
 tasks.withType<Test>().configureEach {
     systemProperty("innocentLab.lumenSource", gradle.extra["innocentLab.lumenSource"])
+    inputs.files(sourceContractInputs)
+        .withPropertyName("sourceContractInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 // 测试源码不含 @Hikagable 注解，跳过无产出的测试 KSP 与测试 Lint 模型构建。
@@ -218,10 +243,10 @@ tasks.matching {
 
 // ---- 测试分层 ----
 // 行为测试（src/test/java）与源码契约测试（src/contractTest/java）共用 testDebugUnitTest。
-// 不带属性时两层全跑（本地门禁与改动前完全一致）；CI 用
+// 不带属性时两层全跑；CI 完整门禁在一次 Gradle 调用中保留两层。
+// 以下属性仅用于本地定向诊断：
 //   -PinnocentLab.testLayer=unit      只跑行为测试
 //   -PinnocentLab.testLayer=contract  只跑源码契约
-// 分成两个带名字的步骤，失败时一眼看出是逻辑坏了还是写法约束没同步。
 val contractTestRoot: File = file("src/contractTest/java")
 
 fun contractTestClassNames(): List<String> = contractTestRoot.walkTopDown()

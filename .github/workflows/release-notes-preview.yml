@@ -17,7 +17,7 @@ on:
         required: false
         type: string
       reuse_details_run:
-        description: Optional prior preview run with complete classified evidence; reruns only final refinement
+        description: Prior preview with a matching complete source/baseline/commits/config/tool receipt; reruns final refinement
         required: false
         type: string
 

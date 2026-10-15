@@ -66,13 +66,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Probe exact Android APK inspection tools
+        id: sdk
+        run: python3 .github/release-templates/android_sdk_probe.py --build-tools 37.0.0 --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
+
       - name: Set up Android APK inspection tools
+        if: steps.sdk.outputs.ready != 'true'
         uses: android-actions/setup-android@v4.0.4
         with:
           packages: platform-tools
 
       - name: Install APK inspection tools
+        if: steps.sdk.outputs.ready != 'true'
         run: sdkmanager "build-tools;37.0.0"
+
+      - name: Require exact APK inspection tools
+        run: python3 .github/release-templates/android_sdk_probe.py --build-tools 37.0.0 --require-ready --github-env "$GITHUB_ENV"
 
       - name: Verify APK identity and fixed signing certificate
         env:
