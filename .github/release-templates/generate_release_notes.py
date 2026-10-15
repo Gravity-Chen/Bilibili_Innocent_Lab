@@ -18,6 +18,7 @@ from pathlib import Path
 import generate_alpha_changelog
 import generate_stable_changelog
 import llm_providers
+import release_notes_receipt
 from release_context import ReleaseContext, batch_evidence_sections, build_context, load_config, resolve_baseline
 from release_note_common import CATEGORY_ICONS, escape_markdown_text
 
@@ -80,6 +81,7 @@ class GenerationResult:
     warnings: list[str] = field(default_factory=list)
     previous_tag: str | None = None
     commit_count: int = 0
+    reuse_receipt: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -633,7 +635,8 @@ def limit_notes(notes: ReleaseNotes, context: ReleaseContext, config: dict,
 
 
 def generate_with_llm(
-    context: ReleaseContext, config: dict, slots: list[llm_providers.ProviderSlot], log: list[str], warnings: list[str]
+    context: ReleaseContext, config: dict, slots: list[llm_providers.ProviderSlot], log: list[str], warnings: list[str],
+    classified: dict | None = None,
 ) -> tuple[ReleaseNotes, str] | None:
     session = llm_providers.ProviderSession()
     if len(context.commits) <= COMMIT_BATCH_SIZE:
@@ -641,7 +644,10 @@ def generate_with_llm(
             log.append("提交索引无法完整放入上下文，改用完整规则记录。")
             return None
         batch_config = {**config, "max_items": max(int(config.get("max_items", 18)), len(context.commits) * 2)}
-        return _generate_batch(context, batch_config, slots, log, warnings, session)
+        outcome = _generate_batch(context, batch_config, slots, log, warnings, session)
+        if outcome is not None and classified is not None:
+            classified.update(items=[vars(item) for item in outcome[0].items], maintenance=outcome[0].maintenance)
+        return outcome
     batches = [context.commits[offset:offset + COMMIT_BATCH_SIZE]
                for offset in range(0, len(context.commits), COMMIT_BATCH_SIZE)]
     merged = ReleaseNotes([], [], [])
@@ -671,6 +677,8 @@ def generate_with_llm(
         merged.maintenance.extend(notes.maintenance)
     merged.items = list(items.values())
     merged.maintenance = list(dict.fromkeys(merged.maintenance))
+    if classified is not None:
+        classified.update(items=[vars(item) for item in merged.items], maintenance=merged.maintenance)
     # 合并只去掉文字完全相同的条目，并合并其引用；不设正文总条数上限。
     limit = int(config.get("max_items", 100))
     if len(merged.items) > limit:
@@ -710,6 +718,8 @@ def generate(
     log: list[str] = []
     warnings: list[str] = []
     context: ReleaseContext | None = None
+    classified: dict = {}
+    receipt = None
 
     override = repo_root / ".github" / OVERRIDE_DIR_NAME / f"{release_tag}.md"
     if override.is_file():
@@ -734,12 +744,14 @@ def generate(
                     f"基线标签 {context.previous_tag} 不在当前历史中（疑似历史重写后未迁移 tag）；"
                     "已改用其树做净变化对比、提交记录按日期近似收敛，需人工核对该范围。"
                 )
-            outcome = generate_with_llm(context, config, slots, log, warnings)
+            outcome = generate_with_llm(context, config, slots, log, warnings, classified)
+            if classified:
+                receipt = release_notes_receipt.create(context, config, TEMPLATES_DIR, classified)
             if outcome is not None:
                 notes, label = outcome
                 summary = manual_summary or "".join(notes.summary)
                 return GenerationResult(render_changelog(notes, context, repository_url), summary, label, log, warnings,
-                                        context.previous_tag, len(context.commits))
+                                        context.previous_tag, len(context.commits), receipt)
             warnings.append("所有模型槽位均失败，已回退为规则版，请检查下方记录并考虑手写覆盖。")
 
     changelog = fallback_changelog(channel, repo_root, repository_url, release_tag, commit)
@@ -747,13 +759,15 @@ def generate(
     previous = context.previous_tag if context is not None else resolve_baseline(repo_root, commit, release_tag, channel)[0]
     archive_count = re.search(r"完整提交记录（(\d+)）", changelog)
     count = len(context.commits) if context is not None else (int(archive_count.group(1)) if archive_count else 0)
-    return GenerationResult(changelog, summary, "规则版", log, warnings, previous, count)
+    return GenerationResult(changelog, summary, "规则版", log, warnings, previous, count, receipt)
 
 
 def render_report(result: GenerationResult, channel: str, release_tag: str) -> str:
     lines = [f"### Release notes · {release_tag} ({channel})", "", f"- 生成来源：**{result.source}**"]
     if result.previous_tag:
         lines.append(f"- 对比基线：`{result.previous_tag}`；范围内非合并提交：{result.commit_count}")
+    if result.reuse_receipt is not None:
+        lines.append(release_notes_receipt.PREFIX + json.dumps(result.reuse_receipt, ensure_ascii=False, separators=(",", ":")))
     lines.extend(f"- ⚠️ {warning}" for warning in result.warnings)
     if result.log:
         lines.extend(["", "<details><summary>模型调用记录</summary>", ""])

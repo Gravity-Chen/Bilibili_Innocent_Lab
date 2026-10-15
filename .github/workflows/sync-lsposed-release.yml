@@ -96,18 +96,24 @@ jobs:
             -s .github/release-templates \
             -p 'test_*.py'
 
+      - name: Probe exact Android APK inspection tools
+        id: sdk
+        run: python3 .github/release-templates/android_sdk_probe.py --build-tools "$CI_BUILD_TOOLS" --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
+
       - name: Set up Android SDK
+        if: steps.sdk.outputs.ready != 'true'
         uses: android-actions/setup-android@v4.0.4
         with:
-          # packages 默认值 "tools platform-tools" 会跑 `sdkmanager tools`，而 Google 已在
-          # 2026-09-14 把废弃多年的 tools 包从 SDK 仓库下架，该调用直接 exit 1（Failed to
-          # find package 'tools'），把整个 job 卡死在 setup 阶段。上游 v4.0.1 还没改这个
-          # 默认值，只能在调用处覆盖。其余 SDK 包由下一步显式声明。
+          # Keep the supported package set explicit; build-tools are pinned below.
           packages: platform-tools
 
       - name: Install APK inspection tools
+        if: steps.sdk.outputs.ready != 'true'
         shell: bash
         run: sdkmanager "build-tools;${CI_BUILD_TOOLS}"
+
+      - name: Require exact APK inspection tools
+        run: python3 .github/release-templates/android_sdk_probe.py --build-tools "$CI_BUILD_TOOLS" --require-ready --github-env "$GITHUB_ENV"
 
       - name: Download source Release and assets
         shell: bash
@@ -197,11 +203,9 @@ jobs:
           TARGET_TAG: ${{ steps.identity.outputs.target_tag }}
         run: |
           set -euo pipefail
-          if gh release view "$TARGET_TAG" --repo "$TARGET_REPOSITORY" > /dev/null 2>&1; then
-            echo 'exists=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'exists=false' >> "$GITHUB_OUTPUT"
-          fi
+          python3 .github/release-templates/sync_lsposed_release.py exists \
+            --repository "$TARGET_REPOSITORY" --target-tag "$TARGET_TAG" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Create target LSPosed Release
         if: ${{ inputs.dry_run != true && steps.target.outputs.exists == 'false' }}

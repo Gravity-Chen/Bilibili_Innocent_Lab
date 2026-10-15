@@ -5,15 +5,31 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from sync_lsposed_release import (
     compare_mirrored_release,
     prepare_source_release,
     resolve_release_identity,
+    target_release_exists,
 )
 
 
 class SyncLsposedReleaseTest(unittest.TestCase):
+    def test_target_exists_distinguishes_404_from_auth_and_transport_errors(self):
+        for status, code, expected in ((200, 0, True), (404, 1, False)):
+            with mock.patch("sync_lsposed_release.subprocess.run", return_value=mock.Mock(
+                    returncode=code, stdout=f"HTTP/2.0 {status} Status\r\n\r\n{{}}")):
+                self.assertEqual(expected, target_release_exists("owner/repository", "8-1.0.7"))
+        for status in (401, 403, 429, 500, 503):
+            with mock.patch("sync_lsposed_release.subprocess.run", return_value=mock.Mock(
+                    returncode=1, stdout=f"HTTP/2.0 {status} Status\n")):
+                with self.assertRaisesRegex(ValueError, "Unable to establish"):
+                    target_release_exists("owner/repository", "8-1.0.7")
+        with mock.patch("sync_lsposed_release.subprocess.run", return_value=mock.Mock(returncode=1, stdout="")):
+            with self.assertRaisesRegex(ValueError, "unknown"):
+                target_release_exists("owner/repository", "8-1.0.7")
+
     def setUp(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)

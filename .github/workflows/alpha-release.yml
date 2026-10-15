@@ -128,8 +128,22 @@ jobs:
 
       - name: Set up Gradle and restore build cache
         uses: gradle/actions/setup-gradle@v6.4.0
+        with:
+          cache-provider: basic
+
+      - name: Probe exact Android SDK packages
+        id: sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/android_sdk_probe.py \
+            --build-tools "$CI_BUILD_TOOLS" \
+            --platform "${CI_COMPILE_SDK_PACKAGE#platforms;}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-env "$GITHUB_ENV"
 
       - name: Set up Android SDK
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
         uses: android-actions/setup-android@v4.0.4
         with:
           # packages 默认值 "tools platform-tools" 会跑 `sdkmanager tools`，而 Google 已在
@@ -139,96 +153,36 @@ jobs:
           packages: platform-tools
 
       - name: Install Android SDK packages
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
         shell: bash
         run: sdkmanager "${CI_COMPILE_SDK_PACKAGE}" "build-tools;${CI_BUILD_TOOLS}"
 
-      # 门禁拆成带名字的步骤（2026-09-24 门禁整合）。覆盖范围与原来的单条
-      # `assembleDebug testDebugUnitTest lintDebug minifyReleaseWithR8` 完全相同；
-      # 失败时直接看出是构建、行为测试、源码契约、Lint 还是混淆出了问题。
-      # 构建成功后其余步骤都会运行（互不短路），一次拿到全部结果。
-      # 行为测试 / 源码契约的划分见 app/build.gradle.kts 的 innocentLab.testLayer。
-      # 同一 job 保持相同 JDK/JVM 参数，复用守护进程；Lint 仍为完整门禁。
-      - name: Build debug APK
+      - name: Verify installed Android SDK packages
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/android_sdk_probe.py \
+            --build-tools "$CI_BUILD_TOOLS" \
+            --platform "${CI_COMPILE_SDK_PACKAGE#platforms;}" \
+            --github-env "$GITHUB_ENV" \
+            --require-ready
+
+      # One Gradle graph keeps behavior/contracts in the same complete report.
+      # The helper preserves full Lint and R8, continues independent gates on failure,
+      # and writes bounded task/report receipts without reusing a daemon.
+      - name: Run complete Gradle verification
         id: build
-        working-directory: Bilibili_Innocent_Lab
         shell: bash
         env:
           EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.build_version_name }}
         run: |
           set -euo pipefail
-          ./gradlew \
-            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
-            "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
-            "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
-            assembleDebug compileDebugUnitTestKotlin \
-            --console=plain --daemon
-
-      - name: Unit tests (behavior)
-        id: unit_tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        working-directory: Bilibili_Innocent_Lab
-        shell: bash
-        env:
-          EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.build_version_name }}
-        run: |
-          set -euo pipefail
-          ./gradlew \
-            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
-            "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
-            "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
-            -PinnocentLab.testLayer=unit \
-            testDebugUnitTest \
-            --console=plain --daemon
-
-      - name: Source contract tests
-        id: contract_tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        working-directory: Bilibili_Innocent_Lab
-        shell: bash
-        env:
-          EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.build_version_name }}
-        run: |
-          set -euo pipefail
-          ./gradlew \
-            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
-            "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
-            "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
-            -PinnocentLab.testLayer=contract \
-            testDebugUnitTest \
-            --console=plain --daemon
-
-      - name: Lint
-        id: lint
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        working-directory: Bilibili_Innocent_Lab
-        shell: bash
-        env:
-          EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.build_version_name }}
-        run: |
-          set -euo pipefail
-          ./gradlew \
-            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
-            "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
-            "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
-            lintDebug \
-            compileReleaseKotlin compileReleaseJavaWithJavac \
-            --console=plain --daemon
-
-      - name: Validate Release minification
-        id: minify
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        working-directory: Bilibili_Innocent_Lab
-        shell: bash
-        env:
-          EXPECTED_VERSION_NAME: ${{ steps.identity.outputs.build_version_name }}
-        run: |
-          set -euo pipefail
-          ./gradlew \
-            "-Dorg.gradle.jvmargs=${CI_GRADLE_JVMARGS}" \
-            "-Pproject.android.compileSdk=${CI_COMPILE_SDK}" \
-            "-PinnocentLab.releaseVersionName=${EXPECTED_VERSION_NAME}" \
-            minifyReleaseWithR8 \
-            --console=plain --daemon
+          python3 .github/release-templates/run_gradle_gates.py \
+            --project-root Bilibili_Innocent_Lab \
+            --compile-sdk "$CI_COMPILE_SDK" \
+            --release-version-name "$EXPECTED_VERSION_NAME" \
+            --jvmargs="$CI_GRADLE_JVMARGS"
 
       - name: Upload test and lint reports
         if: ${{ failure() }}
@@ -238,6 +192,7 @@ jobs:
           path: |
             Bilibili_Innocent_Lab/app/build/reports/tests/
             Bilibili_Innocent_Lab/app/build/reports/lint-results-debug.*
+            Bilibili_Innocent_Lab/app/build/reports/gradle-gates.*
           if-no-files-found: ignore
           retention-days: 7
 
@@ -279,10 +234,23 @@ jobs:
       - name: Set up Gradle and restore build cache
         uses: gradle/actions/setup-gradle@v6.4.0
         with:
+          cache-provider: basic
           # Restore the verify job's dependency/R8 task cache before signing.
           cache-read-only: true
 
+      - name: Probe exact Android SDK packages
+        id: sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/android_sdk_probe.py \
+            --build-tools "$CI_BUILD_TOOLS" \
+            --platform "${CI_COMPILE_SDK_PACKAGE#platforms;}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --github-env "$GITHUB_ENV"
+
       - name: Set up Android SDK
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
         uses: android-actions/setup-android@v4.0.4
         with:
           # packages 默认值 "tools platform-tools" 会跑 `sdkmanager tools`，而 Google 已在
@@ -292,8 +260,20 @@ jobs:
           packages: platform-tools
 
       - name: Install Android SDK packages
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
         shell: bash
         run: sdkmanager "${CI_COMPILE_SDK_PACKAGE}" "build-tools;${CI_BUILD_TOOLS}"
+
+      - name: Verify installed Android SDK packages
+        if: ${{ steps.sdk.outputs.ready != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/release-templates/android_sdk_probe.py \
+            --build-tools "$CI_BUILD_TOOLS" \
+            --platform "${CI_COMPILE_SDK_PACKAGE#platforms;}" \
+            --github-env "$GITHUB_ENV" \
+            --require-ready
 
       - name: Restore fixed release signing identity
         id: signing

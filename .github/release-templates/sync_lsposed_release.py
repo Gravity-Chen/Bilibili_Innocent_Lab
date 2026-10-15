@@ -7,9 +7,11 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 
 EXPECTED_PACKAGE_NAME = "com.Bilibili_Innocent_Lab.xposedmodule"
@@ -18,6 +20,23 @@ RELEASE_TAG_PATTERN = re.compile(
     r"(?:-alpha\.(0|[1-9]\d*))?$"
 )
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
+def target_release_exists(repository: str, tag: str) -> bool:
+    """Only an explicit GitHub 404 permits creation; transport/auth errors fail closed."""
+    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) is None:
+        raise ValueError("Invalid target repository")
+    response = subprocess.run(
+        ["gh", "api", "--include", f"repos/{repository}/releases/tags/{quote(tag, safe='')}"],
+        check=False, capture_output=True, text=True, timeout=60,
+    )
+    statuses = re.findall(r"^HTTP/\S+\s+(\d{3})\b", response.stdout, flags=re.MULTILINE)
+    status = int(statuses[-1]) if statuses else None
+    if status == 404:
+        return False
+    if response.returncode == 0 and status == 200:
+        return True
+    raise ValueError(f"Unable to establish target Release existence (HTTP {status or 'unknown'})")
 
 
 @dataclass(frozen=True)
@@ -397,6 +416,12 @@ def compare_command(args: argparse.Namespace) -> None:
     print(f"Verified mirrored LSPosed Release {args.target_tag}")
 
 
+def exists_command(args: argparse.Namespace) -> None:
+    exists = target_release_exists(args.repository, args.target_tag)
+    with args.github_output.open("a", encoding="utf-8") as stream:
+        stream.write(f"exists={str(exists).lower()}\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -417,6 +442,12 @@ def main() -> None:
     compare.add_argument("--target-assets", required=True, type=Path)
     compare.add_argument("--target-tag", required=True)
     compare.set_defaults(handler=compare_command)
+
+    exists = subparsers.add_parser("exists")
+    exists.add_argument("--repository", required=True)
+    exists.add_argument("--target-tag", required=True)
+    exists.add_argument("--github-output", required=True, type=Path)
+    exists.set_defaults(handler=exists_command)
 
     args = parser.parse_args()
     try:
