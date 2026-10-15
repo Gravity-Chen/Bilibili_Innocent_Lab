@@ -17,7 +17,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardSurface
-import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostCardAcrylicScope
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostCardMaterialScope
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity
 import com.lumen.coacervation.engine.host.LumenAcrylicFallbackReason
 import com.lumen.coacervation.engine.host.LumenSurfaceBackend
@@ -166,7 +166,7 @@ class HostVideoCardAcrylicInstrumentedTest {
             lateinit var compose: View
             lateinit var window: Window
             lateinit var scope: HostVideoCardSurface.Scope
-            lateinit var paint: HostCardAcrylicScope.CardPaint
+            lateinit var paint: HostCardMaterialScope.CardPaint
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
                 window = activity.window

@@ -1,10 +1,12 @@
 # 凝光源码接入
 
-当前基线固定为上游 [1.4.4 标签](https://github.com/jichuo1/LumenCoacervationEngine/tree/1.4.4)，core 与 motion 同时接入，正式源码归档 SHA-256 为 `0b4d3cb1250c5493708b02859cc1946c4668b719efe277e29cf09ee93923c8d5`。构建对齐 Android 复合工程需要的工具链版本，由引擎统一提供表面连续性修复。
+当前基线固定为上游 [1.4.5 标签](https://github.com/jichuo1/LumenCoacervationEngine/tree/1.4.5)，core 与 motion 同时接入，正式源码归档 SHA-256 为 `84fe647935878fc26a06aea5d15c0fe7d9aa4a23aa1ef8f33d5310a190ae06b3`。构建对齐 Android 复合工程需要的工具链版本，由引擎统一提供表面连续性修复。
 
-1.4.3 新增 `LumenFluentControl`，提供应用内亚克力（Acrylic）、层级描边和阴影；上游明确尚未实现 Mica。1.4.4 修复滚动来源更新、长文字控件识别和 Android 12 模糊滤镜缓存问题，公开 API 与最低 Android 版本保持不变。
+1.4.3 新增 `LumenFluentControl`，提供应用内亚克力（Acrylic）、层级描边和阴影。1.4.4 修复滚动来源更新、长文字控件识别和 Android 12 模糊滤镜缓存问题。1.4.5 新增独立的 `LumenMicaBackdrop`、静态背景预处理和内容分层，并修复 GPU 磨砂颜色及淡化语义；最低 Android 版本保持不变。
 
-宿主的“卡片亚克力效果”默认关闭；开启后由 `HostCardAcrylicScope` 将一个公开 Fluent 控件录制成每视口共享的材质场，原生、追番影视 Compose 和动态卡片分别按位置裁剪。卡片仍有独立描边、阴影和 Drawable 生命周期，避免逐卡片重复采样、模糊以及噪点合成。关闭时保持静态表面，不创建这条采样管线。设置属于备份目录 v54，支持收藏定位和更新说明跳转，重启宿主生效。
+宿主“卡片材质”提供原版、亚克力、云母（Mica）三个选项，默认原版，依赖视频卡片悬浮美化，重启宿主生效。`HostCardMaterialScope` 将公开材质录制成每视口共享的结果，原生、追番影视 Compose、动态与引用卡片按窗口坐标裁剪。亚克力沿用一个 Fluent 控件和采样绑定；云母使用一个 `LumenMicaBackdrop` 和 CARD 内容层，后台通过 `LumenMicaImage.prepare()` 处理模块静态宿主背景配方，不读取系统壁纸或页面截图，滚动及子内容变化不重复预处理。未设置背景时使用引擎纯色回退。各卡片保留独立描边、阴影及 Drawable 生命周期，原版不创建共享材质管线。
+
+设置目录为 v55，旧 v54 布尔开关在设置显示、备份导出及宿主配置发布时统一解释；旧备份显式迁移为字符串选项，收藏身份同步映射。已开启的旧开关继承亚克力，新选项优先于遗留值。
 
 引擎 1.2.3 已吸收历史三个扩展；它们作为历史记录保留，settings 不再应用。首次构建下载固定归档并核对哈希，此后支持 `--offline`。缓存键由版本和宿主工具链版本确定，缓存位于 `.gradle/lumen-source/`，不提交缓存。
 
@@ -24,7 +26,7 @@
 
 ## 历史：1.2.2 的公共扩展
 
-以下补丁与诊断后缀仅保留发生背景，不是当前 settings 的应用清单。当前 1.4.4 已由引擎吸收这些能力。
+以下补丁与诊断后缀仅保留发生背景，不是当前 settings 的应用清单。当前 1.4.5 已由引擎吸收这些能力。
 
 基线固定为上游 [1.2.2 发布版](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.2.2)。为保留迁移前的效果，在引擎原包名下应用小范围公共扩展；宿主适配只使用公开 API，不重新维护材质、探针或弹簧求解器。接入结构见 `app/src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/hook/hostui/README.md`。
 

@@ -171,8 +171,15 @@
     <string name="custom_bottom_bar_hide_dialog_title">Hidden bottom-bar rules</string>
     <string name="custom_bottom_bar_hide_hint">Example: Dynamic, Mall</string>
     <string name="host_video_cards">Floating video cards</string>
-    <string name="host_card_acrylic">Acrylic card material</string>
-    <string name="host_card_acrylic_tip">Apply acrylic material to floating cards, including videos, anime, films and dynamic posts. Disabled by default. Requires floating video cards. Restart Bilibili to apply.</string>
+    <string name="host_card_material">Card material</string>
+    <string name="host_card_material_current">Card material: %1$s</string>
+    <string name="host_card_material_tip">Choose a material for video, anime, film and dynamic cards. Original is the default. Requires floating video cards. Restart Bilibili to apply.</string>
+    <string name="host_card_material_original">Original</string>
+    <string name="host_card_material_original_tip">Keep the existing solid card surface.</string>
+    <string name="host_card_material_acrylic">Acrylic</string>
+    <string name="host_card_material_acrylic_tip">Blur the in-app background with a translucent acrylic finish.</string>
+    <string name="host_card_material_mica">Mica</string>
+    <string name="host_card_material_mica_tip">Use soft colors from the static host background with an opaque Mica finish. Falls back to a solid color without a background.</string>
     <string name="host_video_card_radius">Video card corner radius</string>
     <string name="host_video_card_radius_current">Video card corner radius: %1$s</string>
     <string name="host_video_card_radius_default">Default</string>

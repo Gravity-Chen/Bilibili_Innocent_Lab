@@ -686,9 +686,10 @@ class FollowFeedInstrumentedTest {
                 val a = selection.choice.options.getChildAt(0) as TextView
                 val b = selection.choice.options.getChildAt(1) as TextView
                 assertTrue(a.width > 0 && a.right <= b.left)
-                assertTrue(a.height >= 48 * configured.resources.displayMetrics.density)
+                // 紧凑筛选栏已改为 40dp；仍核对大字号文本、点击宽度和动作区不重叠。
+                assertTrue(a.height >= 40 * configured.resources.displayMetrics.density)
                 assertTrue(a.height >= a.lineHeight)
-                assertTrue(native.publish.width >= 48 * configured.resources.displayMetrics.density)
+                assertTrue(native.publish.width >= 40 * configured.resources.displayMetrics.density)
                 assertTrue(selection.choice.left >= 12 * configured.resources.displayMetrics.density)
                 assertTrue(selection.choice.right <= native.publish.left)
                 if (widthDp >= 640) {

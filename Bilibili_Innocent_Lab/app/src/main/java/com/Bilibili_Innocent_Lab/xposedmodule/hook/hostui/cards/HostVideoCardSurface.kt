@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.lumen.coacervation.engine.host.LumenActivityDelegate
 import com.lumen.coacervation.engine.model.LumenPalette
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGarbTheme
@@ -20,8 +21,8 @@ internal object HostVideoCardSurface {
 
     fun color(night: Boolean, context: Context? = null): Int = palette(night, context).surface
 
-    internal class Scope(list: ViewGroup, night: Boolean, context: Context = list.context) :
-        HostCardAcrylicScope(list, night, context)
+    internal class Scope(list: ViewGroup, night: Boolean, context: Context = list.context,
+        material: HostCardMaterial = HostCardMaterial.ACRYLIC) : HostCardMaterialScope(list, night, context, material)
 
     fun create(view: View, radiusPx: Float, night: Boolean): Drawable? {
         val activity = activity(view.context) ?: return null

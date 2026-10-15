@@ -3146,7 +3146,7 @@ class HookEntry : XposedModule() {
                     ),
                     *HostVideoCardStyleFeatureInstaller.shared(
                         enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
-                        acrylic = prefs.getBoolean(FeaturePreferences.HOST_CARD_ACRYLIC, false),
+                        material = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.parse(prefs.getString(FeaturePreferences.HOST_CARD_MATERIAL, "original")),
                         radiusDp = prefs.getInt(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP, -1),
                         homeSpacing = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec(
                             prefs.getInt(FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP, -1),
@@ -3162,7 +3162,7 @@ class HookEntry : XposedModule() {
                     ).toTypedArray(),
                     FollowFeedFeatureInstaller(
                         enabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
-                        acrylic = prefs.getBoolean(FeaturePreferences.HOST_CARD_ACRYLIC, false),
+                        material = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.parse(prefs.getString(FeaturePreferences.HOST_CARD_MATERIAL, "original")),
                         points = hostAdaptResult?.followFeedStyle
                     )
                 )

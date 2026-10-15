@@ -13,6 +13,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgro
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPageHooks
 
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import android.view.View
 import android.view.ViewGroup
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
@@ -25,7 +26,7 @@ internal class HostVideoCardStyleFeatureInstaller(
     private val backgroundConfig: HostBackgroundConfig = HostBackgroundConfig(),
     override val id: String = ID,
     private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(),
-    private val acrylic: Boolean = false
+    private val material: HostCardMaterial = HostCardMaterial.ORIGINAL
 ) : FeatureInstaller {
     private var backgroundEnvironment: HookEnvironment? = null
     private var pageHookCount = 0
@@ -56,7 +57,7 @@ internal class HostVideoCardStyleFeatureInstaller(
         }
         val style = HostVideoCardStyle(grid = grid, host = styleHost, decorateCards = enabled,
             background = background.takeIf { backgroundConfig.enabled },
-            homeSpacing = homeSpacing.normalized(), acrylic = acrylic,
+            homeSpacing = homeSpacing.normalized(), material = material,
             radiusDp = HostVideoCardStyleSpec.normalizeRadius(radiusDp), onApplied = {
             if ((enabled || homeSpacing.enabled) && firstHit.compareAndSet(false, true)) {
                 environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
@@ -69,7 +70,7 @@ internal class HostVideoCardStyleFeatureInstaller(
         })
         return runCatching {
             val ogvHooks = if (enabled) HostOgvCardHooks.install(environment, styleHost,
-                HostVideoCardStyleSpec.normalizeRadius(radiusDp), acrylic = acrylic) {
+                HostVideoCardStyleSpec.normalizeRadius(radiusDp), material = material) {
                 if (firstHit.compareAndSet(false, true)) {
                     environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
                     environment.logInfo("${id}_applied", "[BIL] 追番/影视卡片表面已生效")
@@ -142,10 +143,10 @@ internal class HostVideoCardStyleFeatureInstaller(
 
         /** 两项诊断仍独立，实际 bind Hook、卡片识别、主题读取和列表监听只安装一套。 */
         fun shared(enabled: Boolean, radiusDp: Int, backgroundConfig: HostBackgroundConfig,
-            homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(), acrylic: Boolean = false): List<FeatureInstaller> {
+            homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(), material: HostCardMaterial = HostCardMaterial.ORIGINAL): List<FeatureInstaller> {
             val delegate = HostVideoCardStyleFeatureInstaller(enabled, radiusDp, backgroundConfig,
                 id = if (enabled || homeSpacing.enabled) ID else BACKGROUND_ID, homeSpacing = homeSpacing.normalized(),
-                acrylic = enabled && acrylic)
+                material = if (enabled) material else HostCardMaterial.ORIGINAL)
             var result: FeatureInstallResult? = null
             fun install(environment: HookEnvironment): FeatureInstallResult = result ?: delegate.install(environment).also { result = it }
             return listOf(

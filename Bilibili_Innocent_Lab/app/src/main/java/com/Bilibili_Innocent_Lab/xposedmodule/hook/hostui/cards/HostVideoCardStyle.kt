@@ -4,6 +4,7 @@ import android.graphics.Outline
 import android.graphics.drawable.Drawable
 import android.util.SparseIntArray
 import android.util.TypedValue
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -23,7 +24,7 @@ internal class HostVideoCardStyle(
     private val decorateCards: Boolean = true,
     private val background: com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController? = null,
     private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(),
-    private val acrylic: Boolean = false
+    private val material: HostCardMaterial = HostCardMaterial.ORIGINAL
 ) {
     private class Cover(view: View) {
         val view = WeakReference(view)
@@ -35,10 +36,10 @@ internal class HostVideoCardStyle(
     private class Panel(view: View) {
         val view = WeakReference(view)
         private var original = view.background
-        private val acrylicOnly = view.javaClass.name == "com.bilibili.magicasakura.widgets.TintView"
+        private val materialOnly = view.javaClass.name == "com.bilibili.magicasakura.widgets.TintView"
         private var cleared = false
-        fun blocks(acrylic: Boolean) = (!acrylicOnly || acrylic) && view.get()?.background != null
-        fun clear(acrylic: Boolean) { if (!acrylicOnly || acrylic) view.get()?.let {
+        fun blocks(shared: Boolean) = (!materialOnly || shared) && view.get()?.background != null
+        fun clear(shared: Boolean) { if (!materialOnly || shared) view.get()?.let {
             if (it.background != null) { original = it.background; it.background = null; cleared = true }
         } }
         fun restore() {
@@ -129,7 +130,7 @@ internal class HostVideoCardStyle(
             val list = parent.get() ?: return null
             // 仅加载宿主资源的 Context 没有应用生命周期，Fluent 的系统服务需要真实应用。
             if (context.applicationContext == null) return null
-            return (surfaces ?: HostVideoCardSurface.Scope(list, night, context).also { surfaces = it })
+            return (surfaces ?: HostVideoCardSurface.Scope(list, night, context, material).also { surfaces = it })
                 .also { it.refresh(night) }
         }
 
@@ -173,7 +174,7 @@ internal class HostVideoCardStyle(
                 }
                 var changed = state.surfaceScope?.get() !== surfaces || state.color != color || root.background !== state.surface ||
                     root.outlineProvider !== state || !root.clipToOutline
-                if (!changed) changed = state.nativePanels.any { it.blocks(acrylic) }
+                if (!changed) changed = state.nativePanels.any { it.blocks(material.usesSharedField) }
                 if (!changed) for (cached in state.covers) {
                     val cover = cached.view.get() ?: continue
                     val outline = if (state.integratedCover) ViewOutlineProvider.BOUNDS else coverOutline
@@ -404,7 +405,7 @@ internal class HostVideoCardStyle(
             else HostVideoCardStyleSpec.cardRadius(root.width, root.height, radiusDp, density)
         val resized = state.updateGeometry(root.width, root.height, radius)
         val color = HostVideoCardSurface.color(night, root.context)
-        val scope = if (acrylic) listWatchers[parent]?.surfaceScope(night, root.context) ?: return else null
+        val scope = if (material.usesSharedField) listWatchers[parent]?.surfaceScope(night, root.context) ?: return else null
         if (state.surfaceScope?.get() !== scope || state.surface == null || root.background !== state.surface ||
             state.surfaceRadius != radius || state.color != color) {
             if (state.surfaceScope?.get() !== scope) state.surfaceScope?.get()?.release(root)
@@ -416,13 +417,13 @@ internal class HostVideoCardStyle(
             state.surface = surface
         }
         if (!state.decorated) {
-            if (!acrylic) HostVideoCardShadow.apply(root)
+            if (!material.usesSharedField) HostVideoCardShadow.apply(root)
             state.decorated = true
             onApplied()
         }
         if (root.background !== state.surface) root.background = state.surface
         // 信息区保留宿主约束和点击目标，背景由整卡统一承载，换肤后也不会重新出现方形底板。
-        state.nativePanels.forEach { it.clear(acrylic) }
+        state.nativePanels.forEach { it.clear(material.usesSharedField) }
         val replaced = root.outlineProvider !== state
         if (replaced) root.outlineProvider = state
         // 引擎背景、裁切与平台柔影共用半径。

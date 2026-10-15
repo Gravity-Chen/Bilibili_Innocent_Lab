@@ -6,7 +6,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Gravity
 import android.widget.FrameLayout
-import android.widget.ImageView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
 import com.highcapable.betterandroid.ui.extension.insets.factory.createRootWindowInsetsWrapper
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
@@ -42,9 +41,12 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
     fun discover() {
         val root = root.get() ?: return
         val found = HashMap<View, Role>()
+        val protectedRoot = HostBackgroundPages.protectedAncestor(root)
+        val externalOwner = HostBackgroundPages.owner(root)?.let { it !== root } == true
         fun visit(view: View, depth: Int) {
-            if (depth > 24 || view is ImageView || HostBackgroundPages.protectedAncestor(view)) return
-            if (view !== root && HostBackgroundPages.owner(view)?.let { it !== root } == true) return
+            // 祖先已由递归入口检查；不再为每个子节点从头扫描整条父链。
+            if (depth > 24 || protectedRoot || HostBackgroundPages.protected(view)) return
+            if (view !== root && (externalOwner || HostBackgroundPages.pageRoot(view))) return
             val name = name(view)
             val role = when (name) {
                 "nav_top_bar", "search_input_layout" -> Role.TOOLBAR
@@ -175,6 +177,5 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
         }
     }
 
-    private fun name(view: View) = if (view.id == View.NO_ID) "" else
-        runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+    private fun name(view: View) = HostViewResourceNames.name(view)
 }

@@ -472,7 +472,7 @@ class MainActivity : SkinnedActivity() {
     internal var hostBottomBarGlassAppearance = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance()
     internal var hostBottomBarTouchGlow = false
     internal var hostVideoCards = false
-    internal var hostCardAcrylic = false
+    internal var hostCardMaterial = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.ORIGINAL
     internal var hostVideoCardRadiusDp = -1
     internal var hostHomeCardHorizontalDp = -1
     internal var hostHomeCardVerticalDp = -1

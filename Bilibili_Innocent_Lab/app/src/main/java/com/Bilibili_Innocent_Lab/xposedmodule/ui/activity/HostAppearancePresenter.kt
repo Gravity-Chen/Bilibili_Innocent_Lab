@@ -9,6 +9,7 @@ import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.hikage.core.Hikage
 import com.highcapable.hikage.core.layout.LayoutParams
@@ -19,7 +20,7 @@ import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.v
 
 internal fun MainActivity.loadHostCardSettings(settings: com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings) {
     hostVideoCards = settings.bool(FeaturePreferences.HOST_VIDEO_CARDS)
-    hostCardAcrylic = settings.bool(FeaturePreferences.HOST_CARD_ACRYLIC)
+    hostCardMaterial = HostCardMaterial.parse(settings.string(FeaturePreferences.HOST_CARD_MATERIAL))
     hostHomeCardHorizontalDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec.normalize(
         settings.int(FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP))
     hostHomeCardVerticalDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec.normalize(
@@ -335,23 +336,23 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
-        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }) {
-            bindFavoriteSwitch(this, FeaturePreferences.HOST_CARD_ACRYLIC, directToggle = true)
-            text = stringResource(R.string.host_card_acrylic)
-            isAllCaps = false
+        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }) {
+            bindSettingDestination(this, FeaturePreferences.HOST_CARD_MATERIAL)
+            fun refresh() {
+                text = getString(R.string.host_card_material_current, getString(hostCardMaterialLabel(hostCardMaterial)))
+            }
+            refresh()
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
-            isChecked = hostCardAcrylic
-            setOnCheckedChangeListener { _, checked ->
-                hostCardAcrylic = checked
-                runCatching { prefs().edit { putBoolean(FeaturePreferences.HOST_CARD_ACRYLIC, checked) } }
-                    .onFailure { Log.e("BilibiliInnocentLab", "write host card acrylic prefs failed", it) }
-            }
+            setPadding(0, 12.dp, 0, 12.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true; isFocusable = true
+            setOnClickListener { showHostCardMaterialDialog(this, ::refresh) }
         }
         TextView(lparams = LayoutParams(widthMatchParent = true)) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
-            text = stringResource(R.string.host_card_acrylic_tip)
+            text = stringResource(R.string.host_card_material_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }

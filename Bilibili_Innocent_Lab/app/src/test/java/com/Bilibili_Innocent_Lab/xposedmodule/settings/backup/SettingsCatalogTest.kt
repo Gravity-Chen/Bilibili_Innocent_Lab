@@ -9,14 +9,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
-    @Test fun `catalog v54 adds a default off acrylic setting without changing card styling`() {
-        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v54.txt"))
+    @Test fun `catalog v55 replaces the acrylic switch with three materials defaulting to original`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v55.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
-        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 54 }
-        assertEquals("host.cards.acrylic.enabled", added.id)
-        assertEquals(FeaturePreferences.HOST_CARD_ACRYLIC, added.storageKey)
-        assertEquals(SettingValue.Bool(false), added.defaultValue)
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 55 }
+        assertEquals("host.cards.material", added.id)
+        assertEquals(FeaturePreferences.HOST_CARD_MATERIAL, added.storageKey)
+        assertEquals(SettingValue.Text("original"), added.defaultValue)
+        listOf("original", "acrylic", "mica").forEach { assertTrue(added.accepts(SettingValue.Text(it))) }
+        assertFalse(added.accepts(SettingValue.Text("unknown")))
+        assertFalse(added.accepts(SettingValue.Bool(true)))
         assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
         assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
     }
@@ -481,7 +484,7 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(54, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(55, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -780,9 +783,9 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(143, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(142, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(23, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
-        assertEquals(69, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
+        assertEquals(70, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 
         val roaming = requireNotNull(SettingsCatalog.byId["compat.roaming.enabled"])
         assertEquals(RestorePolicy.MANUAL, roaming.restorePolicy)

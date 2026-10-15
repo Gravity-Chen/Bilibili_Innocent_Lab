@@ -17,6 +17,7 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.geometry.ViewSamplingMatrix
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.lumen.coacervation.engine.host.LumenAcrylicOptions
 import com.lumen.coacervation.engine.host.LumenFluentControl
@@ -28,14 +29,16 @@ import com.lumen.coacervation.engine.host.LumenSurfaceSessionOptions
 import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
-/** 每个内容视口只绑定一个亚克力场，View / Compose / 动态分组仅裁剪这份共享结果。 */
-internal open class HostCardAcrylicScope(private val owner: ViewGroup, night: Boolean,
-    private val context: Context = owner.context) : AutoCloseable,
+/** 每个内容视口只绑定一个材质场，View / Compose / 动态分组仅裁剪这份共享结果。 */
+internal open class HostCardMaterialScope(private val owner: ViewGroup, night: Boolean,
+    private val context: Context = owner.context,
+    internal val materialKind: HostCardMaterial = HostCardMaterial.ACRYLIC) : AutoCloseable,
     View.OnAttachStateChangeListener, ViewTreeObserver.OnPreDrawListener {
     private var palette = HostVideoCardSurface.palette(night, context)
     private var night = night
     private var themeReadAt = 0L
-    private val content = HostChromeContentSource(owner, palette.background, includeViewContent = false)
+    private val content = if (materialKind == HostCardMaterial.ACRYLIC)
+        HostChromeContentSource(owner, palette.background, includeViewContent = false) else null
     private val cards = WeakHashMap<View, CardPaint>()
     private val paints = WeakHashMap<CardPaint, WeakReference<View>>()
     private var hardwareDirty = true
@@ -47,12 +50,12 @@ internal open class HostCardAcrylicScope(private val owner: ViewGroup, night: Bo
     private var version = Long.MIN_VALUE
     private var visible: Boolean? = null
     private var observer: ViewTreeObserver? = null
-    private var hardwareScene: HostCardAcrylicScene? = null
-    private var softwareScene: HostCardAcrylicScene? = null
+    private var hardwareScene: HostCardMaterialScene? = null
+    private var softwareScene: HostCardMaterialScene? = null
     private val location = IntArray(2)
     private val mapping = ViewSamplingMatrix()
     private val source = object : View(context) {
-        override fun onDraw(canvas: Canvas) = content.drawContent(canvas)
+        override fun onDraw(canvas: Canvas) { content?.drawContent(canvas) }
     }.apply { alpha = 0f; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
     private val field = object : View(context) {
         override fun invalidate() { super.invalidate(); changed() }
@@ -63,18 +66,22 @@ internal open class HostCardAcrylicScope(private val owner: ViewGroup, night: Bo
         clipBounds = Rect()
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
-    private val session = LumenSurfaceSession(context, palette, LumenSurfaceSessionOptions(
+    private val session = if (materialKind == HostCardMaterial.ACRYLIC) LumenSurfaceSession(context, palette, LumenSurfaceSessionOptions(
         maxSurfaces = 1, autoPauseWhenHidden = false, pauseWhenWindowUnfocused = false,
-        maxGpuSurfacePixels = 8_388_608))
-    private val material: LumenFluentControl
+        maxGpuSurfacePixels = 8_388_608)) else null
+    private val material: LumenFluentControl?
+    private val mica: HostCardMicaField?
     var closed = false
         private set
     internal var materialRecordings = 0L
         private set
 
     init {
-        owner.overlay.add(source); owner.overlay.add(field)
-        material = LumenFluentControl(field, palette, materialOptions(), session, source)
+        require(materialKind.usesSharedField)
+        if (session != null) owner.overlay.add(source)
+        owner.overlay.add(field)
+        material = if (session != null) LumenFluentControl(field, palette, materialOptions(), session, source) else null
+        mica = if (materialKind == HostCardMaterial.MICA) HostCardMicaField(owner, field, palette, ::changed) else null
         owner.addOnAttachStateChangeListener(this)
         if (owner.isAttachedToWindow) observe()
         refresh(night)
@@ -114,14 +121,15 @@ internal open class HostCardAcrylicScope(private val owner: ViewGroup, night: Bo
         if (closed || refreshedFrame == frame && this.night == night) return
         refreshedFrame = frame
         val shown = owner.isShown
-        if (visible != shown) { visible = shown; if (shown) session.resume() else session.pause() }
+        if (visible != shown) { visible = shown; if (shown) session?.resume() else session?.pause() }
         val now = SystemClock.uptimeMillis()
         if (this.night != night || now - themeReadAt >= 250) {
             this.night = night; themeReadAt = now
             val next = HostVideoCardSurface.palette(night, context)
             if (next != palette) {
-                palette = next; content.windowBaseColor = next.background
-                session.updatePalette(next); material.updatePalette(next); material.update(materialOptions())
+                palette = next; content?.windowBaseColor = next.background
+                session?.updatePalette(next); material?.updatePalette(next); material?.update(materialOptions())
+                mica?.updatePalette(next)
                 paints.keys.toList().forEach { it.updatePalette() }
                 changed()
             }
@@ -132,9 +140,10 @@ internal open class HostCardAcrylicScope(private val owner: ViewGroup, night: Bo
             // 卡片显示列表保留着这个节点的引用，尺寸变化时必须复用节点身份。
             changed()
         }
-        val nextVersion = content.contentVersion
+        mica?.refresh()
+        val nextVersion = content?.contentVersion ?: return
         if (version != nextVersion) {
-            version = nextVersion; source.invalidate(); session.notifyContentChanged(); changed()
+            version = nextVersion; source.invalidate(); session?.notifyContentChanged(); changed()
         }
     }
 
@@ -149,12 +158,12 @@ internal open class HostCardAcrylicScope(private val owner: ViewGroup, night: Bo
             shadowEnabled = shadow, pressedLowersElevation = false),
         cornerRadiusDp = radius, stateLayerEnabled = false, focusVisualEnabled = false)
 
-    private fun record(hardware: Boolean): HostCardAcrylicScene? {
+    private fun record(hardware: Boolean): HostCardMaterialScene? {
         if (closed || !owner.isShown || owner.width <= 0 || owner.height <= 0) return null
         val useHardware = hardware && AndroidVersion.isAtLeast(AndroidVersion.Q)
         // 顶栏的软件采样会重画这些卡片，不能因此丢弃屏幕显示列表引用的 GPU 节点。
-        val scene = if (useHardware) hardwareScene ?: HostCardAcrylicSceneApi29().also { hardwareScene = it }
-            else softwareScene ?: HostCardAcrylicPicture().also { softwareScene = it }
+        val scene = if (useHardware) hardwareScene ?: HostCardMaterialSceneApi29().also { hardwareScene = it }
+            else softwareScene ?: HostCardMaterialPicture().also { softwareScene = it }
         if (useHardware) {
             if (!hardwareDirty || hardwareRecordedFrame == frame) return scene
             hardwareDirty = false; hardwareRecordedFrame = frame
@@ -162,7 +171,7 @@ internal open class HostCardAcrylicScope(private val owner: ViewGroup, night: Bo
             if (!softwareDirty || softwareRecordedFrame == frame) return scene
             softwareDirty = false; softwareRecordedFrame = frame
         }
-        val background = requireNotNull(field.background)
+        val background = requireNotNull(mica?.drawable ?: field.background)
         background.setBounds(0, 0, owner.width, owner.height)
         scene.record(background, owner.width, owner.height)
         materialRecordings++
@@ -186,8 +195,10 @@ internal open class HostCardAcrylicScope(private val owner: ViewGroup, night: Bo
 
     fun release(view: View) { cards.remove(view)?.let { paints.remove(it); it.close() } }
     fun positionChanged(view: View) { cards[view]?.invalidateSelf() }
-    internal fun diagnostics(view: View) = if (cards.containsKey(view)) material.diagnostics() else null
-    internal fun samplingDiagnostics() = session.diagnostics()
+    internal fun diagnostics(view: View) = if (cards.containsKey(view)) material?.diagnostics() else null
+    internal fun samplingDiagnostics() = requireNotNull(session).diagnostics()
+    internal fun micaDiagnostics() = mica?.diagnostics()
+    internal fun micaPreparations() = mica?.preparations ?: 0L
 
     internal inner class CardPaint(view: View, radiusPx: Float, private val native: Boolean) : Drawable(), AutoCloseable {
         private val host = WeakReference(view)
@@ -259,9 +270,10 @@ internal open class HostCardAcrylicScope(private val owner: ViewGroup, night: Bo
         observer?.takeIf { it.isAlive }?.removeOnPreDrawListener(this); observer = null
         owner.removeOnAttachStateChangeListener(this)
         paints.keys.toList().forEach { it.close() }; paints.clear(); cards.clear()
-        material.close(); session.close()
+        material?.close(); session?.close(); mica?.close()
         hardwareScene?.close(); hardwareScene = null
         softwareScene?.close(); softwareScene = null
-        owner.overlay.remove(field); owner.overlay.remove(source)
+        owner.overlay.remove(field)
+        if (session != null) owner.overlay.remove(source)
     }
 }

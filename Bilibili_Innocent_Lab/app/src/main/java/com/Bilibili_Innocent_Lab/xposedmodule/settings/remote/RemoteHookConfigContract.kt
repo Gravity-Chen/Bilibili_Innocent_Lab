@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.remote
 
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
@@ -111,7 +113,10 @@ internal object RemoteHookConfigContract {
     fun resolveSourceValues(raw: Map<String, *>): Map<String, Any> =
         linkedMapOf<String, Any>().apply {
             SettingsCatalog.specs.forEach { spec ->
-                val candidate = when (val stored = raw[spec.storageKey]) {
+                val stored = if (spec.storageKey == FeaturePreferences.HOST_CARD_MATERIAL)
+                    HostCardMaterial.resolve(raw).value
+                    else raw[spec.storageKey]
+                val candidate = when (stored) {
                     is Boolean -> SettingValue.Bool(stored)
                     is Int -> SettingValue.IntValue(stored)
                     is String -> SettingValue.Text(stored)

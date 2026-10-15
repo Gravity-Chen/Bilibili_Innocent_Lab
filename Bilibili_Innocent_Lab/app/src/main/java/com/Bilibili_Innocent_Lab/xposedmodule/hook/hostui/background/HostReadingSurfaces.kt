@@ -3,7 +3,6 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background
 import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageView
 import com.highcapable.betterandroid.ui.extension.view.setMargins
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceMaterial
@@ -45,9 +44,11 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
     fun discover() {
         val root = root.get() ?: return
         val found = HashMap<View, Role>()
+        val protectedRoot = HostBackgroundPages.protectedAncestor(root)
+        val externalOwner = HostBackgroundPages.owner(root)?.let { it !== root } == true
         fun visit(view: View, depth: Int) {
-            if (depth > 32 || view is ImageView || HostBackgroundPages.protectedAncestor(view)) return
-            if (view !== root && HostBackgroundPages.owner(view)?.let { it !== root } == true) return
+            if (depth > 32 || protectedRoot || HostBackgroundPages.protected(view)) return
+            if (view !== root && (externalOwner || HostBackgroundPages.pageRoot(view))) return
             if (view !is ViewGroup) return
             val name = name(view)
             val parentName = (view.parent as? View)?.let(::name)
@@ -147,6 +148,5 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
     private fun hasChild(view: ViewGroup, childName: String) =
         (0 until view.childCount).any { name(view.getChildAt(it)) == childName }
 
-    private fun name(view: View) = if (view.id == View.NO_ID) "" else
-        runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+    private fun name(view: View) = HostViewResourceNames.name(view)
 }

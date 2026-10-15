@@ -301,8 +301,11 @@ internal object ReleaseHighlightsCatalog {
         ReleaseHighlight("comment-reply-button", HighlightKind.NEW, R.string.remove_comment_reply_button_tip,
             HighlightDestination("comments.reply_button.removed"))
     )), ReleaseHighlightsBatch(20, listOf(
-        ReleaseHighlight("host-card-acrylic", HighlightKind.NEW, R.string.host_card_acrylic_tip,
-            HighlightDestination("host.cards.acrylic.enabled"))
+        ReleaseHighlight("host-card-acrylic", HighlightKind.NEW, R.string.host_card_material_tip,
+            HighlightDestination("host.cards.material"))
+    )), ReleaseHighlightsBatch(21, listOf(
+        ReleaseHighlight("host-card-material", HighlightKind.IMPROVED, R.string.host_card_material_mica_tip,
+            HighlightDestination("host.cards.material"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

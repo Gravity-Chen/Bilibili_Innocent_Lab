@@ -115,8 +115,7 @@ internal class HostBackgroundPages(
         false
     }
 
-    private fun name(view: View) = if (view.id == View.NO_ID) "" else
-        runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+    private fun name(view: View) = HostViewResourceNames.name(view)
 
     private fun vertical(list: ViewGroup): Boolean? {
         val manager = KavaMemberLookup.inheritedMethodOrNull(list.javaClass, "getLayoutManager")?.invoke(list) ?: return null
@@ -278,7 +277,7 @@ internal class HostBackgroundPages(
         }
 
         override fun onPreDraw(): Boolean {
-            runCatching {
+            HostViewResourceNames.inPass { runCatching {
                 val page = root.get()?.takeIf { it.isShown } ?: return@runCatching
                 if (dirty) discover(page)
                 // 播放窗口只给前景面板铺壁纸，状态栏、播放器及其工具栏保留宿主材质。
@@ -331,7 +330,7 @@ internal class HostBackgroundPages(
                 opusChrome?.apply(night)
                 pageChrome?.apply(night)
                 readingSurfaces?.apply(night)
-            }.onFailure(onError)
+            }.onFailure(onError) }
             return true
         }
 
@@ -351,9 +350,11 @@ internal class HostBackgroundPages(
     }
 
     private fun clearNeutral(view: View, page: ViewGroup, nativeContainers: Boolean) {
+        // 大部分行内容器已经透明。先排除空背景，避免每帧重新解析它们的保护规则。
+        val drawable = view.background ?: return
+        if (detailBackgrounds[view] === drawable) return
         if (nativeContainers && tabActionSurface(view)) {
-            val drawable = view.background
-            if (drawable != null && neutralTabActionBackground(drawable)) {
+            if (neutralTabActionBackground(drawable)) {
                 val padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
                 view.background = null
                 view.setPadding(padding[0], padding[1], padding[2], padding[3])
@@ -361,14 +362,13 @@ internal class HostBackgroundPages(
             return
         }
         if (protected(view)) return
-        if (detailBackgrounds[view]?.let { it === view.background } == true) return
         // 侧边中心会随标签切换，把同一容器从 Bg2 改成黑色。媒体页白色顶栏依赖这块黑底。
         if ((view.background as? ColorDrawable)?.color == android.graphics.Color.BLACK && name(view) == "sidecenter_layout") return
         val left = view.paddingLeft
         val top = view.paddingTop
         val right = view.paddingRight
         val bottom = view.paddingBottom
-        when (val drawable = view.background) {
+        when (drawable) {
             is ColorDrawable -> if (HostBackgroundPagePolicy.neutral(drawable.color)) view.background = null
             is LayerDrawable -> {
                 if (!nativeContainers || name(view) !in chromeNames || view.width < page.width * .9f) return
@@ -504,7 +504,7 @@ internal class HostBackgroundPages(
             return null
         }
         fun contains(view: View) = kind(view) != null
-        private fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||
+        fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||
             HostBackgroundPagePolicy.imageViewer(view.javaClass.name) ||
             name(view) in protectedNames || selectionChrome(view) || view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
             view.javaClass.name.startsWith("com.bilibili.video.story.") ||
@@ -519,8 +519,9 @@ internal class HostBackgroundPages(
             return false
         }
 
-        private fun name(view: View) = if (view.id == View.NO_ID) "" else
-            runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+        fun pageRoot(view: View): Boolean = kinds.containsKey(view)
+
+        private fun name(view: View) = HostViewResourceNames.name(view)
         private fun tabActionSurface(view: View): Boolean {
             val parent = view.parent as? View ?: return false
             // 收藏二级标签的渐变、按钮容器和图标各自持有 Bg1，需一起接到壁纸。
@@ -534,12 +535,13 @@ internal class HostBackgroundPages(
                     (0 until favoriteStrip.childCount).any { name(favoriteStrip.getChildAt(it)) == "right_button" }
             if (view is ImageView) return name(view) == "filter_icon" && name(parent) == "filter_icon_container" &&
                 (parent.parent as? View)?.let(::name) == "container_strip"
-            return view is ViewGroup && name(parent) == "tab_box" && view.childCount == 1 &&
-                view.getChildAt(0) is ImageView && name(view.getChildAt(0)) == "history_manage"
+            return view is ViewGroup && view.childCount == 1 && view.getChildAt(0) is ImageView &&
+                name(view.getChildAt(0)) == "history_manage" && name(parent) == "tab_box"
         }
         // 合集的吸顶信息栏遮住列表，固定标题栏遮住收起中的信息栏；两层都不能当作页面底板清空。
         private fun selectionChrome(view: View): Boolean {
-            if (name(view) != "head_layout" && name(view) != "top_layout") return false
+            val name = name(view)
+            if (name != "head_layout" && name != "top_layout") return false
             val parent = view.parent as? ViewGroup ?: return false
             return (0 until parent.childCount).any { name(parent.getChildAt(it)) == "select_list" }
         }

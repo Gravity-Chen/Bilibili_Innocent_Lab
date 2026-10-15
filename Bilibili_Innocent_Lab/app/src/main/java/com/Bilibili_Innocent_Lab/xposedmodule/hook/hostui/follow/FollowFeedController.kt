@@ -8,6 +8,7 @@ import android.content.res.ColorStateList
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.os.SystemClock
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
@@ -23,13 +24,13 @@ import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
 
-/** 页面负责分组排布和复用；状态栏与可选卡片亚克力交给凝光采样。 */
+/** 页面负责分组排布和复用；状态栏及卡片材质交给凝光。 */
 internal class FollowFeedController(
     private val host: FollowFeedHostAccess,
     private val compactHeaderSupported: Boolean,
     private val report: (String) -> Unit,
     private val error: (Throwable) -> Unit,
-    private val acrylic: Boolean = false
+    private val material: HostCardMaterial = HostCardMaterial.ORIGINAL
 ) {
     private class RowState(val row: FollowFeedRow?) {
         val edits = FollowFeedViewEdits()
@@ -384,7 +385,7 @@ internal class FollowFeedController(
                     diagnostics("visible")
                 }
                 if (!reportedCards && lists.values.any { it.panelCount > 0 } &&
-                    (acrylic || session.diagnostics().staticDraws > 2)) {
+                    (material.usesSharedField || session.diagnostics().staticDraws > 2)) {
                     reportedCards = true
                     diagnostics("cards-visible")
                 }
@@ -468,14 +469,14 @@ internal class FollowFeedController(
             private var dock: WeakReference<View>? = null
             private var dockChecked = false
             private var generation = 0
-            private var acrylicScope: HostVideoCardSurface.Scope? = null
+            private var materialScope: HostVideoCardSurface.Scope? = null
 
             private inner class Panel(reference: Boolean = false) : View.OnAttachStateChangeListener {
                 val view = View(list.context).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
                 var binding: LumenSurfaceBinding? = null
-                private var acrylicPaint: android.graphics.drawable.Drawable? = null
+                private var materialPaint: android.graphics.drawable.Drawable? = null
                 val bound: Boolean get() = binding?.isBound == true ||
-                    acrylicPaint != null && view.background === acrylicPaint && acrylicScope?.closed == false
+                    materialPaint != null && view.background === materialPaint && materialScope?.closed == false
                 var generation = -1
                 var top = 0
                 var bottom = 0
@@ -491,11 +492,11 @@ internal class FollowFeedController(
                 override fun onViewAttachedToWindow(v: View) = Unit
                 override fun onViewDetachedFromWindow(v: View) {
                     binding?.close(); binding = null
-                    acrylicScope?.release(view); acrylicPaint = null
+                    materialScope?.release(view); materialPaint = null
                 }
                 fun close() {
                     binding?.close(); binding = null
-                    acrylicScope?.release(view); acrylicPaint = null
+                    materialScope?.release(view); materialPaint = null
                     view.removeOnAttachStateChangeListener(this)
                     layer.removeView(view)
                 }
@@ -521,11 +522,11 @@ internal class FollowFeedController(
                     if (view.left != left || view.top != panelTop || view.right != right || view.bottom != panelBottom)
                         view.layout(left, panelTop, right, panelBottom)
                     if (!bound && view.isAttachedToWindow) {
-                        if (acrylic) {
-                            val scope = acrylicScope ?: HostVideoCardSurface.Scope(parent, colors.dark)
-                                .also { acrylicScope = it }
+                        if (material.usesSharedField) {
+                            val scope = materialScope ?: HostVideoCardSurface.Scope(parent, colors.dark, material = material)
+                                .also { materialScope = it }
                             scope.refresh(colors.dark)
-                            acrylicPaint = scope.apply(view, radius.toFloat())
+                            materialPaint = scope.apply(view, radius.toFloat())
                         } else binding = session.bind(view, options)
                         return true
                     }
@@ -548,7 +549,7 @@ internal class FollowFeedController(
                 listEdits.background(list, null)
                 referenceOptions = FollowFeedStyle.reference(palette)
                 references.values.forEach { it.binding?.update(referenceOptions) }
-                acrylicScope?.refresh(colors.dark)
+                materialScope?.refresh(colors.dark)
             }
 
             fun update() {
@@ -656,9 +657,9 @@ internal class FollowFeedController(
 
             fun releasePanels() {
                 val hadReferences = releaseReferences()
-                if (panels.isEmpty() && !hadReferences && acrylicScope == null) return
+                if (panels.isEmpty() && !hadReferences && materialScope == null) return
                 panels.values.forEach { it.close() }; panels.clear()
-                acrylicScope?.close(); acrylicScope = null
+                materialScope?.close(); materialScope = null
                 list.invalidate()
             }
             fun releaseReferences(): Boolean {

@@ -53,7 +53,13 @@ internal class FollowFeedStatusBar(
             source = next
             val options = FollowFeedStyle.statusBand(palette, inset, height)
             binding = if (next == null) session.bind(band, options.copy(material = LumenSurfaceMaterial.STATIC,
-                sampling = options.sampling.copy(enabled = false))) else session.bind(band, options, next)
+                sampling = options.sampling.copy(enabled = false))) else {
+                // 上游 GPU 模糊使用 2 倍半径的输入边界，这里保留 4 倍半径以覆盖软件路径与取整。
+                val padding = maxOf(options.sampling.blurRadiusDp,
+                    options.sampling.softwareBlurRadiusDp ?: options.sampling.blurRadiusDp) *
+                    page.resources.displayMetrics.density * 4f + 4f
+                session.bindSource(band, options, FollowFeedStatusContentSource(next, band, padding))
+            }
         }
     }
 

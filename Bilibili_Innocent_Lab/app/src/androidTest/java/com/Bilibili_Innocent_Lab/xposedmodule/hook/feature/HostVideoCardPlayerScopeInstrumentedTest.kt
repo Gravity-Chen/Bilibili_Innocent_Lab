@@ -124,7 +124,7 @@ class HostVideoCardPlayerScopeInstrumentedTest {
                 val list = card.root.parent as ViewGroup
                 activity.setContentView(list.parent as View)
                 val style = HostVideoCardStyle(null, HostVideoCardHostAccess(javaClass.classLoader!!), -1,
-                    onApplied = {}, onError = { throw AssertionError(it) }, acrylic = true)
+                    onApplied = {}, onError = { throw AssertionError(it) }, material = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial.ACRYLIC)
                 style.bind(card.root)
                 assertNull(card.panel.background)
                 list.removeView(card.root)

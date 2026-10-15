@@ -5,12 +5,12 @@ import android.graphics.Picture
 import android.graphics.drawable.Drawable
 
 /** 只缓存引擎的绘制结果，不实现材质、混合或模糊。 */
-internal interface HostCardAcrylicScene : AutoCloseable {
+internal interface HostCardMaterialScene : AutoCloseable {
     fun record(drawable: Drawable, width: Int, height: Int)
     fun draw(canvas: Canvas)
 }
 
-internal class HostCardAcrylicPicture : HostCardAcrylicScene {
+internal class HostCardMaterialPicture : HostCardMaterialScene {
     private val picture = Picture()
     override fun record(drawable: Drawable, width: Int, height: Int) {
         val canvas = picture.beginRecording(width, height)

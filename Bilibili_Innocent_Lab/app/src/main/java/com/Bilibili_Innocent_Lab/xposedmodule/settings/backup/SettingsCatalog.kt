@@ -23,6 +23,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.MaterialColorS
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.ModalBackdropBlurStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRenderer
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 
 /**
  * 可备份用户意图的唯一白名单。
@@ -33,7 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRende
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 54
+    const val CATALOG_VERSION = 55
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -649,8 +650,10 @@ internal object SettingsCatalog {
             default = false,
             introducedCatalogVersion = 42
         ),
-        bool("host.cards.acrylic.enabled", FeaturePreferences.HOST_CARD_ACRYLIC,
-            R.string.host_card_acrylic, default = false, introducedCatalogVersion = 54),
+        text("host.cards.material", FeaturePreferences.HOST_CARD_MATERIAL,
+            R.string.host_card_material, default = "original",
+            allowed = HostCardMaterial.entries.map { it.value }.toSet(),
+            introducedCatalogVersion = 55),
         integer(
             "host.video_cards.radius_dp",
             FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP,
