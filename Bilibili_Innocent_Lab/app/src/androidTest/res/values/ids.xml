@@ -1,4 +1,8 @@
 <resources>
+    <item name="nav_top_bar" type="id" />
+    <item name="recycler" type="id" />
+    <item name="dy_recycler" type="id" />
+    <item name="header_container" type="id" />
     <item name="right_button_start_bg" type="id" />
     <item name="right_button" type="id" />
     <item name="top_container" type="id" />

@@ -148,6 +148,8 @@ internal class HostBackgroundPages(
             kind == HostBackgroundPagePolicy.Kind.COMMENT)
             HostDetailSurfaces(root, detailBackgrounds) else null
         private var opusChrome: HostOpusChrome? = null
+        private val pageChrome = if (kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.DYNAMIC)
+            HostPageChrome(root, detailBackgrounds) else null
         private var mediaWindow = window?.context?.let { context ->
             HostBackgroundPagePolicy.mediaDetailActivity(generateSequence(context.javaClass as Class<*>?) { it.superclass }
                 .map { it.name }.toList())
@@ -195,6 +197,7 @@ internal class HostBackgroundPages(
             observer = null
             detailSurfaces?.detach()
             opusChrome?.close(); opusChrome = null
+            pageChrome?.close()
         }
 
         fun dispose() {
@@ -263,6 +266,7 @@ internal class HostBackgroundPages(
             lists = nextLists
             texts = nextTexts
             detailSurfaces?.discover()
+            pageChrome?.discover()
             dirty = false
         }
 
@@ -317,6 +321,7 @@ internal class HostBackgroundPages(
                 }
                 detailSurfaces?.apply(night)
                 opusChrome?.apply(night)
+                pageChrome?.apply(night)
             }.onFailure(onError)
             return true
         }
@@ -474,7 +479,8 @@ internal class HostBackgroundPages(
             return owner(view)?.let { kinds[it] }
         }
         fun nativeFeedOwner(page: ViewGroup): ViewGroup? {
-            if (kinds[page] != HostBackgroundPagePolicy.Kind.FEED) return null
+            // 单个 UP 的正文和窗口头像栏也必须共享原点；不能在 dy_pager 下重新铺图。
+            if (kinds[page] != HostBackgroundPagePolicy.Kind.FEED && kinds[page] != HostBackgroundPagePolicy.Kind.DYNAMIC) return null
             var node = page.parent as? View
             while (node != null) {
                 if (node is ViewGroup && kinds[node] == HostBackgroundPagePolicy.Kind.NATIVE &&

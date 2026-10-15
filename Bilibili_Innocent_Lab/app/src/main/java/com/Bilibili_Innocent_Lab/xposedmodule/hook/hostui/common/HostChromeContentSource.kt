@@ -20,6 +20,7 @@ internal class HostChromeContentSource(override val coordinateView: View, var wi
     private val savedBounds = Rect()
 
     override val sourceEpoch: Long get() = 0L
+    override val excludesSurfaces: Boolean get() = !includeViewContent
     override val availability: LumenSourceAvailability get() = LumenSourceAvailability.READY
     override val contentVersion: Long
         get() {

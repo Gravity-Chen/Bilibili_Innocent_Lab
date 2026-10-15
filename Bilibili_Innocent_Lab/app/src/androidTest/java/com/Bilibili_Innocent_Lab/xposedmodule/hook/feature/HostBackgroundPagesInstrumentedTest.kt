@@ -16,6 +16,7 @@ import android.widget.TextView
 import com.google.android.material.shape.MaterialShapeDrawable
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager2.widget.ViewPager2
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -26,9 +27,77 @@ import com.Bilibili_Innocent_Lab.xposedmodule.test.R as TestR
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import com.highcapable.betterandroid.ui.extension.insets.factory.createRootWindowInsetsWrapper
+import java.util.WeakHashMap
 
 @RunWith(AndroidJUnit4::class)
 class HostBackgroundPagesInstrumentedTest {
+    private fun resourceContext(activity: MainActivity) =
+        object : ContextWrapper(InstrumentationRegistry.getInstrumentation().context) {
+            override fun getApplicationContext() = activity.applicationContext
+        }
+
+    @Test fun statusBarFollowsAdjacentChromeAndReleasesItsNonInteractiveBand() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val root = activity.window.decorView as FrameLayout
+                val context = resourceContext(activity)
+                val inset = root.createRootWindowInsetsWrapper()?.statusBars()?.top ?: 0
+                assertTrue("The fixture needs a visible system status bar", inset > 0)
+                val originalCount = root.childCount
+                val toolbar = View(context).apply { id = TestR.id.nav_top_bar }
+                val authors = View(context).apply { id = TestR.id.dy_recycler; visibility = View.GONE }
+                root.addView(toolbar, FrameLayout.LayoutParams(-1, 100).apply { topMargin = inset })
+                root.addView(authors, FrameLayout.LayoutParams(-1, 100).apply { topMargin = inset })
+                // 先确定栏位的窗口坐标，后续切换不挪动宿主布局。
+                toolbar.layout(0, inset, root.width, inset + 100)
+                authors.layout(0, inset, root.width, inset + 100)
+                val chrome = HostPageChrome(root, WeakHashMap())
+                try {
+                    chrome.discover(); chrome.apply(true)
+                    assertEquals(originalCount + 3, root.childCount)
+                    val band = root.getChildAt(root.childCount - 1)
+                    assertEquals(inset, band.layoutParams.height)
+                    assertNotNull(band.background)
+                    assertFalse(band.isClickable)
+                    assertFalse(band.isFocusable)
+                    assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, band.importantForAccessibility)
+                    val toolbarMaterial = band.background
+                    toolbar.visibility = View.GONE
+                    chrome.apply(true)
+                    assertEquals("A page without adjacent chrome must expose its wallpaper", View.GONE, band.visibility)
+                    authors.visibility = View.VISIBLE
+                    chrome.discover(); chrome.apply(true)
+                    assertSame("Page switches must reuse one status band", band, root.getChildAt(root.childCount - 1))
+                    assertEquals(View.VISIBLE, band.visibility)
+                    assertNotSame("The authors' lighter material must replace the toolbar material", toolbarMaterial, band.background)
+                    authors.translationX = root.width.toFloat()
+                    chrome.apply(true)
+                    assertEquals("Offscreen pages must not leave their status tint behind", View.GONE, band.visibility)
+                    authors.translationX = 0f
+                    authors.alpha = 0f
+                    chrome.apply(true)
+                    assertEquals(View.GONE, band.visibility)
+                    authors.alpha = 1f
+                    authors.layout(0, inset, root.width, inset)
+                    chrome.apply(true)
+                    assertEquals("Collapsed bars must not leave a status tint", View.GONE, band.visibility)
+                    authors.layout(0, inset, root.width, inset + 100)
+                    chrome.apply(false)
+                    assertEquals(originalCount + 3, root.childCount)
+                    assertEquals(inset, toolbar.top)
+                } finally {
+                    chrome.close()
+                    root.removeView(toolbar); root.removeView(authors)
+                }
+                assertEquals("The added status surface must leave with its session", originalCount, root.childCount)
+                assertNull(toolbar.background)
+                assertNull(authors.background)
+            }
+        }
+    }
+
     @Test fun embeddedCommentImageViewerKeepsItsBackdropAndControlsInsideNativePages() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
@@ -75,7 +144,7 @@ class HostBackgroundPagesInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val context = resourceContext(activity)
                 val decor = activity.window.decorView as ViewGroup
                 for (childFirst in listOf(false, true)) {
                     val root = FrameLayout(context)
@@ -135,7 +204,7 @@ class HostBackgroundPagesInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val context = resourceContext(activity)
                 val decor = activity.window.decorView as ViewGroup
                 val root = FrameLayout(context)
                 val tabs = FrameLayout(context).apply { id = TestR.id.top_container }
@@ -147,7 +216,19 @@ class HostBackgroundPagesInstrumentedTest {
                 tabs.addView(View(context).apply { id = TestR.id.tab_layout }, FrameLayout.LayoutParams(240, 60))
                 tabs.addView(shade, FrameLayout.LayoutParams(12, 60).apply { leftMargin = 240 })
                 tabs.addView(button, FrameLayout.LayoutParams(68, 60).apply { leftMargin = 252 })
-                root.addView(tabs, FrameLayout.LayoutParams(-1, 60))
+                // 收藏的筛选栏实际位于 ViewPager2 的内部 RecyclerView 中。
+                val pager = ViewPager2(context).apply {
+                    adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+                        override fun getItemCount() = 1
+                        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
+                            object : RecyclerView.ViewHolder(FrameLayout(context).apply {
+                                layoutParams = ViewGroup.LayoutParams(-1, -1)
+                                addView(tabs, FrameLayout.LayoutParams(-1, -1))
+                            }) {}
+                        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) = Unit
+                    }
+                }
+                root.addView(pager, FrameLayout.LayoutParams(-1, 60))
                 // 同名但不属于收藏标签栏的业务渐变必须保留。
                 val unrelated = View(context).apply {
                     id = TestR.id.right_button_start_bg
@@ -171,6 +252,7 @@ class HostBackgroundPagesInstrumentedTest {
                     repeat(2) {
                         root.viewTreeObserver.dispatchOnGlobalLayout()
                         root.viewTreeObserver.dispatchOnPreDraw()
+                        assertNotNull("The favorite filter inside ViewPager2 needs its own material", tabs.background)
                         if (color == Color.MAGENTA) assertSame(background, shade.background) else assertNull(shade.background)
                         if (color == Color.MAGENTA) {
                             assertSame(buttonBackground, button.background)
@@ -193,7 +275,7 @@ class HostBackgroundPagesInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val context = resourceContext(activity)
                 val decor = activity.window.decorView as ViewGroup
                 val root = FrameLayout(context)
                 val media = FrameLayout(context).apply { id = TestR.id.story_activity_root; setBackgroundColor(Color.BLACK) }
@@ -236,7 +318,7 @@ class HostBackgroundPagesInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val context = resourceContext(activity)
                 val decor = activity.window.decorView as ViewGroup
                 val root = FrameLayout(context)
                 val strip = FrameLayout(context).apply { id = TestR.id.container_strip }
@@ -298,7 +380,7 @@ class HostBackgroundPagesInstrumentedTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
-                val context = InstrumentationRegistry.getInstrumentation().context
+                val context = resourceContext(activity)
                 val decor = activity.window.decorView as ViewGroup
                 val root = FrameLayout(context)
                 val splash = FrameLayout(context).apply { id = TestR.id.splash_layout; setBackgroundColor(Color.BLACK) }
@@ -497,6 +579,71 @@ class HostBackgroundPagesInstrumentedTest {
                 round.id = View.NO_ID
                 assertNull(HostBackgroundPages.sharedWallpaperOwner(comment))
                 decor.removeView(round)
+            }
+        }
+    }
+
+    @Test fun personalFeedSharesWallpaperWithAuthorsAndKeepsChromeAcrossLayouts() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val decor = activity.window.decorView as ViewGroup
+                val context = resourceContext(activity)
+                val window = FrameLayout(context)
+                val authors = RecyclerView(context).apply {
+                    id = TestR.id.dy_recycler
+                    layoutManager = LinearLayoutManager(activity, RecyclerView.HORIZONTAL, false)
+                }
+                val feed = FrameLayout(context).apply { setBackgroundColor(Color.WHITE) }
+                val header = FrameLayout(context).apply {
+                    id = TestR.id.header_container
+                    setPadding(7, 3, 9, 4)
+                }
+                var clicks = 0
+                val action = TextView(context).apply { text = "关闭"; setOnClickListener { clicks++ } }
+                header.addView(action)
+                val list = RecyclerView(context).apply {
+                    id = TestR.id.recycler
+                    layoutManager = LinearLayoutManager(activity)
+                    setBackgroundColor(Color.WHITE)
+                }
+                feed.addView(header, FrameLayout.LayoutParams(-1, 48))
+                feed.addView(list, FrameLayout.LayoutParams(-1, -1).apply { topMargin = 48 })
+                window.addView(authors, FrameLayout.LayoutParams(-1, 80))
+                window.addView(feed, FrameLayout.LayoutParams(-1, -1).apply { topMargin = 80 })
+                decor.addView(window, ViewGroup.LayoutParams(320, 640))
+                window.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                window.layout(0, 0, 320, 640)
+                val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.AURORA), { throw it })
+                val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                pages.attach(feed, HostBackgroundPagePolicy.Kind.DYNAMIC)
+                pages.attach(window, HostBackgroundPagePolicy.Kind.NATIVE)
+                fun draw() {
+                    window.viewTreeObserver.dispatchOnGlobalLayout()
+                    window.viewTreeObserver.dispatchOnPreDraw()
+                }
+                draw()
+                val wallpaper = window.background as HostBackgroundDrawable
+                assertSame(window, HostBackgroundPages.sharedWallpaperOwner(feed))
+                assertNull("Personal content must not restart the image below the authors", feed.background)
+                assertNull(list.background)
+                assertNotNull(authors.background)
+                assertNotNull(header.background)
+                val material = header.background
+                controller.apply(list, false)
+                assertNull(list.background)
+                assertTrue(pages.scroll(list, 137))
+                assertEquals(137L, wallpaper.scrollOffset)
+                draw()
+                assertSame("Neutral clearing must retain the installed chrome", material, header.background)
+                assertEquals(7, header.paddingLeft)
+                assertEquals(4, header.paddingBottom)
+                action.performClick()
+                assertEquals(1, clicks)
+                assertEquals(80, feed.top)
+                decor.removeView(window)
+                assertNull("Detach must restore the original header background", header.background)
             }
         }
     }
@@ -734,7 +881,8 @@ class HostBackgroundPagesInstrumentedTest {
         assertSame(dynamic, HostBackgroundPages.owner(dynamic))
         assertSame(comment, HostBackgroundPages.owner(list))
         assertTrue(window.background is HostBackgroundDrawable)
-        assertTrue(dynamic.background is HostBackgroundDrawable)
+        assertNull("Dynamic content must expose the shared window wallpaper", dynamic.background)
+        assertSame(window, HostBackgroundPages.sharedWallpaperOwner(dynamic))
         assertTrue(comment.background is HostBackgroundDrawable)
         assertNull(list.background)
         assertTrue(list.childCount > 0)

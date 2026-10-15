@@ -18,14 +18,14 @@ internal object FollowFeedStyle {
     const val FREQUENT_WIDTH_DP = 74
     const val FREQUENT_HEIGHT_DP = 82
     const val FREQUENT_LIST_HEIGHT_DP = 90
-    const val OPTION_HEIGHT_DP = 48
+    const val OPTION_HEIGHT_DP = 40
     const val ACTION_GAP_DP = 8
-    const val SEGMENT_INSET_DP = 4
-    const val OPTION_VERTICAL_INSET_DP = 8
+    const val SEGMENT_INSET_DP = 3
+    const val OPTION_VERTICAL_INSET_DP = 4
     const val SEGMENT_HEIGHT_DP = OPTION_HEIGHT_DP + SEGMENT_INSET_DP * 2
     const val SEGMENT_FONT_GROWTH_DP = 20
     const val SEGMENT_TEXT_SP = 15f
-    const val SEGMENT_WIDTH_DP = 176
+    const val SEGMENT_WIDTH_DP = 160
     const val SEGMENT_FONT_WIDTH_GROWTH_DP = 80
     const val VIDEO_TITLE_SP = 16f
     const val FREQUENT_TITLE_SP = 14f
@@ -71,10 +71,10 @@ internal object FollowFeedStyle {
     )
 
     fun track(palette: LumenPalette) = card().copy(
-        role = SurfaceRole.TOP_BAR, color = palette.surfaceVariant, radiusDp = 18f, edgeEnabled = false
+        role = SurfaceRole.TOP_BAR, color = palette.surfaceVariant, radiusDp = 15f, edgeEnabled = false
     )
 
-    fun selection() = card().copy(role = SurfaceRole.SELECTED_ITEM, radiusDp = 14f, edgeIntensity = .45f)
+    fun selection() = card().copy(role = SurfaceRole.SELECTED_ITEM, radiusDp = 12f, edgeIntensity = .45f)
 
     fun statusBand(palette: LumenPalette, inset: Int, height: Int): com.lumen.coacervation.engine.host.LumenSurfaceOptions {
         val extent = height.coerceAtLeast(1).toFloat()
