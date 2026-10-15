@@ -22,13 +22,29 @@ internal class HostVideoCardStyle(
     private val onError: (Throwable) -> Unit,
     private val decorateCards: Boolean = true,
     private val background: com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundController? = null,
-    private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec()
+    private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(),
+    private val acrylic: Boolean = false
 ) {
     private class Cover(view: View) {
         val view = WeakReference(view)
         var width = -1
         var height = -1
         var nativeRadius = -1f
+    }
+
+    private class Panel(view: View) {
+        val view = WeakReference(view)
+        private var original = view.background
+        private val acrylicOnly = view.javaClass.name == "com.bilibili.magicasakura.widgets.TintView"
+        private var cleared = false
+        fun blocks(acrylic: Boolean) = (!acrylicOnly || acrylic) && view.get()?.background != null
+        fun clear(acrylic: Boolean) { if (!acrylicOnly || acrylic) view.get()?.let {
+            if (it.background != null) { original = it.background; it.background = null; cleared = true }
+        } }
+        fun restore() {
+            if (cleared) view.get()?.let { if (it.background == null) it.background = original }
+            cleared = false
+        }
     }
 
     private class State(
@@ -38,10 +54,13 @@ internal class HostVideoCardStyle(
         val spacing: HostVideoCardSpacing,
         val feedback: Boolean,
         val livePanel: Boolean,
-        val nativePanels: Array<WeakReference<View>>
+        val nativePanels: Array<Panel>
     ) : ViewOutlineProvider() {
         var surface: Drawable? = null
         var surfaceRadius = -1f
+        var surfaceScope: WeakReference<HostVideoCardSurface.Scope>? = null
+        var surfaceX = Float.NaN
+        var surfaceY = Float.NaN
         val geometry = HostVideoCardGeometry()
         var decorated = false
         var color = 0
@@ -89,7 +108,14 @@ internal class HostVideoCardStyle(
     }
     private val attachListener = object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(view: View) = safelyApply(view)
-        override fun onViewDetachedFromWindow(view: View) = Unit
+        override fun onViewDetachedFromWindow(view: View) {
+            states[view]?.let { state ->
+                state.surfaceScope?.get()?.release(view)
+                state.surfaceScope = null
+                state.surface = null
+                state.nativePanels.forEach(Panel::restore)
+            }
+        }
     }
 
     /** 每帧每个列表只读一次宿主主题；平时仅比较缓存值，不扫描子树或重新测量。 */
@@ -97,6 +123,15 @@ internal class HostVideoCardStyle(
         View.OnAttachStateChangeListener {
         private val parent = WeakReference(parent)
         private var observer: WeakReference<ViewTreeObserver>? = null
+        private var surfaces: HostVideoCardSurface.Scope? = null
+
+        fun surfaceScope(night: Boolean, context: android.content.Context): HostVideoCardSurface.Scope? {
+            val list = parent.get() ?: return null
+            // 仅加载宿主资源的 Context 没有应用生命周期，Fluent 的系统服务需要真实应用。
+            if (context.applicationContext == null) return null
+            return (surfaces ?: HostVideoCardSurface.Scope(list, night, context).also { surfaces = it })
+                .also { it.refresh(night) }
+        }
 
         fun start() {
             val current = parent.get()?.viewTreeObserver ?: return
@@ -112,7 +147,11 @@ internal class HostVideoCardStyle(
         }
 
         override fun onViewAttachedToWindow(view: View) = start()
-        override fun onViewDetachedFromWindow(view: View) = stop()
+        override fun onViewDetachedFromWindow(view: View) {
+            stop()
+            surfaces?.close()
+            surfaces = null
+        }
 
         override fun onPreDraw(): Boolean {
             val list = parent.get() ?: return true
@@ -120,15 +159,21 @@ internal class HostVideoCardStyle(
             val night = host.isNight(list.context)
             background?.apply(list, night)
             if (!decorateCards) return true
+            surfaces?.refresh(night)
             val color = HostVideoCardSurface.color(night, list.context)
             // 宿主换肤可能同时替换列表背景和卡片背景，当前帧绘制前一并恢复。
             for (i in 0 until list.childCount) {
                 val root = list.getChildAt(i) as? ViewGroup ?: continue
                 val state = states[root] ?: continue
                 if (!state.decorated) continue
-                var changed = state.color != color || root.background !== state.surface ||
+                if (state.surfaceX != root.x || state.surfaceY != root.y) {
+                    state.surfaceX = root.x
+                    state.surfaceY = root.y
+                    surfaces?.positionChanged(root)
+                }
+                var changed = state.surfaceScope?.get() !== surfaces || state.color != color || root.background !== state.surface ||
                     root.outlineProvider !== state || !root.clipToOutline
-                if (!changed) changed = state.nativePanels.any { it.get()?.background != null }
+                if (!changed) changed = state.nativePanels.any { it.blocks(acrylic) }
                 if (!changed) for (cached in state.covers) {
                     val cover = cached.view.get() ?: continue
                     val outline = if (state.integratedCover) ViewOutlineProvider.BOUNDS else coverOutline
@@ -169,6 +214,8 @@ internal class HostVideoCardStyle(
                 root.addOnLayoutChangeListener(layoutListener)
                 root.addOnAttachStateChangeListener(attachListener)
             }
+            state?.surfaceScope?.get()?.release(root)
+            state?.nativePanels?.forEach(Panel::restore)
             state = discovered
             states[root] = state
             excluded.remove(root)
@@ -235,8 +282,12 @@ internal class HostVideoCardStyle(
         var info: WeakReference<View>? = null
         var liveInfo: View? = null
         var livePanel = root.javaClass.name == "tv.danmaku.bili.widget.RoundRectFrameLayout"
+        val panels = ArrayList<View>()
         fun visit(view: View, depth: Int) {
             if (depth > 10 || depth > 0 && isRecycler(view.javaClass)) return
+            // 首页信息区有无 id 的纯背景 TintView，保留它会完全遮住整卡亚克力。
+            if (depth == 1 && view.id == View.NO_ID &&
+                view.javaClass.name == "com.bilibili.magicasakura.widgets.TintView") panels += view
             when (resourceName(view)) {
                 "bottomContaner", "title_area" -> liveInfo = view
                 "ivCover", "inline_area" -> livePanel = true
@@ -260,8 +311,9 @@ internal class HostVideoCardStyle(
         val spacing = previousSpacing ?: HostVideoCardSpacing(params?.leftMargin ?: 0,
             params?.topMargin ?: 0, params?.rightMargin ?: 0, params?.bottomMargin ?: 0,
             root.resources.displayMetrics.density)
+        if (livePanel) liveInfo?.let(panels::add)
         return State(root.childCount, covers.toTypedArray(), info, spacing, feedback, livePanel,
-            (if (livePanel) listOfNotNull(liveInfo) else emptyList()).map { WeakReference(it) }.toTypedArray())
+            panels.distinct().map(::Panel).toTypedArray())
     }
 
     private fun configureInfo(root: ViewGroup, state: State) {
@@ -352,21 +404,25 @@ internal class HostVideoCardStyle(
             else HostVideoCardStyleSpec.cardRadius(root.width, root.height, radiusDp, density)
         val resized = state.updateGeometry(root.width, root.height, radius)
         val color = HostVideoCardSurface.color(night, root.context)
-        if (state.surface == null || state.surfaceRadius != radius || state.color != color) {
-            val surface = HostVideoCardSurface.create(root, radius, night) ?: return
+        val scope = if (acrylic) listWatchers[parent]?.surfaceScope(night, root.context) ?: return else null
+        if (state.surfaceScope?.get() !== scope || state.surface == null || root.background !== state.surface ||
+            state.surfaceRadius != radius || state.color != color) {
+            if (state.surfaceScope?.get() !== scope) state.surfaceScope?.get()?.release(root)
+            val surface = if (scope != null) scope.apply(root, radius)
+                else HostVideoCardSurface.create(root, radius, night) ?: return
+            state.surfaceScope = scope?.let(::WeakReference)
             state.color = color
             state.surfaceRadius = radius
             state.surface = surface
         }
         if (!state.decorated) {
-            // 静态卡片由平台轮廓提供柔影；不再维护独立位图纹理。
-            HostVideoCardShadow.apply(root)
+            if (!acrylic) HostVideoCardShadow.apply(root)
             state.decorated = true
             onApplied()
         }
         if (root.background !== state.surface) root.background = state.surface
         // 信息区保留宿主约束和点击目标，背景由整卡统一承载，换肤后也不会重新出现方形底板。
-        for (panel in state.nativePanels) panel.get()?.let { if (it.background != null) it.background = null }
+        state.nativePanels.forEach { it.clear(acrylic) }
         val replaced = root.outlineProvider !== state
         if (replaced) root.outlineProvider = state
         // 引擎背景、裁切与平台柔影共用半径。

@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeColors
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow.FollowFeedController
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow.FollowFeedHeader
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow.FollowFeedHostAccess
@@ -53,6 +54,11 @@ class FollowFeedInstrumentedTest {
         val host = context.createPackageContext("tv.danmaku.bili",
             Context.CONTEXT_INCLUDE_CODE or Context.CONTEXT_IGNORE_SECURITY)
         val access = requireNotNull(FollowFeedHostAccess.resolve(host.classLoader))
+        val points = requireNotNull(FollowFeedAdapter.direct(host.classLoader))
+        val adapted = requireNotNull(FollowFeedAdapter.resolve(host.classLoader,
+            points.copy(personalDecorationClass = null, personalSeparatorClass = null)))
+        assertEquals("gv1.c", requireNotNull(adapted.personalDecoration).name)
+        assertNotNull(adapted.separator)
         val item = host.classLoader.loadClass("com.bilibili.bplus.followinglist.model.q0")
         assertEquals(item, access.moduleClass.getDeclaredMethod("M").returnType)
         assertEquals(Long::class.javaPrimitiveType, item.getDeclaredMethod("f").returnType)

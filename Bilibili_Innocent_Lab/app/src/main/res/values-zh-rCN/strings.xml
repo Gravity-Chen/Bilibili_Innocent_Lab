@@ -194,6 +194,8 @@
     <string name="custom_bottom_bar_hide_dialog_title">底栏隐藏规则</string>
     <string name="custom_bottom_bar_hide_hint">例如：动态, 会员购</string>
     <string name="host_video_cards">视频卡片悬浮美化</string>
+    <string name="host_card_acrylic">卡片亚克力效果</string>
+    <string name="host_card_acrylic_tip">为视频、追番影视、动态等悬浮卡片启用亚克力材质，默认关闭。需开启视频卡片悬浮美化，重启哔哩哔哩后生效。</string>
     <string name="host_video_card_radius">视频卡片圆角</string>
     <string name="host_video_card_radius_current">视频卡片圆角：%1$s</string>
     <string name="host_video_card_radius_default">默认</string>

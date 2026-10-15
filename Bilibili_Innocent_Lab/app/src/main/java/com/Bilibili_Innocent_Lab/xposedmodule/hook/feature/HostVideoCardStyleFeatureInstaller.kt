@@ -24,7 +24,8 @@ internal class HostVideoCardStyleFeatureInstaller(
     private val radiusDp: Int = HostVideoCardStyleSpec.DEFAULT_RADIUS,
     private val backgroundConfig: HostBackgroundConfig = HostBackgroundConfig(),
     override val id: String = ID,
-    private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec()
+    private val homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(),
+    private val acrylic: Boolean = false
 ) : FeatureInstaller {
     private var backgroundEnvironment: HookEnvironment? = null
     private var pageHookCount = 0
@@ -55,7 +56,7 @@ internal class HostVideoCardStyleFeatureInstaller(
         }
         val style = HostVideoCardStyle(grid = grid, host = styleHost, decorateCards = enabled,
             background = background.takeIf { backgroundConfig.enabled },
-            homeSpacing = homeSpacing.normalized(),
+            homeSpacing = homeSpacing.normalized(), acrylic = acrylic,
             radiusDp = HostVideoCardStyleSpec.normalizeRadius(radiusDp), onApplied = {
             if ((enabled || homeSpacing.enabled) && firstHit.compareAndSet(false, true)) {
                 environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
@@ -68,7 +69,7 @@ internal class HostVideoCardStyleFeatureInstaller(
         })
         return runCatching {
             val ogvHooks = if (enabled) HostOgvCardHooks.install(environment, styleHost,
-                HostVideoCardStyleSpec.normalizeRadius(radiusDp)) {
+                HostVideoCardStyleSpec.normalizeRadius(radiusDp), acrylic = acrylic) {
                 if (firstHit.compareAndSet(false, true)) {
                     environment.reportRuntimeEvidence(id, FeatureRuntimeStage.APPLIED)
                     environment.logInfo("${id}_applied", "[BIL] 追番/影视卡片表面已生效")
@@ -141,9 +142,10 @@ internal class HostVideoCardStyleFeatureInstaller(
 
         /** 两项诊断仍独立，实际 bind Hook、卡片识别、主题读取和列表监听只安装一套。 */
         fun shared(enabled: Boolean, radiusDp: Int, backgroundConfig: HostBackgroundConfig,
-            homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec()): List<FeatureInstaller> {
+            homeSpacing: HostHomeCardSpacingSpec = HostHomeCardSpacingSpec(), acrylic: Boolean = false): List<FeatureInstaller> {
             val delegate = HostVideoCardStyleFeatureInstaller(enabled, radiusDp, backgroundConfig,
-                id = if (enabled || homeSpacing.enabled) ID else BACKGROUND_ID, homeSpacing = homeSpacing.normalized())
+                id = if (enabled || homeSpacing.enabled) ID else BACKGROUND_ID, homeSpacing = homeSpacing.normalized(),
+                acrylic = enabled && acrylic)
             var result: FeatureInstallResult? = null
             fun install(environment: HookEnvironment): FeatureInstallResult = result ?: delegate.install(environment).also { result = it }
             return listOf(

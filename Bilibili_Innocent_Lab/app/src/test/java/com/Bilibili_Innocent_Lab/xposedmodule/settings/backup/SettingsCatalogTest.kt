@@ -9,10 +9,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test fun `catalog v54 adds a default off acrylic setting without changing card styling`() {
+        val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v54.txt"))
+            .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
+        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 54 }
+        assertEquals("host.cards.acrylic.enabled", added.id)
+        assertEquals(FeaturePreferences.HOST_CARD_ACRYLIC, added.storageKey)
+        assertEquals(SettingValue.Bool(false), added.defaultValue)
+        assertEquals(RestorePolicy.AUTOMATIC, added.restorePolicy)
+        assertTrue(ImportEffect.RESTART_BILIBILI in added.effects)
+    }
+
     @Test fun `catalog v53 adds a default off comment action reply button setting`() {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v53.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
-        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 53 }.map { it.id }.sorted())
         val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 53 }
         assertEquals("comments.reply_button.removed", added.id)
         assertEquals(FeaturePreferences.REMOVE_COMMENT_REPLY_BUTTON, added.storageKey)
@@ -234,11 +246,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 234 settings`() {
-        assertEquals(234, SettingsCatalog.specs.size)
-        assertEquals(234, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(234, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(229, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 235 settings`() {
+        assertEquals(235, SettingsCatalog.specs.size)
+        assertEquals(235, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(235, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(230, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(5, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -469,7 +481,7 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(53, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(54, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -768,7 +780,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(142, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(143, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(23, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(69, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

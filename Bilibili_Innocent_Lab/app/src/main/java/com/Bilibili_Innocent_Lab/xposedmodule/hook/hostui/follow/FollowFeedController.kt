@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.follow
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPages
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardSurface
 
 import android.content.res.ColorStateList
 import android.graphics.Rect
@@ -22,12 +23,13 @@ import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
 
-/** 页面负责排布和复用，凝光负责全部表面；仅状态栏采样，不接管手势或播放器。 */
+/** 页面负责分组排布和复用；状态栏与可选卡片亚克力交给凝光采样。 */
 internal class FollowFeedController(
     private val host: FollowFeedHostAccess,
     private val compactHeaderSupported: Boolean,
     private val report: (String) -> Unit,
-    private val error: (Throwable) -> Unit
+    private val error: (Throwable) -> Unit,
+    private val acrylic: Boolean = false
 ) {
     private class RowState(val row: FollowFeedRow?) {
         val edits = FollowFeedViewEdits()
@@ -381,7 +383,8 @@ internal class FollowFeedController(
                     reportedDraw = true
                     diagnostics("visible")
                 }
-                if (!reportedCards && lists.values.any { it.panelCount > 0 } && session.diagnostics().staticDraws > 2) {
+                if (!reportedCards && lists.values.any { it.panelCount > 0 } &&
+                    (acrylic || session.diagnostics().staticDraws > 2)) {
                     reportedCards = true
                     diagnostics("cards-visible")
                 }
@@ -420,7 +423,7 @@ internal class FollowFeedController(
 
         private fun diagnostics(stage: String) {
             val d = session.diagnostics()
-            report("[BIL] 关注页凝光 $stage: surfaces=${d.attachedSurfaces}, static=${d.staticDraws}, " +
+            report("[BIL] ${if (personalFeed) "UP 动态页" else "关注页"}凝光 $stage: surfaces=${d.attachedSurfaces}, static=${d.staticDraws}, " +
                 "gpu=${d.gpuDraws}, software=${d.softwareDraws}, recordings=${d.contentRecordings}, palette=${d.paletteGeneration}")
         }
 
@@ -465,10 +468,14 @@ internal class FollowFeedController(
             private var dock: WeakReference<View>? = null
             private var dockChecked = false
             private var generation = 0
+            private var acrylicScope: HostVideoCardSurface.Scope? = null
 
             private inner class Panel(reference: Boolean = false) : View.OnAttachStateChangeListener {
                 val view = View(list.context).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
                 var binding: LumenSurfaceBinding? = null
+                private var acrylicPaint: android.graphics.drawable.Drawable? = null
+                val bound: Boolean get() = binding?.isBound == true ||
+                    acrylicPaint != null && view.background === acrylicPaint && acrylicScope?.closed == false
                 var generation = -1
                 var top = 0
                 var bottom = 0
@@ -482,9 +489,13 @@ internal class FollowFeedController(
                     layer.addView(view, if (reference) layer.childCount else 0, FrameLayout.LayoutParams(0, 0))
                 }
                 override fun onViewAttachedToWindow(v: View) = Unit
-                override fun onViewDetachedFromWindow(v: View) { binding?.close(); binding = null }
+                override fun onViewDetachedFromWindow(v: View) {
+                    binding?.close(); binding = null
+                    acrylicScope?.release(view); acrylicPaint = null
+                }
                 fun close() {
                     binding?.close(); binding = null
+                    acrylicScope?.release(view); acrylicPaint = null
                     view.removeOnAttachStateChangeListener(this)
                     layer.removeView(view)
                 }
@@ -509,8 +520,13 @@ internal class FollowFeedController(
                     val right = list.right - dp(FollowFeedStyle.OUTER_DP + inset)
                     if (view.left != left || view.top != panelTop || view.right != right || view.bottom != panelBottom)
                         view.layout(left, panelTop, right, panelBottom)
-                    if (binding == null && view.isAttachedToWindow) {
-                        binding = session.bind(view, options)
+                    if (!bound && view.isAttachedToWindow) {
+                        if (acrylic) {
+                            val scope = acrylicScope ?: HostVideoCardSurface.Scope(parent, colors.dark)
+                                .also { acrylicScope = it }
+                            scope.refresh(colors.dark)
+                            acrylicPaint = scope.apply(view, radius.toFloat())
+                        } else binding = session.bind(view, options)
                         return true
                     }
                     return false
@@ -532,6 +548,7 @@ internal class FollowFeedController(
                 listEdits.background(list, null)
                 referenceOptions = FollowFeedStyle.reference(palette)
                 references.values.forEach { it.binding?.update(referenceOptions) }
+                acrylicScope?.refresh(colors.dark)
             }
 
             fun update() {
@@ -606,7 +623,7 @@ internal class FollowFeedController(
                     val state = rows[child] ?: continue
                     val panel = state.row?.let { panels[it.identity] }
                     val decorate = panel?.let { it.valid && it.generation == generation } == true
-                    val referenceDecorate = state.row?.let(::referenceKey)?.let { references[it]?.binding?.isBound } == true
+                    val referenceDecorate = state.row?.let(::referenceKey)?.let { references[it]?.bound } == true
                     if (state.decorated != decorate || state.referenceDecorated != referenceDecorate) {
                         state.edits.restore(); state.palette = null; state.decorated = decorate
                         state.referenceDecorated = referenceDecorate
@@ -639,8 +656,9 @@ internal class FollowFeedController(
 
             fun releasePanels() {
                 val hadReferences = releaseReferences()
-                if (panels.isEmpty() && !hadReferences) return
+                if (panels.isEmpty() && !hadReferences && acrylicScope == null) return
                 panels.values.forEach { it.close() }; panels.clear()
+                acrylicScope?.close(); acrylicScope = null
                 list.invalidate()
             }
             fun releaseReferences(): Boolean {
@@ -648,7 +666,7 @@ internal class FollowFeedController(
                 references.values.forEach { it.close() }; references.clear()
                 return true
             }
-            fun hasSurface(identity: Long) = panels[identity]?.let { it.binding != null && it.view.isAttachedToWindow } == true
+            fun hasSurface(identity: Long) = panels[identity]?.let { it.bound && it.view.isAttachedToWindow } == true
             val panelCount: Int get() = panels.size + references.size
             override fun close() {
                 releasePanels(); viewport?.close(); viewport = null

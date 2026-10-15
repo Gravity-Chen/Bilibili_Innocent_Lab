@@ -81,6 +81,17 @@ class FollowFeedPersonalCoverageTest {
         assertEquals(6, registrar.hooks.keys.count { it.startsWith("follow_feed.personal.") })
     }
 
+    @Test fun validHomeCacheRefreshesMissingOptionalPersonalRoles() {
+        val loader = RolesLoader()
+        val complete = requireNotNull(FollowFeedAdapter.direct(loader))
+        val old = complete.copy(personalDecorationClass = null, personalSeparatorClass = null)
+        val refreshed = requireNotNull(FollowFeedAdapter.resolve(loader, old))
+        assertEquals(complete, refreshed.points)
+        val (result, registrar) = install(loader, old)
+        assertTrue(result is FeatureInstallResult.Installed && result.complete)
+        assertEquals(6, registrar.hooks.keys.count { it.startsWith("follow_feed.personal.") })
+    }
+
     @Test fun existingPersonalOwnerWithMissingLifecycleOrVisibilityRemainsInTheDenominator() {
         for (method in listOf("onViewCreated", "onDestroyView", "setUserVisibleCompat")) {
             val loader = RolesLoader(missingMethod = method)

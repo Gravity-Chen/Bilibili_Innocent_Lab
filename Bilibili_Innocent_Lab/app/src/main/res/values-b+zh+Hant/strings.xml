@@ -194,6 +194,8 @@
     <string name="custom_bottom_bar_hide_dialog_title">底部導覽列隱藏規則</string>
     <string name="custom_bottom_bar_hide_hint">例如：動態, 會員購</string>
     <string name="host_video_cards">影片卡片懸浮美化</string>
+    <string name="host_card_acrylic">卡片壓克力效果</string>
+    <string name="host_card_acrylic_tip">為影片、追番影視、動態等懸浮卡片啟用壓克力材質，預設關閉。需開啟影片卡片懸浮美化，重新啟動嗶哩嗶哩後生效。</string>
     <string name="host_video_card_radius">影片卡片圓角</string>
     <string name="host_video_card_radius_current">影片卡片圓角：%1$s</string>
     <string name="host_video_card_radius_default">預設</string>

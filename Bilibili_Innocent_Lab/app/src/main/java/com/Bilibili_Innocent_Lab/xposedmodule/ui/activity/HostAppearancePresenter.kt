@@ -17,6 +17,17 @@ import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.v
 
 // 宿主美化设置的界面分卷；状态和收藏身份仍由当前 MainActivity 管理。
 
+internal fun MainActivity.loadHostCardSettings(settings: com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings) {
+    hostVideoCards = settings.bool(FeaturePreferences.HOST_VIDEO_CARDS)
+    hostCardAcrylic = settings.bool(FeaturePreferences.HOST_CARD_ACRYLIC)
+    hostHomeCardHorizontalDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec.normalize(
+        settings.int(FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP))
+    hostHomeCardVerticalDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostHomeCardSpacingSpec.normalize(
+        settings.int(FeaturePreferences.HOST_HOME_CARD_VERTICAL_DP))
+    hostVideoCardRadiusDp = com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyleSpec.normalizeRadius(
+        settings.int(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP))
+}
+
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.hostBottomBarAppearanceRows(
     performer: Hikage.Performer<NativeLinearLayout.LayoutParams>
@@ -321,6 +332,26 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.host_video_cards_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }) {
+            bindFavoriteSwitch(this, FeaturePreferences.HOST_CARD_ACRYLIC, directToggle = true)
+            text = stringResource(R.string.host_card_acrylic)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = hostCardAcrylic
+            setOnCheckedChangeListener { _, checked ->
+                hostCardAcrylic = checked
+                runCatching { prefs().edit { putBoolean(FeaturePreferences.HOST_CARD_ACRYLIC, checked) } }
+                    .onFailure { Log.e("BilibiliInnocentLab", "write host card acrylic prefs failed", it) }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.host_card_acrylic_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
