@@ -63,7 +63,7 @@ def build_command(project: Path, options: argparse.Namespace) -> list[str]:
         command.append(f"-PinnocentLab.releaseVersionName={options.release_version_name}")
     if options.version_code is not None:
         command.append(f"-Pproject.app.versionCode={options.version_code}")
-    return command + list(TASKS) + ["--continue", "--console=plain", "--no-daemon"]
+    return command + ["--profile"] + list(TASKS) + ["--continue", "--console=plain", "--no-daemon"]
 
 
 def source_test_classes(directory: Path) -> set[str]:

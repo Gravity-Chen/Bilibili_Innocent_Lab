@@ -71,6 +71,7 @@ class RunGradleGatesTest(unittest.TestCase):
         self.assertIn("-PinnocentLab.releaseVersionName=1.2.1-canary.9", command)
         self.assertIn("-Pproject.app.versionCode=21", command)
         self.assertIn("-Dorg.gradle.jvmargs=-Xmx6144m -Dfile.encoding=UTF-8", command)
+        self.assertIn("--profile", command)
         self.assertFalse(popen.call_args.kwargs["shell"])
         self.assertEqual(self.project, popen.call_args.kwargs["cwd"])
         self.assertFalse(any("testLayer" in item for item in command))

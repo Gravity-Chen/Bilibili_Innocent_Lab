@@ -76,7 +76,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate Canary build and delivery tooling
-        run: python3 -m unittest discover -s .github/release-templates -p 'test_*.py'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p Bilibili_Innocent_Lab/build/reports/tooling
+          python3 -m unittest discover -s .github/release-templates -p 'test_*.py' 2>&1 | tee Bilibili_Innocent_Lab/build/reports/tooling/unittest.log
 
       - name: Resolve source-controlled build identity
         id: identity
@@ -97,9 +101,8 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle and restore build cache
-        uses: gradle/actions/setup-gradle@v6.4.0
-        with:
-          cache-provider: basic
+        id: gradle-cache
+        uses: ./.github/actions/gradle-cache
 
       - name: Probe exact Android SDK packages
         id: sdk
@@ -154,17 +157,32 @@ jobs:
             --release-version-name "$EXPECTED_VERSION_NAME" \
             --jvmargs="$CI_GRADLE_JVMARGS"
 
+      - name: Collect complete verification evidence
+        id: reports
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+        working-directory: .
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: python3 .github/release-templates/collect_verification_reports.py --build-outcome "$BUILD_OUTCOME"
+
       - name: Upload test and lint reports
-        if: ${{ failure() }}
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: verify-reports
+          name: verify-reports-${{ github.sha }}-${{ github.run_attempt }}
+          path: Bilibili_Innocent_Lab/build/verification-reports/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+
+      - name: Save verified Gradle snapshot
+        if: ${{ success() && github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/main' && steps.build.outcome == 'success' && steps.reports.outcome == 'success' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
           path: |
-            Bilibili_Innocent_Lab/app/build/reports/tests/
-            Bilibili_Innocent_Lab/app/build/reports/lint-results-debug.*
-            Bilibili_Innocent_Lab/app/build/reports/gradle-gates.*
-          if-no-files-found: ignore
-          retention-days: 7
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.key }}
 
   publish:
     name: Build signed Canary artifact
@@ -204,11 +222,8 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle and restore build cache
-        uses: gradle/actions/setup-gradle@v6.4.0
-        with:
-          cache-provider: basic
-          # Restore the verify job's dependency/R8 task cache before signing.
-          cache-read-only: true
+        id: gradle-cache
+        uses: ./.github/actions/gradle-cache
 
       - name: Probe exact Android SDK packages
         id: sdk
