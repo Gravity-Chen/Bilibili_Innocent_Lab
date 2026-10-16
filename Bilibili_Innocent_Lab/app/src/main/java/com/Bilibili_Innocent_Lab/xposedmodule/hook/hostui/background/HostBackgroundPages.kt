@@ -33,6 +33,7 @@ internal class HostBackgroundPages(
     private val detailBackgrounds = WeakHashMap<View, Drawable>()
     private val types = HashMap<Class<*>, Boolean>()
     private val materialFills = HashMap<Class<*>, Pair<java.lang.reflect.Method, java.lang.reflect.Method>?>()
+    private val visiblePageBounds = Rect()
     val requiresNight: Boolean get() = background.requiresNight
 
     fun attach(root: ViewGroup, kind: HostBackgroundPagePolicy.Kind, window: Window? = null) {
@@ -77,6 +78,34 @@ internal class HostBackgroundPages(
         if (vertical) attach(list, HostBackgroundPagePolicy.Kind.FEED)
     }
 
+    fun scroll(list: ViewGroup, dy: Int): Boolean {
+        var node: View? = list
+        while (node != null) {
+            val page = pages[node]
+            if (page != null) return page.scroll(list, dy)
+            node = node.parent as? View
+        }
+        return false
+    }
+
+    private fun updateDetailWallpaper(panel: ViewGroup) {
+        // 图文评论位于正文之后，继承正文已经滚过的距离；视频左右标签则各自从零开始。
+        val opus = kinds[panel] == HostBackgroundPagePolicy.Kind.OPUS
+        val baseOffset = if (opus) pages[panel]?.wallpaperOffset(includeHidden = true) ?: 0L else 0L
+        var weightedOffset = 0.0
+        var visibleWidth = 0L
+        for ((root, page) in pages) {
+            if (sharedWallpaperOwner(root) !== panel || !root.isShown || !root.getGlobalVisibleRect(visiblePageBounds)) continue
+            val offset = page.wallpaperOffset() ?: continue
+            val width = visiblePageBounds.width()
+            weightedOffset += offset.toDouble() * width
+            visibleWidth += width
+        }
+        // 左右滑动时两个标签都可见，按可见宽度连续过渡，避免最后一个回调抢走顶栏原点。
+        if (visibleWidth > 0) background.pageOffset(panel, baseOffset + kotlin.math.round(weightedOffset / visibleWidth).toLong())
+        else if (opus) background.pageOffset(panel, baseOffset)
+    }
+
     private fun recycler(view: View): Boolean = types.getOrPut(view.javaClass) {
         var type: Class<*>? = view.javaClass
         while (type != null) {
@@ -112,6 +141,8 @@ internal class HostBackgroundPages(
         private var lists = emptyList<WeakReference<ViewGroup>>()
         private var texts = emptyList<WeakReference<TextView>>()
         private val textContrast = HostWallpaperText()
+        private val positions = WeakHashMap<ViewGroup, Position>()
+        private var activeList: WeakReference<ViewGroup>? = null
         private val window = WeakReference(window)
         private val wallpaperSystemBars = background.requiresNight || window?.context?.javaClass?.name == HostBackgroundPagePolicy.SIDE_CENTER_ACTIVITY
         private var sideCenter: WeakReference<View>? = null
@@ -133,6 +164,25 @@ internal class HostBackgroundPages(
             kind == HostBackgroundPagePolicy.Kind.OPUS
 
         fun invalidate() { dirty = true }
+
+        private inner class Position(list: ViewGroup) {
+            val top = HostBackgroundListPosition(list.javaClass)
+            var offset = 0L
+        }
+
+        private fun visible(list: ViewGroup) = list.isShown && list.getGlobalVisibleRect(android.graphics.Rect())
+
+        private fun position(list: ViewGroup) = positions.getOrPut(list) { Position(list) }.also {
+            if (it.offset != 0L && it.top.isAtTop(list)) it.offset = 0L
+        }
+
+        fun wallpaperOffset(includeHidden: Boolean = false): Long? {
+            val page = root.get() ?: return null
+            if (dirty) discover(page)
+            val list = activeList?.get()?.takeIf { includeHidden || visible(it) }
+                ?: lists.firstNotNullOfOrNull { it.get()?.takeIf { list -> includeHidden || visible(list) } }
+            return list?.let { position(it).offset }
+        }
 
         fun start() {
             val tree = root.get()?.viewTreeObserver ?: return
@@ -277,6 +327,11 @@ internal class HostBackgroundPages(
                 if (night) for (ref in texts) ref.get()?.takeIf { owner(it) === page }?.let { textContrast.apply(it, page) }
                 else textContrast.restore()
                 for (ref in lists) ref.get()?.takeIf { owner(it) === page }?.let(background::prepareList)
+                if ((wholePage || wallpaperOwner != null) && kind != HostBackgroundPagePolicy.Kind.COMPOSE) {
+                    if (kind == HostBackgroundPagePolicy.Kind.OPUS) updateDetailWallpaper(page)
+                    else if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
+                    else wallpaperOffset()?.let { background.pageOffset(wallpaperOwner ?: page, it) }
+                }
                 detailSurfaces?.apply(night)
                 opusChrome?.apply(night)
                 pageChrome?.apply(night)
@@ -285,6 +340,19 @@ internal class HostBackgroundPages(
             return true
         }
 
+        fun scroll(list: ViewGroup, dy: Int): Boolean {
+            val page = root.get() ?: return false
+            val wallpaperOwner = sharedWallpaperOwner(page)
+            if ((!wholePage && wallpaperOwner == null) || kind == HostBackgroundPagePolicy.Kind.COMPOSE) return false
+            if (lists.none { it.get() === list } || !visible(list)) return false
+            val position = positions.getOrPut(list) { Position(list) }
+            position.offset += dy
+            activeList = WeakReference(list)
+            if (kind == HostBackgroundPagePolicy.Kind.OPUS) updateDetailWallpaper(page)
+            else if (wallpaperOwner != null && kind != HostBackgroundPagePolicy.Kind.FEED) updateDetailWallpaper(wallpaperOwner)
+            else background.pageOffset(wallpaperOwner ?: page, position.offset)
+            return true
+        }
     }
 
     private fun clearNeutral(view: View, page: ViewGroup, nativeContainers: Boolean) {

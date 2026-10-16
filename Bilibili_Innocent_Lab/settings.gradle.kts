@@ -56,7 +56,8 @@ val lumenHostVersions = listOf("agp", "kotlin", "androidx-core-ktx", "androidx-a
             ?: error("Missing host version for Lumen: $name")
     }
 val lumenVersionFingerprint = lumenHostVersions.entries.joinToString("\n") { "${it.key}=${it.value}" }.toByteArray()
-val lumenSourceKey = digest(lumenVersionFingerprint)
+val lumenPatches = listOf(file("gradle/lumen/acrylic-backdrop.patch"))
+val lumenSourceKey = digest(lumenPatches.fold(lumenVersionFingerprint) { bytes, patch -> bytes + patch.readBytes() })
 val lumenCache = file(".gradle/lumen-source").apply { mkdirs() }
 val lumenDevelopmentSource = providers.gradleProperty("innocentLab.lumenDevelopmentSource").orNull?.let(::file)
 val lumenSource = lumenDevelopmentSource ?: lumenCache.resolve("${lumenRevision.take(12)}-${lumenSourceKey.take(12)}")
@@ -96,6 +97,14 @@ if (lumenDevelopmentSource != null) {
                         }
                     }
                 }
+                // Patch extracted sources only; the repository index and history are never modified.
+                val builder = ProcessBuilder(listOf("git", "-c", "core.longpaths=true", "apply",
+                    "--ignore-space-change", "--whitespace=error-all") + lumenPatches.map { it.absolutePath })
+                    .directory(lumenSource).redirectErrorStream(true)
+                builder.environment()["GIT_CEILING_DIRECTORIES"] = lumenCache.canonicalPath
+                val process = builder.start()
+                val output = process.inputStream.bufferedReader().use { it.readText() }
+                check(process.waitFor() == 0) { "Could not apply the pinned Lumen acrylic fix:\n$output" }
                 val sourceCatalog = lumenSource.resolve("gradle/libs.versions.toml")
                 var alignedCatalog = sourceCatalog.readText()
                 for ((name, version) in lumenHostVersions) {

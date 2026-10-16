@@ -38,7 +38,27 @@ class HostBackgroundContinuousInstrumentedTest {
             if (reportEdge && direction == -1) false else super.canScrollVertically(direction)
     }
 
-    @Test fun listScrollingAndRestorationNeverMoveTheWallpaper() {
+    @Test fun parallaxPreservesSinglePixelDeltasAndCustomImagesStayFixed() {
+        scenario.onActivity { activity ->
+            for (preset in listOf(HostBackgroundPreset.STARRY, HostBackgroundPreset.CUSTOM)) {
+                val list = android.widget.FrameLayout(activity)
+                val controller = HostBackgroundController(HostBackgroundConfig(preset), {}, imageLoader = { _, _ -> null })
+                controller.apply(list, false)
+                val background = list.background as HostBackgroundDrawable
+                repeat(137) { controller.scroll(list, 1) }
+                assertEquals(if (preset == HostBackgroundPreset.CUSTOM) 0L else 68L, background.scrollOffset)
+                repeat(274) { controller.scroll(list, -1) }
+                assertEquals(if (preset == HostBackgroundPreset.CUSTOM) 0L else -68L, background.scrollOffset)
+                repeat(137) { controller.scroll(list, 1) }
+                assertEquals(0L, background.scrollOffset)
+                controller.pageOffset(list, 6_000_000_274L)
+                assertEquals(if (preset == HostBackgroundPreset.CUSTOM) 0L else 3_000_000_137L, background.scrollOffset)
+                controller.release(list)
+            }
+        }
+    }
+
+    @Test fun transientEdgeReportsDoNotResetTheWorldDuringFastReverseScrolling() {
         lateinit var list: TransientEdgeRecycler
         val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.STARRY), { throw it })
         scenario.onActivity { activity ->
@@ -66,28 +86,28 @@ class HostBackgroundContinuousInstrumentedTest {
             val first = (list.layoutManager as LinearLayoutManager).findFirstVisibleItemPosition()
             assertTrue("Fixture must reach row 80 before simulating a transient edge: first=$first, children=${list.childCount}, size=${list.width}x${list.height}", first >= 80)
             controller.apply(list, false)
-            list.scrollBy(0, 9600)
+            controller.scroll(list, 9600)
             val background = list.background as HostBackgroundDrawable
             list.reportEdge = true // 模拟重新布局时 canScrollVertically 暂时返回 false。
             controller.apply(list, false)
-            assertEquals("Transient layout edges must leave the wallpaper fixed", 0L, background.scrollOffset)
+            assertEquals("A transient edge report at row 80 must not erase the scroll history", 4800L, background.scrollOffset)
             list.reportEdge = false
-            list.scrollBy(0, -400)
-            assertEquals("Rapid reverse scrolling must leave the wallpaper fixed", 0L, background.scrollOffset)
+            controller.scroll(list, -400)
+            assertEquals("The background must follow rapid upward scrolling", 4600L, background.scrollOffset)
         }
-        // 列表恢复到中途并反向滚动，也不能改变壁纸原点。
+        // 新列表恢复到中途时尚未知道顶部距离，也不能把向上滚动钳制成零。
         val restored = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.STARRY), { throw it })
         scenario.onActivity {
             restored.apply(list, false)
-            list.scrollBy(0, -400)
-            assertEquals(0L, (list.background as HostBackgroundDrawable).scrollOffset)
+            restored.scroll(list, -400)
+            assertEquals(-200L, (list.background as HostBackgroundDrawable).scrollOffset)
             (list.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(0, 0)
             layout()
         }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         scenario.onActivity {
             restored.apply(list, false)
-            assertEquals("Returning to the first row must preserve the wallpaper origin", 0L,
+            assertEquals("A stable return to the first row must still align the world origin", 0L,
                 (list.background as HostBackgroundDrawable).scrollOffset)
         }
     }
