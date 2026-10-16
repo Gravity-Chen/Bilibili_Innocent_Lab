@@ -25,16 +25,18 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
         var spacing: Spacing? = null
         var mine: HostMineReadingCard? = null
     }
-    private class Spacing(params: ViewGroup.MarginLayoutParams, val inset: Int) {
+    private class Spacing(view: View, params: ViewGroup.MarginLayoutParams, val topInset: Int, val bottomInset: Int) {
+        val view = WeakReference(view)
         val params = WeakReference(params)
         val top = params.topMargin
         val bottom = params.bottomMargin
-        fun restore(view: View) {
+        fun restore() {
+            val view = view.get() ?: return
             val current = params.get()?.takeIf { it === view.layoutParams } ?: return
             view.setMargins(current.leftMargin,
-                if (current.topMargin == top + inset) top else current.topMargin,
+                if (current.topMargin == top + topInset) top else current.topMargin,
                 current.rightMargin,
-                if (current.bottomMargin == bottom + inset) bottom else current.bottomMargin)
+                if (current.bottomMargin == bottom + bottomInset) bottom else current.bottomMargin)
         }
     }
     private val root = WeakReference(root)
@@ -103,14 +105,23 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
                 val card = target.mine ?: HostMineReadingCard(view).also { target.mine = it }
                 card.sync(night)
             }
-            if (target.role == Role.GROUP) {
-                val params = view.layoutParams as? ViewGroup.MarginLayoutParams
+            if (target.role == Role.GROUP || target.role == Role.MINE) {
+                // 下拉刷新容器自行定位列表，间距放在其外层，避免列表 margin 被忽略。
+                val spacingView = if (target.role == Role.MINE)
+                    (view.parent as? View)?.takeIf { name(it) == "refresh_layout" } ?: view
+                else view
+                val params = spacingView.layoutParams as? ViewGroup.MarginLayoutParams
                 if (params != null && target.spacing?.params?.get() !== params) {
-                    val inset = (4 * view.resources.displayMetrics.density).roundToInt()
-                    target.spacing = Spacing(params, inset)
-                    // 仅增加分组之间的呼吸空间，保留宿主具体 LayoutParams、宽度和横向布局。
-                    view.setMargins(params.leftMargin, params.topMargin + inset,
-                        params.rightMargin, params.bottomMargin + inset)
+                    target.spacing?.restore()
+                    val density = view.resources.displayMetrics.density
+                    val topInset = if (target.role == Role.MINE)
+                        ((12 * density).roundToInt() - params.topMargin).coerceAtLeast(0)
+                    else (4 * density).roundToInt()
+                    val bottomInset = if (target.role == Role.MINE) 0 else topInset
+                    target.spacing = Spacing(spacingView, params, topInset, bottomInset)
+                    // 个人中心只在整张列表卡片上方留白，内部各组不增加间距；保留宿主横向布局。
+                    spacingView.setMargins(params.leftMargin, params.topMargin + topInset,
+                        params.rightMargin, params.bottomMargin + bottomInset)
                 }
             }
             if (target.binding?.isBound != true || view.background !== target.drawable) {
@@ -140,7 +151,7 @@ internal class HostReadingSurfaces(root: ViewGroup, private val owned: MutableMa
         if (owned[view] === target.drawable) owned.remove(view)
         target.binding?.close()
         target.mine?.close()
-        target.spacing?.restore(view)
+        target.spacing?.restore()
     }
 
     override fun close() {
