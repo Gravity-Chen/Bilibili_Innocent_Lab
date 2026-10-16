@@ -19,8 +19,10 @@ internal class HostChromeViewportSource(
     private val content = source.coordinateView as ViewGroup
     private val mapping = ViewSamplingMatrix()
     private val matrix = Matrix()
+    private val matrixValues = FloatArray(9)
     private val union = RectF()
     private val region = RectF()
+    private val contentBounds = RectF()
     private var unsafe = false
     private var drawing = false
     override val coordinateView = object : View(content.context) {
@@ -44,18 +46,43 @@ internal class HostChromeViewportSource(
     override val availability: LumenSourceAvailability get() =
         if (unsafe) LumenSourceAvailability.PROHIBITED else source.availability
     override val contentVersion: Long
-        get() {
+        get() = mapping.withAncestorMemo {
             var version = source.contentVersion
-            if (content.isDirty) version = version * 31 + content.drawingTime
             version = version * 31 + coordinateView.left
             version = version * 31 + coordinateView.top
             version = version * 31 + coordinateView.width
-            return (version * 31 + coordinateView.height) and Long.MAX_VALUE
+            version = version * 31 + coordinateView.height
+            fun mix(value: Long) { version = version * 31 + value }
+            fun visit(view: View, depth: Int) {
+                // GPU ViewGroup invalidation can leave only the descendant dirty. A retained
+                // RenderNode sees that change, but the software bitmap needs a new recording.
+                // Ignore the invisible proxy and branches clipped outside the sampling halo.
+                if (depth >= 128 || view.visibility != View.VISIBLE || view.alpha <= 0f ||
+                    !mapping.sourceToTarget(view, coordinateView, matrix)) return
+                region.set(0f, 0f, view.width.toFloat(), view.height.toFloat())
+                matrix.mapRect(region)
+                val intersects = region.intersects(0f, 0f, coordinateView.width.toFloat(), coordinateView.height.toFloat())
+                if (!intersects && (view !is ViewGroup || view.clipChildren)) return
+                mix(System.identityHashCode(view).toLong())
+                mix(view.width.toLong()); mix(view.height.toLong())
+                mix(view.scrollX.toLong()); mix(view.scrollY.toLong()); mix(view.alpha.toBits().toLong())
+                mix(if (view.isDirty) view.drawingTime else -1L)
+                // This also versions owner/child property movement inside a fixed Window crop.
+                matrix.getValues(matrixValues)
+                for (value in matrixValues) mix(value.toBits().toLong())
+                if (view is ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index), depth + 1)
+            }
+            visit(content, 0)
+            version and Long.MAX_VALUE
         }
 
     fun sync(): Boolean {
         union.setEmpty()
         unsafe = false
+        // OverlayViewGroup is attached to the Window but has no ordinary parent chain to
+        // its content owner. Crop in its actual coordinate space, the same space the engine
+        // sees for the proxy. Owner-local bounds lose ancestor offsets/transforms here.
+        val coordinates = coordinateView.parent as? View
         regions { view, insetX, insetY, padding ->
             if (!source.excludesSurfaces) {
                 var node: View? = view
@@ -64,15 +91,18 @@ internal class HostChromeViewportSource(
                     node = node.parent as? View
                 }
             }
-            if (!view.isShown || view.width <= 0 || view.height <= 0 || !mapping.sourceToTarget(view, content, matrix)) return@regions
+            if (coordinates == null || !view.isShown || view.width <= 0 || view.height <= 0 ||
+                !mapping.sourceToTarget(view, coordinates, matrix)) return@regions
             val x = insetX.coerceIn(0f, (view.width - 1f) / 2f)
             val y = insetY.coerceIn(0f, (view.height - 1f) / 2f)
             region.set(x - padding, y - padding, view.width - x + padding, view.height - y + padding)
             matrix.mapRect(region)
             union.union(region)
         }
-        if (union.isEmpty || !union.intersect(0f, 0f, content.width.toFloat(), content.height.toFloat()))
-            union.set(0f, 0f, content.width.toFloat(), content.height.toFloat())
+        if (coordinates == null || !mapping.sourceToTarget(content, coordinates, matrix)) return false
+        contentBounds.set(0f, 0f, content.width.toFloat(), content.height.toFloat())
+        matrix.mapRect(contentBounds)
+        if (union.isEmpty || !union.intersect(contentBounds)) union.set(contentBounds)
         val left = floor(union.left).toInt(); val top = floor(union.top).toInt()
         val right = ceil(union.right).toInt(); val bottom = ceil(union.bottom).toInt()
         val changed = coordinateView.left != left || coordinateView.top != top ||

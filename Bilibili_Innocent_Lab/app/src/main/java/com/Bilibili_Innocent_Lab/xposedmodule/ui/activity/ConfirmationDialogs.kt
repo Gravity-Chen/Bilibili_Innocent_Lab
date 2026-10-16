@@ -571,3 +571,11 @@ private fun MainActivity.findSuPath(): String? {
  */
 private fun MainActivity.execShell(vararg cmd: String, timeoutMs: Long = 10_000L): Int =
     ShellCommandRunner.run(cmd.toList(), timeoutMs = timeoutMs)
+
+/** 只有关闭操作的面板统一使用右下角按钮，与 GitHub 面板保持一致。 */
+internal fun MainActivity.createPanelCloseRow(onClick: () -> Unit): NativeLinearLayout =
+    NativeLinearLayout(this).apply {
+        orientation = NativeLinearLayout.HORIZONTAL
+        gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        addView(createPanelCloseButton(onClick))
+    }

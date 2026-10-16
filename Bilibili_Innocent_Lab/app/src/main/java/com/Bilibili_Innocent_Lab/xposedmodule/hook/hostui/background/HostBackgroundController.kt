@@ -13,13 +13,28 @@ import java.util.concurrent.Executors
 internal class HostBackgroundController(private val config: HostBackgroundConfig, private val onError: (Throwable) -> Unit,
     private val onApplied: () -> Unit = {},
     private val imageLoader: (Context, HostBackgroundConfig) -> Bitmap? = HostBackgroundImages::load) {
-    private class Surface(val drawable: HostBackgroundDrawable)
+    private class Surface(val drawable: HostBackgroundDrawable, val position: HostBackgroundListPosition) {
+        var contentOffset = 0L
+    }
     private val surfaces = WeakHashMap<ViewGroup, Surface>()
     private val loadingFooter = HostBackgroundLoadingFooter()
     private var image: Bitmap? = null
     private var requested = false
     private var applied = false
     val requiresNight: Boolean get() = config.preset.isCelestial
+
+    // 卡片与背景速度为 2:1；先累计内容距离再换算，避免逐帧整数舍入丢失慢速滚动。
+    fun scroll(list: ViewGroup, dy: Int) {
+        if (dy == 0 || config.preset == HostBackgroundPreset.CUSTOM) return
+        val state = surfaces[list] ?: return
+        // 列表可能在中途恢复或替换；原点尚未确认时也必须响应向上滚动，不能锁死在零。
+        state.contentOffset += dy
+        state.drawable.scrollOffset = state.contentOffset / 2
+    }
+
+    fun pageOffset(page: ViewGroup, offset: Long) {
+        if (config.preset != HostBackgroundPreset.CUSTOM) surfaces[page]?.drawable?.scrollOffset = offset / 2
+    }
 
     fun prepareList(list: ViewGroup) = loadingFooter.apply(list)
 
@@ -53,10 +68,14 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
         }
         if (pageList !== list) { apply(pageList, night); return }
         val state = surfaces.getOrPut(list) {
-            Surface(HostBackgroundDrawable(config, night, image))
+            Surface(HostBackgroundDrawable(config, night, image), HostBackgroundListPosition(list.javaClass))
         }
         val surface = state.drawable
-        // 所有壁纸固定在页面视口；列表滚动、回顶和分页不改变壁纸原点。
+        // 稳定布局中首条内容确实回到顶部才归零，不能依赖滚动条的临时边界报告。
+        if (config.preset != HostBackgroundPreset.CUSTOM && state.contentOffset != 0L && state.position.isAtTop(list)) {
+            state.contentOffset = 0L
+            surface.scrollOffset = 0L
+        }
         if (surface.night != night) { surface.night = night; surface.invalidateSelf() }
         if (list.background !== surface) list.background = surface
         // 加载更多尾项有独立的换肤背景，绘制前透出同一条连续壁纸。
@@ -77,7 +96,7 @@ internal class HostBackgroundController(private val config: HostBackgroundConfig
                     // 每个列表持有自己的 Drawable，共享只读位图，避免 Drawable callback 串页。
                     for ((view, old) in surfaces.toMap()) {
                         val next = HostBackgroundDrawable(config, old.drawable.night, loaded)
-                        surfaces[view] = Surface(next)
+                        surfaces[view] = Surface(next, old.position)
                         view.background = next
                     }
                 }

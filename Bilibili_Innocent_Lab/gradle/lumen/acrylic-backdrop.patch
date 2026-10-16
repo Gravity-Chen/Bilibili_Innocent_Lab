@@ -1,0 +1,61 @@
+diff --git a/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenSurfaceOptions.kt b/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenSurfaceOptions.kt
+index 1dbe0ef..c06fc22 100644
+--- a/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenSurfaceOptions.kt
++++ b/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenSurfaceOptions.kt
+@@ -32,7 +32,9 @@ public data class LumenSurfaceSampling(
+     val fadeDirection: LumenSurfaceFadeDirection = LumenSurfaceFadeDirection.TOP_TO_BOTTOM,
+     val fadeCurve: LumenSurfaceFadeCurve = LumenSurfaceFadeCurve.SMOOTH,
+     /** Optional box-blur radius for software sampling; null uses blurRadiusDp unchanged. */
+-    val softwareBlurRadiusDp: Float? = null
++    val softwareBlurRadiusDp: Float? = null,
++    /** Composite acrylic owns its luminosity recipe; do not brighten its backdrop first. */
++    internal val preserveBackdropColors: Boolean = false
+ ) {
+     init {
+         require(blurRadiusDp.isFinite() && blurRadiusDp in 0f..48f)
+diff --git a/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenFluentControl.kt b/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenFluentControl.kt
+index 4176c9f..44cae30 100644
+--- a/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenFluentControl.kt
++++ b/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/LumenFluentControl.kt
+@@ -170,7 +170,7 @@ public class LumenFluentControl @JvmOverloads constructor(
+         val blur = options.acrylic.blurRadiusDp
+         return LumenSurfaceOptions(material = LumenSurfaceMaterial.FROSTED, role = SurfaceRole.FLOATING,
+             radiusDp = cornerDp(options), tintEnabled = false, edgeEnabled = false,
+-            sampling = LumenSurfaceSampling(blurEnabled = blur > 0f, blurRadiusDp = blur, refractionEnabled = false))
++            sampling = LumenSurfaceSampling(blurEnabled = blur > 0f, blurRadiusDp = blur, refractionEnabled = false, preserveBackdropColors = true))
+     }
+ 
+     private fun cornerDp(value: LumenFluentControlOptions): Float =
+diff --git a/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/SurfaceCaptureApi31.kt b/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/SurfaceCaptureApi31.kt
+index 2759a24..c848a92 100644
+--- a/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/SurfaceCaptureApi31.kt
++++ b/lumen-engine/src/main/java/com/lumen/coacervation/engine/host/SurfaceCaptureApi31.kt
+@@ -97,13 +97,13 @@ internal class SurfaceCaptureApi31 : AutoCloseable {
+         private val lensStrength = if (sampling.refractionEnabled) sampling.refractionStrength else 0f
+         // ColorMatrix can retain extended-range RGB through the following alpha blend. The existing
+         // frosted shader clamps RGB to premultiplied alpha before fading, including when the lens is off.
+-        private val lens: Any? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
++        private val lens: Any? = if (!sampling.preserveBackdropColors && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+             (options.material == LumenSurfaceMaterial.FROSTED || lensStrength > 0f)) {
+             cache.lens(options.material, liquidParameters, density, lensStrength, counters)
+         } else null
+         val renderer = GlowChromeGlassApi31(pad) { width, height, padding, radius, intensity, direction ->
+             var effect = blur
+-            if(options.material==LumenSurfaceMaterial.FROSTED&&lens==null) {
++            if(options.material==LumenSurfaceMaterial.FROSTED&&lens==null&&!sampling.preserveBackdropColors) {
+                 val gain=com.lumen.coacervation.engine.material.LensRefractionPolicy.LUMINANCE_GAIN
+                 val bias=com.lumen.coacervation.engine.material.LensRefractionPolicy.LUMINANCE_BIAS
+                 effect=RenderEffect.createColorFilterEffect(ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+diff --git a/lumen-engine/src/main/java/com/lumen/coacervation/engine/material/LiveBackdropSampler.kt b/lumen-engine/src/main/java/com/lumen/coacervation/engine/material/LiveBackdropSampler.kt
+index 9359d40..f721d89 100644
+--- a/lumen-engine/src/main/java/com/lumen/coacervation/engine/material/LiveBackdropSampler.kt
++++ b/lumen-engine/src/main/java/com/lumen/coacervation/engine/material/LiveBackdropSampler.kt
+@@ -794,7 +794,7 @@ internal class LiveBackdropSampler(
+                 job.out, job.outWidth, job.outHeight,
+                 if (job.profile?.refractionEnabled == false) 0f else job.profile?.refractionStrength ?: 1f
+             )
+-            LensRefractionPolicy.illuminate(job.out)
++            if (job.profile?.preserveBackdropColors != true) LensRefractionPolicy.illuminate(job.out)
+             LensRefractionPolicy.unpremultiply(job.out)
+             val profile = job.profile
+             if (profile?.fadeEnabled == true) {

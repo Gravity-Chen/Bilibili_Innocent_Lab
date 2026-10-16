@@ -16,6 +16,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgro
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import android.view.View
 import android.view.ViewGroup
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -78,6 +79,21 @@ internal class HostVideoCardStyleFeatureInstaller(
             val spacingHooks = if (homeSpacing.enabled) HostHomeCardSpacingHooks.install(environment, style::markHome) else 0
             if (backgroundConfig.enabled) pageHookCount = HostBackgroundPageHooks.install(backgroundEnvironment ?: environment, pages)
             val dividerHooks = if (enabled) HostVideoCardDividerHooks.install(environment, id, style::replacesSeparators) else HostCardHookCoverage.NONE
+            var scrollHooks = 0
+            if (backgroundConfig.enabled && backgroundConfig.preset != HostBackgroundPreset.CUSTOM) {
+                val recycler = KavaMemberLookup.classOrNull(loader, "androidx.recyclerview.widget.RecyclerView")
+                    ?: error("Missing RecyclerView for background scrolling")
+                environment.registrar.exact("$id.background_scroll", recycler, "dispatchOnScrolled",
+                    Int::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!) {
+                    after {
+                        if (hasThrowable) return@after
+                        val list = instance as? ViewGroup ?: return@after
+                        val dy = argOrNull(1) as? Int ?: 0
+                        if (!pages.scroll(list, dy)) background.scroll(list, dy)
+                    }
+                }
+                scrollHooks = 1
+            }
             if (grid != null) {
                 // assignSpans 已完成，直接参与宿主当前测量，避免布局后再重测整列表。
                 val measure = grid.measureChild
@@ -113,7 +129,7 @@ internal class HostVideoCardStyleFeatureInstaller(
             val layers = "grid=${grid != null},spacing=$spacingHooks,ogv=${ogvHooks.label},divider=${dividerHooks.label}"
             environment.reportStatus("${ID}_layers", "$layers;ogv-families=${ogvHooks.states};divider-families=${dividerHooks.states}")
             environment.logInfo("${id}_installed", "[BIL] 视频列表美化${if (complete) "完整" else "部分"}安装（$layers）")
-            FeatureInstallResult.Installed((if (grid != null) 3 else 1) + dividerHooks.hooks + pageHookCount + spacingHooks + ogvHooks.hooks,
+            FeatureInstallResult.Installed((if (grid != null) 3 else 1) + scrollHooks + dividerHooks.hooks + pageHookCount + spacingHooks + ogvHooks.hooks,
                 complete = complete)
         }.getOrElse {
             environment.logError("${id}_error", "[BIL] 视频列表美化安装失败: $it")
@@ -146,7 +162,7 @@ internal class HostVideoCardStyleFeatureInstaller(
                         when (val shared = install(environment)) {
                             // 背景覆盖同一个 bind Hook；不依赖卡片的 GridLayoutManager 测量点。
                             is FeatureInstallResult.Installed -> FeatureInstallResult.Installed(
-                                1 + themeHooks + delegate.pageHookCount,
+                                (if (backgroundConfig.preset == HostBackgroundPreset.CUSTOM) 1 else 2) + themeHooks + delegate.pageHookCount,
                                 complete = themeReady)
                             is FeatureInstallResult.Skipped -> if ((enabled || homeSpacing.enabled) && shared.reason == "registration-failed") {
                                 // 卡片测量点失败时，背景仍可独立使用 bind；保持原有故障隔离。

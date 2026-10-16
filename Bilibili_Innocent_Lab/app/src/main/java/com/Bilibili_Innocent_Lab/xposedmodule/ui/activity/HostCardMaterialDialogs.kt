@@ -46,8 +46,8 @@ internal fun MainActivity.showHostCardMaterialDialog(anchor: View, onSaved: () -
         text = getString(R.string.host_card_material_tip)
         textSize = 12f; textColor = getColor(R.color.colorTextGray)
     }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = (12 * density).toInt() })
-    container.addView(createGitHubMenuRow(getString(R.string.dialog_close), "", false) {
+    container.addView(createPanelCloseRow {
         dismissWithAnimation(dialog, container) {}
-    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * density).toInt() })
+    }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = (22 * density).toInt() })
     presentModalDialog(dialog, container, anchor)
 }

@@ -35,6 +35,65 @@ import org.junit.runner.RunWith
 class HostVideoCardAcrylicInstrumentedTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
+    @Test fun paleWallpaperKeepsItsHueInGpuAndSoftwareAcrylic() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            lateinit var page: FrameLayout
+            lateinit var source: View
+            lateinit var card: View
+            lateinit var window: Window
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                window = activity.window
+                page = FrameLayout(activity)
+                source = View(activity)
+                card = View(activity)
+                page.addView(source, FrameLayout.LayoutParams(-1, -1))
+                page.addView(card, FrameLayout.LayoutParams(400, 240).apply { leftMargin = 60; topMargin = 320 })
+                activity.setContentView(page)
+            }
+            for (software in listOf(false, true)) {
+                var scope: HostCardMaterialScope? = null
+                var session: com.lumen.coacervation.engine.host.LumenSurfaceSession? = null
+                var control: com.lumen.coacervation.engine.host.LumenFluentControl? = null
+                try {
+                    instrumentation.runOnMainSync {
+                        if (software) {
+                            val palette = HostVideoCardSurface.palette(false, page.context)
+                            // 用公开预算选项强制实际软件采样，避免 GPU 帧注销软件目标。
+                            session = com.lumen.coacervation.engine.host.LumenSurfaceSession(page.context, palette,
+                                com.lumen.coacervation.engine.host.LumenSurfaceSessionOptions(maxGpuSurfacePixels = 16_384))
+                            control = com.lumen.coacervation.engine.host.LumenFluentControl(card, palette,
+                                com.lumen.coacervation.engine.host.LumenFluentControlOptions(
+                                    acrylic = com.lumen.coacervation.engine.host.LumenAcrylicOptions(
+                                        tintColor = palette.surface, fallbackColor = palette.surface)), session, source)
+                        } else {
+                            scope = HostCardMaterialScope(page, false)
+                            scope!!.apply(card, 24f)
+                        }
+                    }
+                    for (color in listOf(0xfff4e1ee.toInt(), 0xffe0f4e7.toInt())) {
+                        instrumentation.runOnMainSync {
+                            page.setBackgroundColor(color)
+                            source.setBackgroundColor(color)
+                            session?.notifyContentChanged()
+                        }
+                        SystemClock.sleep(1000)
+                        instrumentation.runOnMainSync {
+                            assertEquals(if (software) LumenSurfaceBackend.SOFTWARE else LumenSurfaceBackend.GPU,
+                                (control?.diagnostics() ?: scope!!.diagnostics(card))?.backdropBackend)
+                        }
+                        val frame = capture(window)
+                        try {
+                            val pixel = pixel(frame, card)
+                            val difference = Color.red(pixel) - Color.green(pixel)
+                            assertTrue("Pastel wallpaper washed out (software=$software): ${Integer.toHexString(color)} -> ${Integer.toHexString(pixel)}",
+                                if (Color.red(color) > Color.green(color)) difference >= 10 else difference <= -10)
+                        } finally { frame.recycle() }
+                    }
+                } finally { instrumentation.runOnMainSync { scope?.close(); control?.close(); session?.close() } }
+            }
+        }
+    }
     @Test fun smallerSharedMaterialKeepsTheSettledAcrylicPixelsAndQuarterOfTheContentArea() {
         val texture = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).apply {
             for (y in 0 until height) for (x in 0 until width)
@@ -305,13 +364,25 @@ class HostVideoCardAcrylicInstrumentedTest {
                             abs(Color.red(raw) - Color.red(clear)) <= 2 &&
                                 abs(Color.blue(raw) - Color.blue(clear)) <= 2)
                     } finally { transparent.recycle() }
-                    instrumentation.runOnMainSync { list.translationX = list.width * 2f }
+                    instrumentation.runOnMainSync {
+                        paint.alpha = 255; compose.invalidate()
+                        list.translationX = list.width * 2f
+                    }
                     SystemClock.sleep(150)
                     instrumentation.runOnMainSync {
                         assertTrue("An attached offscreen page must stop acrylic sampling", scope.samplingDiagnostics().paused)
                         list.translationX = 0f
                     }
                     SystemClock.sleep(400)
+                    val returned = capture(window)
+                    try {
+                        val nativePixel = pixel(returned, first)
+                        val composePixel = pixel(returned, compose)
+                        assertTrue("Native acrylic did not return without touch: $top -> $nativePixel",
+                            abs(Color.blue(top) - Color.blue(nativePixel)) < 12)
+                        assertTrue("Compose acrylic did not return without touch: $bottom -> $composePixel",
+                            abs(Color.blue(bottom) - Color.blue(composePixel)) < 12)
+                    } finally { returned.recycle() }
                     instrumentation.runOnMainSync {
                         assertFalse("Returning to the page must resume its shared field", scope.samplingDiagnostics().paused)
                         paint.close()

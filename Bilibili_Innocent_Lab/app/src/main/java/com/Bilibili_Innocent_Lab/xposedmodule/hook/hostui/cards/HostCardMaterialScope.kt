@@ -37,6 +37,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     private val gpuScale: Float = .5f) : AutoCloseable,
     View.OnAttachStateChangeListener, ViewTreeObserver.OnPreDrawListener {
     private var palette = HostVideoCardSurface.palette(night, context)
+    private val frameStrokeDp = if (materialKind == HostCardMaterial.ACRYLIC) .5f else 1f
     private var night = night
     private var themeReadAt = 0L
     private val content = if (materialKind == HostCardMaterial.ACRYLIC)
@@ -126,7 +127,19 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         if (closed || refreshedFrame == frame && this.night == night) return
         refreshedFrame = frame
         val shown = HostViewVisibility.visible(owner, visibleBounds)
-        if (visible != shown) { visible = shown; if (shown) session?.resume() else session?.pause() }
+        if (visible != shown) {
+            visible = shown
+            if (shown) {
+                session?.resume()
+                // 隐藏期间卡片可能已缓存了不含共享节点的显示列表；仅刷新代理 View
+                // 无法恢复这些引用。返回页面时让原生及 Compose 宿主各自重新录制。
+                paints.entries.toList().forEach { (paint, host) ->
+                    paint.invalidateSelf()
+                    host.get()?.invalidate()
+                }
+                changed()
+            } else session?.pause()
+        }
         if (!shown) return
         val now = SystemClock.uptimeMillis()
         if (this.night != night || now - themeReadAt >= 250) {
@@ -161,7 +174,7 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     private fun frameOptions(radius: Float, shadow: Boolean) = LumenFluentControlOptions(
         acrylic = LumenAcrylicOptions(enabled = false, fallbackColor = palette.surface),
         elevation = LumenFluentElevationOptions(level = LumenFluentElevation.CARD,
-            shadowEnabled = shadow, pressedLowersElevation = false),
+            shadowEnabled = shadow, strokeWidthDp = frameStrokeDp, pressedLowersElevation = false),
         cornerRadiusDp = radius, stateLayerEnabled = false, focusVisualEnabled = false)
 
     private fun record(hardware: Boolean): HostCardMaterialScene? {
@@ -236,7 +249,8 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         }
         override fun onBoundsChange(bounds: Rect) {
             border.bounds = bounds
-            val inset = target.resources.displayMetrics.density
+            // 与引擎描边共用宽度，避免细描边内侧仍残留一圈较宽的不透明底板。
+            val inset = target.resources.displayMetrics.density * frameStrokeDp
             inner.set(bounds); inner.inset(inset, inset)
             clip.reset(); clip.addRoundRect(inner, (radiusPx - inset).coerceAtLeast(0f),
                 (radiusPx - inset).coerceAtLeast(0f), Path.Direction.CW)
