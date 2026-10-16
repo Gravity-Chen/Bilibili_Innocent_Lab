@@ -364,13 +364,25 @@ class HostVideoCardAcrylicInstrumentedTest {
                             abs(Color.red(raw) - Color.red(clear)) <= 2 &&
                                 abs(Color.blue(raw) - Color.blue(clear)) <= 2)
                     } finally { transparent.recycle() }
-                    instrumentation.runOnMainSync { list.translationX = list.width * 2f }
+                    instrumentation.runOnMainSync {
+                        paint.alpha = 255; compose.invalidate()
+                        list.translationX = list.width * 2f
+                    }
                     SystemClock.sleep(150)
                     instrumentation.runOnMainSync {
                         assertTrue("An attached offscreen page must stop acrylic sampling", scope.samplingDiagnostics().paused)
                         list.translationX = 0f
                     }
                     SystemClock.sleep(400)
+                    val returned = capture(window)
+                    try {
+                        val nativePixel = pixel(returned, first)
+                        val composePixel = pixel(returned, compose)
+                        assertTrue("Native acrylic did not return without touch: $top -> $nativePixel",
+                            abs(Color.blue(top) - Color.blue(nativePixel)) < 12)
+                        assertTrue("Compose acrylic did not return without touch: $bottom -> $composePixel",
+                            abs(Color.blue(bottom) - Color.blue(composePixel)) < 12)
+                    } finally { returned.recycle() }
                     instrumentation.runOnMainSync {
                         assertFalse("Returning to the page must resume its shared field", scope.samplingDiagnostics().paused)
                         paint.close()

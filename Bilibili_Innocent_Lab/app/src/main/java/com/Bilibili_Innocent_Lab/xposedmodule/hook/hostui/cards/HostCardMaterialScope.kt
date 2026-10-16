@@ -127,7 +127,19 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
         if (closed || refreshedFrame == frame && this.night == night) return
         refreshedFrame = frame
         val shown = HostViewVisibility.visible(owner, visibleBounds)
-        if (visible != shown) { visible = shown; if (shown) session?.resume() else session?.pause() }
+        if (visible != shown) {
+            visible = shown
+            if (shown) {
+                session?.resume()
+                // 隐藏期间卡片可能已缓存了不含共享节点的显示列表；仅刷新代理 View
+                // 无法恢复这些引用。返回页面时让原生及 Compose 宿主各自重新录制。
+                paints.entries.toList().forEach { (paint, host) ->
+                    paint.invalidateSelf()
+                    host.get()?.invalidate()
+                }
+                changed()
+            } else session?.pause()
+        }
         if (!shown) return
         val now = SystemClock.uptimeMillis()
         if (this.night != night || now - themeReadAt >= 250) {
