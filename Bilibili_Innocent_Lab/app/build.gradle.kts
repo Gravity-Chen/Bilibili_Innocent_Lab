@@ -219,6 +219,7 @@ val sourceContractInputs = files(
     },
     fileTree(rootDir.parentFile) {
         include(".github/workflows/*.yml", ".github/workflows/*.yaml")
+        include(".github/actions/**/action.yml")
         include(".github/release-templates/*.py")
         exclude(".github/release-templates/test_*.py")
     },

@@ -1,0 +1,33 @@
+name: Restore verified Gradle build state
+description: Reuse compatible build state with a single external cache owner
+outputs:
+  key:
+    description: Immutable snapshot key shared by verify and publish in this run
+    value: ${{ steps.identity.outputs.key }}
+runs:
+  using: composite
+  steps:
+    - name: Resolve compatible cache namespace
+      id: identity
+      shell: bash
+      env:
+        COMPATIBILITY: ${{ hashFiles('Bilibili_Innocent_Lab/gradle/wrapper/gradle-wrapper.properties', 'Bilibili_Innocent_Lab/gradle/libs.versions.toml') }}
+      run: |
+        set -euo pipefail
+        test -n "$COMPATIBILITY"
+        prefix="bil-gradle-v1-${RUNNER_OS}-${RUNNER_ARCH}-jdk17-${COMPATIBILITY}-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=${prefix}${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+    - name: Restore compatible Gradle snapshot
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ steps.identity.outputs.key }}
+        restore-keys: ${{ steps.identity.outputs.prefix }}
+    - name: Configure Gradle and validate wrapper
+      uses: gradle/actions/setup-gradle@v6.4.0
+      with:
+        # The explicit restore/save pair owns the cache; do not cache twice.
+        cache-provider: external

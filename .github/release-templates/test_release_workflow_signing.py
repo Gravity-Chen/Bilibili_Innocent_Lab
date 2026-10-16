@@ -9,6 +9,26 @@ WORKFLOW_DIRECTORY = REPOSITORY_ROOT / ".github" / "workflows"
 
 
 class ReleaseWorkflowSigningTest(unittest.TestCase):
+    def test_success_and_failure_preserve_evidence_before_cache_is_saved(self) -> None:
+        for name in ("canary-build.yml", "alpha-release.yml", "stable-release.yml", "advanced-verify.yml"):
+            with self.subTest(workflow=name):
+                content = (WORKFLOW_DIRECTORY / name).read_text(encoding="utf-8")
+                verify = content.split("\n  publish:", 1)[0]
+                collect = verify.split("- name: Collect complete verification evidence", 1)[1]
+                self.assertIn("steps.build.outcome == 'success' || steps.build.outcome == 'failure'", collect)
+                self.assertIn("if-no-files-found: error", collect)
+                self.assertIn("Bilibili_Innocent_Lab/build/verification-reports/", collect)
+                self.assertLess(collect.index("collect_verification_reports.py"), collect.index("actions/upload-artifact@"))
+                self.assertLess(collect.index("actions/upload-artifact@"), collect.index("actions/cache/save@"))
+                save = collect.split("- name: Save verified Gradle snapshot", 1)[1]
+                self.assertIn("github.repository == 'jichuo1/Bilibili_Innocent_Lab'", save)
+                self.assertIn("steps.build.outcome == 'success' && steps.reports.outcome == 'success'", save)
+                self.assertIn("refs/heads/Advanced" if name.startswith("advanced") else "refs/heads/main", save)
+                if "\n  publish:" in content:
+                    publish = content.split("\n  publish:", 1)[1]
+                    self.assertIn("uses: ./.github/actions/gradle-cache", publish)
+                    self.assertNotIn("actions/cache/save@", publish)
+
     def test_oversized_announcements_are_published_with_checksum(self) -> None:
         for name in ("alpha-release.yml", "stable-release.yml"):
             with self.subTest(workflow=name):

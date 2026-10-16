@@ -68,7 +68,16 @@ class LintProfilesContractTest {
             assertTrue(name, verification.contains("--jvmargs="))
             assertFalse(name, workflow.contains("testLayer="))
             assertFalse(name, workflow.contains("lintFast"))
-            assertEquals(name, 2, Regex("cache-provider: basic").findAll(workflow).count())
+            assertEquals(name, 2, Regex("uses: ./\\.github/actions/gradle-cache").findAll(workflow).count())
+            val publish = workflow.after("\n  publish:")
+            assertFalse(name, publish.contains("actions/cache/save@"))
+            assertTrue(name, workflow.contains("Collect complete verification evidence"))
+            assertTrue(name, workflow.contains("if-no-files-found: error"))
         }
+        val cache = File(repo, ".github/actions/gradle-cache/action.yml").readText()
+        assertTrue(cache.contains("cache-provider: external"))
+        assertTrue(cache.contains("actions/cache/restore@"))
+        assertTrue(cache.contains("restore-keys:"))
+        assertTrue(buildScript.contains(".github/actions/**/action.yml"))
     }
 }

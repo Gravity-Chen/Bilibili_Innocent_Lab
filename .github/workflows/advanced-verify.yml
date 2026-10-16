@@ -30,15 +30,20 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ github.sha }}
+      - name: Validate CI tooling
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p Bilibili_Innocent_Lab/build/reports/tooling
+          python3 -m unittest discover -s .github/release-templates -p 'test_*.py' 2>&1 | tee Bilibili_Innocent_Lab/build/reports/tooling/unittest.log
       - uses: actions/setup-java@v6.0.1
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v6.4.0
-        with:
-          cache-provider: basic
-          # Only the trusted branch in the owning repository may populate this cache.
-          cache-read-only: ${{ github.repository != 'jichuo1/Bilibili_Innocent_Lab' || github.ref != 'refs/heads/Advanced' }}
+      - name: Set up Gradle and restore build cache
+        id: gradle-cache
+        uses: ./.github/actions/gradle-cache
       - name: Probe exact Android SDK packages
         id: sdk
         working-directory: .
@@ -57,24 +62,32 @@ jobs:
         id: build
         working-directory: .
         run: python3 .github/release-templates/run_gradle_gates.py --project-root Bilibili_Innocent_Lab --compile-sdk "$CI_COMPILE_SDK" --jvmargs="$CI_GRADLE_JVMARGS"
-      - name: Preserve behavior and contract reports
-        if: ${{ !cancelled() && steps.build.outcome != 'skipped' }}
+      - name: Collect complete verification evidence
+        id: reports
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
+        working-directory: .
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: python3 .github/release-templates/collect_verification_reports.py --build-outcome "$BUILD_OUTCOME"
+
+      - name: Upload test and lint reports
+        if: ${{ !cancelled() && (steps.build.outcome == 'success' || steps.build.outcome == 'failure') }}
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: advanced-all-tests-${{ github.sha }}
+          name: advanced-verification-${{ github.sha }}-${{ github.run_attempt }}
+          path: Bilibili_Innocent_Lab/build/verification-reports/
+          if-no-files-found: error
           retention-days: 14
-          path: |
-            Bilibili_Innocent_Lab/app/build/reports/tests/testDebugUnitTest/
-            Bilibili_Innocent_Lab/app/build/test-results/testDebugUnitTest/
-      - name: Upload verification reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.2
+          compression-level: 6
+
+      - name: Save verified Gradle snapshot
+        if: ${{ success() && github.repository == 'jichuo1/Bilibili_Innocent_Lab' && github.ref == 'refs/heads/Advanced' && steps.build.outcome == 'success' && steps.reports.outcome == 'success' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          name: advanced-verification-${{ github.sha }}
-          retention-days: 14
           path: |
-            Bilibili_Innocent_Lab/app/build/reports/
-            Bilibili_Innocent_Lab/app/build/test-results/
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.key }}
       - name: Upload debug APK
         if: ${{ success() }}
         uses: actions/upload-artifact@v7.0.2
