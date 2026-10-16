@@ -1539,6 +1539,14 @@ class MainActivity : SkinnedActivity() {
         }
     }
 
+    /** 只有关闭操作的面板统一使用右下角按钮，与 GitHub 面板保持一致。 */
+    internal fun createPanelCloseRow(onClick: () -> Unit): NativeLinearLayout =
+        NativeLinearLayout(this).apply {
+            orientation = NativeLinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            addView(createPanelCloseButton(onClick))
+        }
+
     /** AppCompat 的显式应用语言为空时表示跟随系统，不额外维护一份语言偏好。 */
     internal fun currentAppLanguage(): AppLanguage {
         val locale = AppCompatDelegate.getApplicationLocales()[0]

@@ -189,16 +189,8 @@ private fun MainActivity.showPlayerChoiceDialog(
     container.addView(MaxHeightScrollView(this, listCap).apply {
         addView(rows, NativeFrameLayout.LayoutParams(-1, -2))
     }, NativeLinearLayout.LayoutParams(-1, -2))
-    container.addView(NativeTextView(this).apply {
-        text = getString(R.string.dialog_close)
-        textColor = getColor(R.color.colorTextGray)
-        textSize = 15f
-        gravity = Gravity.CENTER
-        setPadding((20 * density).toInt(), (11 * density).toInt(), (20 * density).toInt(), (11 * density).toInt())
-        background = selfRippleBackground(14f)
-        isClickable = true
-        isFocusable = true
-        setOnClickListener { dismissWithAnimation(dialog, container) {} }
+    container.addView(createPanelCloseRow {
+        dismissWithAnimation(dialog, container) {}
     }, NativeLinearLayout.LayoutParams(-1, -2).apply { topMargin = (18 * density).toInt() })
     presentModalDialog(dialog, container, anchor)
 }

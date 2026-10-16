@@ -256,7 +256,7 @@ private fun MainActivity.showTelemetryExplanationDialog() {
             bottomMargin = (10 * density).toInt()
         }
     )
-    container.addView(createTermsActionButton(getString(R.string.dialog_close), filled = false) {
+    container.addView(createPanelCloseRow {
         dismissWithAnimation(dialog, container) { showTelemetryInfoDialog() }
     })
     presentModalDialog(dialog, container)
@@ -309,7 +309,7 @@ private fun MainActivity.showTelemetryPayloadPreview(payload: String) {
     val closeRow = NativeLinearLayout(this).apply {
         gravity = Gravity.END
         addView(
-            createTermsActionButton(getString(R.string.dialog_close), filled = false) {
+            createPanelCloseButton {
                 dismissWithAnimation(dialog, container) {}
             }
         )

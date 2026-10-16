@@ -24,7 +24,7 @@ internal fun MainActivity.showAgentLogsDialog(anchor: View? = null) {
     val logs = AgentLogView(this)
     container.addView(logs, LinearLayout.LayoutParams(-1,
         minOf((480 * resources.displayMetrics.density).toInt(), (resources.displayMetrics.heightPixels * 0.55f).toInt())))
-    container.addView(createTermsActionButton(getString(R.string.dialog_close), filled = false) {
+    container.addView(createPanelCloseRow {
         dismissWithAnimation(dialog, container) { logs.close() }
     }, LinearLayout.LayoutParams(-1, -2))
     presentModalDialog(dialog, container, anchor)
