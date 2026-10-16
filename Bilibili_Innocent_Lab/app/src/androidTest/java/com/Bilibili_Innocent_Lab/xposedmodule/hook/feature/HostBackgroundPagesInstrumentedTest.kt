@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.graphics.Color
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.content.ContextWrapper
@@ -36,6 +38,51 @@ class HostBackgroundPagesInstrumentedTest {
         object : ContextWrapper(InstrumentationRegistry.getInstrumentation().context) {
             override fun getApplicationContext() = activity.applicationContext
         }
+
+    @Test fun searchToolbarKeepsItsMaterialWhenResultTabsCollapse() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = resourceContext(activity)
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(context).apply { setBackgroundColor(Color.WHITE) }
+                val toolbar = View(context).apply { id = TestR.id.search_input_layout }
+                val tabs = View(context).apply { id = TestR.id.container_strip }
+                val results = FrameLayout(context)
+                root.addView(toolbar, FrameLayout.LayoutParams(-1, 100))
+                results.addView(tabs, FrameLayout.LayoutParams(-1, 60))
+                root.addView(results, FrameLayout.LayoutParams(-1, 540).apply { topMargin = 100 })
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                root.layout(0, 0, 320, 640)
+                val chrome = HostPageChrome(root, WeakHashMap())
+                val bitmap = Bitmap.createBitmap(320, 640, Bitmap.Config.ARGB_8888)
+                try {
+                    chrome.discover()
+                    fun toolbarPixel(): Int {
+                        chrome.apply(true)
+                        root.draw(Canvas(bitmap))
+                        return bitmap.getPixel(10, 80)
+                    }
+                    val expanded = toolbarPixel()
+                    assertTrue("The search toolbar must have a visible material", Color.red(expanded) < 220)
+                    // AppBarLayout 用负偏移收起分类栏，搜索栏位置和大小保持不变。
+                    tabs.offsetTopAndBottom(-60)
+                    assertEquals("Collapsing tabs must not fade out the search toolbar", expanded, toolbarPixel())
+                    tabs.visibility = View.GONE
+                    assertEquals("Fully hidden tabs must retain the toolbar material", expanded, toolbarPixel())
+                    tabs.offsetTopAndBottom(60)
+                    tabs.visibility = View.VISIBLE
+                    assertEquals("Expanding tabs must keep the same toolbar intensity", expanded, toolbarPixel())
+                } finally {
+                    chrome.close()
+                    decor.removeView(root)
+                    bitmap.recycle()
+                }
+            }
+        }
+    }
 
     @Test fun statusBarFollowsAdjacentChromeAndReleasesItsNonInteractiveBand() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

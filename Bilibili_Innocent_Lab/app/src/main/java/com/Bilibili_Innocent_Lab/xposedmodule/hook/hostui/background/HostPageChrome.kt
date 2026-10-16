@@ -22,7 +22,7 @@ import java.util.WeakHashMap
 
 /** 页面顶部的语义层。只采样祖先壁纸，保留原生点击、筛选和已有卡片材质。 */
 internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<View, Drawable>) : AutoCloseable {
-    private enum class Role { TOOLBAR, FILTER, AUTHORS }
+    private enum class Role { TOOLBAR, SEARCH, FILTER, AUTHORS }
     private class Target(val role: Role) {
         var binding: LumenSurfaceBinding? = null
         var drawable: Drawable? = null
@@ -52,7 +52,7 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
             val name = name(view)
             val role = when (name) {
                 "nav_top_bar" -> if (HostTopStatusFusionView.ownsToolbar(view)) null else Role.TOOLBAR
-                "search_input_layout" -> Role.TOOLBAR
+                "search_input_layout" -> Role.SEARCH
                 "tab_box", "container_strip", "header_container" -> Role.FILTER
                 "top_container" -> if (view is ViewGroup && (0 until view.childCount).any {
                     name(view.getChildAt(it)) == "tab_layout"
@@ -177,12 +177,13 @@ internal class HostPageChrome(root: ViewGroup, private val owned: MutableMap<Vie
     private fun options(role: Role, night: Boolean, continues: Boolean) = LumenSurfaceOptions(
         material = LumenSurfaceMaterial.FROSTED, role = SurfaceRole.TOP_BAR, radiusDp = 0f,
         color = if (night) 0xFF181A20.toInt() else 0xFFF8F9FC.toInt(),
-        // 相邻栏位共用强度，只在最下沿平滑消隐，避免每个组件各自形成矩形色块。
+        // 搜索栏始终保持完整材质；下方分类栏收起时，不能把渐隐起点移到搜索框上方。
+        // 相邻栏位共用强度，分类/作者栏只在整组最下沿平滑消隐。
         tintOpacity = .42f, fallbackTintOpacity = .42f, backdropOpacity = 1f,
         edgeEnabled = false,
         sampling = LumenSurfaceSampling(refractionEnabled = false, blurRadiusDp = 18f,
             softwareBlurRadiusDp = 12f, maxSoftwarePixels = 48_000,
-            fadeEnabled = true, fadeHold = if (continues) 1f else if (role == Role.AUTHORS) .15f else 0f,
+            fadeEnabled = true, fadeHold = if (continues || role == Role.SEARCH) 1f else if (role == Role.AUTHORS) .15f else 0f,
             fadeEnd = 1f)
     )
 
