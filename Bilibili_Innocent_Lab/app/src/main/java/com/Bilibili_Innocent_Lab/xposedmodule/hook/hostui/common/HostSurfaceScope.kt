@@ -51,11 +51,13 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private var backdropVersion: Long? = null
     private val backdropPreDraw = ViewTreeObserver.OnPreDrawListener {
         if (viewportSource?.sync() == true) session?.notifyPositionChanged()
-        val version = contentSource?.contentVersion
+        // Snapshot child invalidations before the software legibility probe can draw the
+        // content and consume their dirty flags later in this same pre-draw dispatch.
+        val version = (viewportSource ?: contentSource)?.contentVersion
         if (version != backdropVersion) {
             backdropVersion = version
-            // A parent background changes outside the content View's invalidation chain. Wake
-            // the hosts too, so their cached display lists adopt the updated scene this frame.
+            // Ancestor backgrounds and retained child updates can bypass the owner's dirty
+            // flag. Wake the hosts too so both backends adopt the updated scene this frame.
             session?.notifyContentChanged()
         }
         true

@@ -85,16 +85,7 @@ internal object HostBottomBarFxController {
             }
         }
         if (config.liquidGlass) {
-            tabHost.outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: Outline) {
-                    if (view.width > 0 && view.height > 0) {
-                        outline.setRoundRect(0, 0, view.width, view.height, view.height / 2f)
-                    }
-                }
-            }
-            tabHost.clipToOutline = true
-            // 模块胶囊没有 elevation：与内容分层只靠 0.65dp 菲涅尔描边，投影会从半透明玻璃下透出灰边。
-            tabHost.elevation = 0f
+            prepareGlassContainer(tabHost)
 
             // 应用模块浮动底栏原版 Liquid Glass 材质：常量色罩 + 实时透镜采样（模糊/折射底下的内容）
             backdrop?.floating(tabHost, isDark, config.heightDp / 2f)
@@ -182,6 +173,23 @@ internal object HostBottomBarFxController {
                 }
             })
         }
+    }
+
+    /** 材质接管时建立完整合成层；之后的宿主显示/隐藏动画仍由宿主管理。 */
+    internal fun prepareGlassContainer(tabHost: View) {
+        // 真机宿主容器可遗留 alpha=0.98。整层透明会重新混入清晰原图，
+        // 即使模糊输入和 backdropOpacity 都为 1；透明感应由玻璃材质自身合成。
+        tabHost.alpha = 1f
+        tabHost.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                if (view.width > 0 && view.height > 0) {
+                    outline.setRoundRect(0, 0, view.width, view.height, view.height / 2f)
+                }
+            }
+        }
+        tabHost.clipToOutline = true
+        // 模块胶囊没有 elevation：投影会从半透明玻璃下透出灰边。
+        tabHost.elevation = 0f
     }
 
     /**
