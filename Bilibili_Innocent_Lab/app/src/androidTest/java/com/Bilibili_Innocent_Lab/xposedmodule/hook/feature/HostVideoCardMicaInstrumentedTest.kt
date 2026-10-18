@@ -25,6 +25,7 @@ import com.lumen.coacervation.engine.host.LumenMicaFallbackReason
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -91,9 +92,9 @@ class HostVideoCardMicaInstrumentedTest {
                             paint.setBounds(0, 0, width, height); paint.draw(canvas)
                         }
                     }
-                    list.addView(top, FrameLayout.LayoutParams(300, 180).apply { leftMargin = 40; topMargin = 200 })
-                    list.addView(bottom, FrameLayout.LayoutParams(300, 180).apply { leftMargin = 40; topMargin = 1400 })
-                    list.addView(compose, FrameLayout.LayoutParams(300, 180).apply { leftMargin = 420; topMargin = 200 })
+                    list.addView(top, FrameLayout.LayoutParams(300, 180).apply { leftMargin = 40 })
+                    list.addView(bottom, FrameLayout.LayoutParams(300, 180).apply { leftMargin = 40 })
+                    list.addView(compose, FrameLayout.LayoutParams(300, 180).apply { leftMargin = 420 })
                     // 未知的子内容即使是高饱和色也不能进入 Mica 的静态输入。
                     list.addView(View(activity).apply { setBackgroundColor(Color.GREEN) },
                         FrameLayout.LayoutParams(200, 200).apply { leftMargin = 750; topMargin = 600 })
@@ -104,6 +105,15 @@ class HostVideoCardMicaInstrumentedTest {
                 }
                 try {
                     SystemClock.sleep(1000)
+                    instrumentation.runOnMainSync {
+                        assertTrue(list.height > 0 && top.height > 0 && bottom.height > 0)
+                        val upper = (list.height * .25f).roundToInt() - top.height / 2
+                        val lower = (list.height * .75f).roundToInt() - bottom.height / 2
+                        top.layoutParams = (top.layoutParams as FrameLayout.LayoutParams).apply { topMargin = upper }
+                        bottom.layoutParams = (bottom.layoutParams as FrameLayout.LayoutParams).apply { topMargin = lower }
+                        compose.layoutParams = (compose.layoutParams as FrameLayout.LayoutParams).apply { topMargin = upper }
+                    }
+                    SystemClock.sleep(200)
                     instrumentation.runOnMainSync {
                         val status = requireNotNull(scope.micaDiagnostics())
                         assertEquals(status.toString(), LumenMicaFallbackReason.NONE, status.fallbackReason)
@@ -122,7 +132,7 @@ class HostVideoCardMicaInstrumentedTest {
                     instrumentation.runOnMainSync {
                         repeat(20) { wallpaper.scrollOffset += 50; scope.onPreDraw() }
                         assertEquals(1L, scope.micaPreparations())
-                        compose.translationY = 1200f; compose.invalidate()
+                        compose.translationY = (bottom.top - top.top).toFloat(); compose.invalidate()
                         // 软件采样不得破坏屏幕显示列表引用的共享节点。
                         val sampled = Bitmap.createBitmap(top.width, top.height, Bitmap.Config.ARGB_8888)
                         try { top.draw(Canvas(sampled)); assertEquals(255, Color.alpha(sampled.getPixel(150, 90))) }

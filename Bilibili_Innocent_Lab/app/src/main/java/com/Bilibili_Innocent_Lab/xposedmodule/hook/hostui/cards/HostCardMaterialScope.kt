@@ -59,9 +59,13 @@ internal open class HostCardMaterialScope(private val owner: ViewGroup, night: B
     private val visibleBounds = Rect()
     private val mapping = ViewSamplingMatrix()
     private val source = object : View(context) {
-        override fun onDraw(canvas: Canvas) { content?.drawContent(canvas) }
+        override fun isShown(): Boolean = owner.isShown
+        override fun onDraw(canvas: Canvas) {
+            content?.drawContent(canvas)
+        }
     }.apply { alpha = 0f; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
     private val field = object : View(context) {
+        override fun isShown(): Boolean = owner.isShown
         override fun invalidate() { super.invalidate(); changed() }
         override fun invalidateDrawable(drawable: Drawable) { super.invalidateDrawable(drawable); changed() }
     }.apply {

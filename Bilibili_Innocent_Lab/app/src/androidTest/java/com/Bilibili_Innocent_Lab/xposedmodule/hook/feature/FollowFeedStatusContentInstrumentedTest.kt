@@ -32,6 +32,38 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class FollowFeedStatusContentInstrumentedTest {
+    @Test fun coordinateProxyFollowsContentVisibilityAcrossHideAndRestore() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val root = FrameLayout(activity)
+                val content = FrameLayout(activity)
+                val band = View(activity)
+                root.addView(content, FrameLayout.LayoutParams(500, 900))
+                root.addView(band, FrameLayout.LayoutParams(400, 80))
+                val decor = activity.window.decorView as ViewGroup
+                decor.addView(root, ViewGroup.LayoutParams(700, 900))
+                try {
+                    root.measure(View.MeasureSpec.makeMeasureSpec(700, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(900, View.MeasureSpec.EXACTLY))
+                    root.layout(0, 0, 700, 900)
+                    FollowFeedStatusContentSource(content, band, 20f).use { source ->
+                        assertTrue(content.isShown)
+                        assertTrue("An overlay coordinate proxy must keep a visible source active", source.coordinateView.isShown)
+                        content.visibility = View.INVISIBLE
+                        assertFalse(source.coordinateView.isShown)
+                        content.visibility = View.VISIBLE
+                        assertTrue(source.coordinateView.isShown)
+                        root.visibility = View.GONE
+                        assertFalse(source.coordinateView.isShown)
+                        root.visibility = View.VISIBLE
+                        assertTrue(source.coordinateView.isShown)
+                    }
+                } finally { decor.removeView(root) }
+            }
+        }
+    }
+
     @Test fun idleProxyDoesNotKeepRecordingAndContentInvalidationsStillReachTheGlass() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

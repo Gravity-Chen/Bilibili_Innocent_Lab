@@ -1,6 +1,6 @@
 # 凝光源码接入
 
-当前基线固定为上游 [1.4.5 标签](https://github.com/jichuo1/LumenCoacervationEngine/tree/1.4.5)，core 与 motion 同时接入，正式源码归档 SHA-256 为 `84fe647935878fc26a06aea5d15c0fe7d9aa4a23aa1ef8f33d5310a190ae06b3`。构建对齐 Android 复合工程需要的工具链版本，由引擎统一提供表面连续性修复。
+当前基线固定为上游 [1.4.6 标签](https://github.com/jichuo1/LumenCoacervationEngine/tree/1.4.6)，core 与 motion 同时接入，正式源码归档 SHA-256 为 `56955510326e44939f4534bf671df59d005bf244b583aefb573b14bffad44e61`。构建对齐 Android 复合工程需要的工具链版本，由引擎统一提供表面连续性修复。
 
 1.4.3 新增 `LumenFluentControl`，提供应用内亚克力（Acrylic）、层级描边和阴影。1.4.4 修复滚动来源更新、长文字控件识别和 Android 12 模糊滤镜缓存问题。1.4.5 新增独立的 `LumenMicaBackdrop`、静态背景预处理和内容分层，并修复 GPU 磨砂颜色及淡化语义；最低 Android 版本保持不变。
 
@@ -8,9 +8,9 @@
 
 设置目录为 v55，旧 v54 布尔开关在设置显示、备份导出及宿主配置发布时统一解释；旧备份显式迁移为字符串选项，收藏身份同步映射。已开启的旧开关继承亚克力，新选项优先于遗留值。
 
-引擎 1.2.3 已吸收历史三个扩展；它们作为历史记录保留，settings 不再应用。首次构建下载固定归档并核对哈希，此后支持 `--offline`。缓存键由版本、宿主工具链版本和当前补丁内容确定，缓存位于 `.gradle/lumen-source/`，不提交缓存。
+引擎 1.2.3 已吸收历史三个扩展；它们作为历史记录保留，settings 不再应用。首次构建下载固定归档并核对哈希，此后支持 `--offline`。源码缓存目录由引擎版本和宿主工具链版本确定，缓存位于 `.gradle/lumen-source/`，不提交缓存。
 
-当前对 1.4.5 应用 `acrylic-backdrop.patch`：亚克力复用磨砂采样时，原实现先对背景执行 RGB × 1.08 + 10，再叠加亚克力自身配方，导致浅粉等浅色背景接近白色。补丁仅让 Fluent 亚克力的 GPU 与软件采样保留背景颜色，由亚克力自身处理亮度和混色；普通磨砂默认行为不变。补丁在校验归档后应用到独立源码缓存，不修改仓库索引或历史。`HostVideoCardAcrylicInstrumentedTest` 的浅粉与浅绿像素回归覆盖两条绘制路径。显式开发源码覆盖不自动应用此补丁。
+1.4.6 已吸收 `acrylic-backdrop.patch` 的亚克力底图保色修复，并保留原有公开 JVM 签名；普通磨砂的默认提亮行为不变。该补丁文件仅作历史记录，settings 不再应用。`HostChromeViewportSource`、`FollowFeedStatusContentSource` 与共享材质录制改为委托公开 `LumenViewportContentSource`／`LumenDrawableScene`；Session 统一约束来源录制边界。宿主继续管理实际区域、背景、失效、可见性与卡片生命周期，Overlay 代理采用 owner 的可见性，使高密度屏幕超出 GPU 预算后仍可软件回退。
 
 1.4.1 已吸收 LiJiaHua1024 的表面连续性补丁，并适配原生 Canvas／Compose 绘制目标：只改变色罩透明度时保留采样帧和后端状态，几何、材质或采样配置变化仍正常重建。模块已移除临时补丁及应用入口。面板内联回弹、四方向长按溢出和按滚动目标归属的光学状态也由引擎统一管理；模块适配器通过公开注册表转发实际滚动目标。
 
@@ -28,7 +28,7 @@
 
 ## 历史：1.2.2 的公共扩展
 
-以下补丁与诊断后缀仅保留发生背景，不是当前 settings 的应用清单。当前 1.4.5 已由引擎吸收这些能力。
+以下补丁与诊断后缀仅保留发生背景，不是当前 settings 的应用清单。当前 1.4.6 已由引擎吸收这些能力。
 
 基线固定为上游 [1.2.2 发布版](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.2.2)。为保留迁移前的效果，在引擎原包名下应用小范围公共扩展；宿主适配只使用公开 API，不重新维护材质、探针或弹簧求解器。接入结构见 `app/src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/hook/hostui/README.md`。
 

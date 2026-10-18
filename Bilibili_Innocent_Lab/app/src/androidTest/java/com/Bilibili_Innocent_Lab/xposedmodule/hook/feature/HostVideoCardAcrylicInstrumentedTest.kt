@@ -21,12 +21,14 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardSurface
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostCardMaterialScope
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity
+import com.lumen.coacervation.engine.host.LumenAcrylicOptions
 import com.lumen.coacervation.engine.host.LumenAcrylicFallbackReason
 import com.lumen.coacervation.engine.host.LumenSurfaceBackend
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -49,7 +51,9 @@ class HostVideoCardAcrylicInstrumentedTest {
                 card = View(activity)
                 page.addView(source, FrameLayout.LayoutParams(-1, -1))
                 page.addView(card, FrameLayout.LayoutParams(400, 240).apply { leftMargin = 60; topMargin = 320 })
-                activity.setContentView(page)
+                activity.setContentView(FrameLayout(activity).apply {
+                    addView(page, FrameLayout.LayoutParams(640, 900))
+                })
             }
             for (software in listOf(false, true)) {
                 var scope: HostCardMaterialScope? = null
@@ -133,8 +137,10 @@ class HostVideoCardAcrylicInstrumentedTest {
                 try {
                     SystemClock.sleep(1000)
                     instrumentation.runOnMainSync {
-                        assertEquals(LumenSurfaceBackend.GPU, reduced.diagnostics(reducedCard)?.backdropBackend)
-                        assertEquals(LumenSurfaceBackend.GPU, reference.diagnostics(referenceCard)?.backdropBackend)
+                        assertEquals("${reduced.samplingDiagnostics()}; ${reduced.samplingPerformance()}; ${reduced.diagnostics(reducedCard)}",
+                            LumenSurfaceBackend.GPU, reduced.diagnostics(reducedCard)?.backdropBackend)
+                        assertEquals("${reference.samplingDiagnostics()}; ${reference.samplingPerformance()}; ${reference.diagnostics(referenceCard)}",
+                            LumenSurfaceBackend.GPU, reference.diagnostics(referenceCard)?.backdropBackend)
                         val small = reduced.samplingPerformance().logicalGpuContentPixels
                         val large = reference.samplingPerformance().logicalGpuContentPixels
                         assertTrue("Input area did not shrink: $small / $large", small > 0 && small * 4 <= large)
@@ -154,6 +160,9 @@ class HostVideoCardAcrylicInstrumentedTest {
                                 total += difference; count++; maximum = maxOf(maximum, difference)
                             }
                         }
+                        val evidence = java.io.File(requireNotNull(instrumentation.targetContext.getExternalFilesDir(null)), "acrylic-compare").apply { mkdirs() }
+                        java.io.File(evidence, "comparison.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                        java.io.File(evidence, "metrics.txt").writeText("mean=${total.toDouble() / count}, max=$maximum; reduced=${a.toList()}, reference=${b.toList()}")
                         assertTrue("Acrylic changed visibly: mean=${total.toDouble() / count}, max=$maximum",
                             total.toDouble() / count <= 2.0 && maximum <= 8)
                     } finally { image.recycle() }
@@ -314,9 +323,9 @@ class HostVideoCardAcrylicInstrumentedTest {
                         paint.draw(canvas)
                     }
                 }
-                list.addView(first, FrameLayout.LayoutParams(300, 180).apply { leftMargin = 40; topMargin = 180 })
-                list.addView(second, FrameLayout.LayoutParams(300, 180).apply { leftMargin = 40; topMargin = 1300 })
-                list.addView(compose, FrameLayout.LayoutParams(300, 180).apply { leftMargin = 400; topMargin = 180 })
+                list.addView(first, FrameLayout.LayoutParams(300, 180))
+                list.addView(second, FrameLayout.LayoutParams(300, 180))
+                list.addView(compose, FrameLayout.LayoutParams(300, 180))
                 activity.setContentView(list)
                 scope = HostVideoCardSurface.Scope(list, false)
                 scope.apply(first, 20f)
@@ -325,18 +334,47 @@ class HostVideoCardAcrylicInstrumentedTest {
             }
             try {
                 SystemClock.sleep(1000)
+                instrumentation.runOnMainSync {
+                    assertTrue(list.height > 0 && first.height > 0 && second.height > 0)
+                    val upper = (list.height * .25f).roundToInt() - first.height / 2
+                    val lower = (list.height * .75f).roundToInt() - second.height / 2
+                    val nativeCenter = (list.width / 3f).roundToInt()
+                    val composeCenter = (list.width * 2f / 3f).roundToInt()
+                    // 满足 GPU 声明余量，并比较左右镜像的相同边界条件；软件三轮模糊支持域可能更宽。
+                    val gpuHalo = LumenAcrylicOptions().blurRadiusDp * 2f * list.resources.displayMetrics.density + 2f
+                    assertTrue("Fixture centers lack declared GPU halo: width=${list.width}, native=$nativeCenter, compose=$composeCenter, halo=$gpuHalo",
+                        nativeCenter >= gpuHalo && list.width - nativeCenter >= gpuHalo &&
+                            composeCenter >= gpuHalo && list.width - composeCenter >= gpuHalo)
+                    assertEquals("Fixture centers must share mirrored source-edge distances",
+                        minOf(nativeCenter, list.width - nativeCenter), minOf(composeCenter, list.width - composeCenter))
+                    first.layoutParams = (first.layoutParams as FrameLayout.LayoutParams).apply {
+                        leftMargin = nativeCenter - first.width / 2; topMargin = upper
+                    }
+                    second.layoutParams = (second.layoutParams as FrameLayout.LayoutParams).apply {
+                        leftMargin = nativeCenter - second.width / 2; topMargin = lower
+                    }
+                    compose.layoutParams = (compose.layoutParams as FrameLayout.LayoutParams).apply {
+                        leftMargin = composeCenter - compose.width / 2; topMargin = upper
+                    }
+                }
+                SystemClock.sleep(200)
                 val before = capture(window)
                 try {
+                    save(before, "native-compose-before")
                     val top = pixel(before, first)
                     val bottom = pixel(before, second)
                     val fromCompose = pixel(before, compose)
+                    var beforeDiagnostics = ""
+                    instrumentation.runOnMainSync {
+                        beforeDiagnostics = "${scope.diagnostics(second)}; ${scope.samplingDiagnostics()}; ${scope.samplingPerformance()}"
+                    }
                     assertTrue("Wrong shared-field crop: $top / $bottom", Color.blue(top) > Color.blue(bottom))
                     assertTrue("Wrong Compose crop: $top / $fromCompose", abs(Color.blue(top) - Color.blue(fromCompose)) < 12)
                     var recordings = 0L
                     instrumentation.runOnMainSync {
                         assertEquals(1, scope.samplingDiagnostics().attachedSurfaces)
                         recordings = scope.materialRecordings
-                        compose.translationY = 1120f
+                        compose.translationY = (second.top - first.top).toFloat()
                         compose.invalidate()
                         // 同一帧重复绘制多个卡片不会增加采样绑定。
                         first.invalidate(); second.invalidate()
@@ -344,9 +382,24 @@ class HostVideoCardAcrylicInstrumentedTest {
                     SystemClock.sleep(500)
                     val moved = capture(window)
                     try {
+                        save(moved, "native-compose-moved")
                         val after = pixel(moved, compose)
-                        assertTrue("Moved Compose crop stayed stale: $fromCompose -> $after", Color.red(after) > Color.red(fromCompose))
-                        assertTrue(abs(Color.blue(bottom) - Color.blue(after)) < 12)
+                        val movedBottom = pixel(moved, second)
+                        var diagnostics = ""
+                        instrumentation.runOnMainSync {
+                            val nativePosition = IntArray(2); val composePosition = IntArray(2)
+                            second.getLocationInWindow(nativePosition); compose.getLocationInWindow(composePosition)
+                            diagnostics = "${scope.diagnostics(second)}; ${scope.samplingDiagnostics()}; ${scope.samplingPerformance()}; " +
+                                "recordings=$recordings->${scope.materialRecordings}; owner=${list.width}x${list.height}; " +
+                                "native=${nativePosition.toList()}, compose=${composePosition.toList()}, translation=${compose.translationY}"
+                        }
+                        val details = "beforeTop=${Integer.toHexString(top)}, beforeBottom=${Integer.toHexString(bottom)}, " +
+                            "beforeCompose=${Integer.toHexString(fromCompose)}, movedBottom=${Integer.toHexString(movedBottom)}, " +
+                            "movedCompose=${Integer.toHexString(after)}; before=[$beforeDiagnostics]; moved=[$diagnostics]"
+                        val evidence = File(instrumentation.targetContext.getExternalFilesDir(null), "lumen-mica")
+                        File(evidence, "native-compose-metrics.txt").writeText(details)
+                        assertTrue("Moved Compose crop stayed stale: $details", Color.red(after) > Color.red(fromCompose))
+                        assertTrue("Moved Compose differs from native: $details", abs(Color.blue(bottom) - Color.blue(after)) < 12)
                     } finally { moved.recycle() }
                     instrumentation.runOnMainSync {
                         assertEquals(1, scope.samplingDiagnostics().attachedSurfaces)
