@@ -151,6 +151,7 @@ internal class HostBackgroundPages(
             kind == HostBackgroundPagePolicy.Kind.COMMENT)
             HostDetailSurfaces(root, detailBackgrounds) else null
         private var opusChrome: HostOpusChrome? = null
+        private var detailToolbarTransition: HostDetailToolbarTransition? = null
         private val pageChrome = if (kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.DYNAMIC)
             HostPageChrome(root, detailBackgrounds) else null
         private val readingSurfaces = if (kind == HostBackgroundPagePolicy.Kind.NATIVE)
@@ -201,6 +202,7 @@ internal class HostBackgroundPages(
             }
             observer = null
             detailSurfaces?.detach()
+            detailToolbarTransition?.close(); detailToolbarTransition = null
             opusChrome?.close(); opusChrome = null
             pageChrome?.close()
             readingSurfaces?.close()
@@ -270,6 +272,8 @@ internal class HostBackgroundPages(
                 if (node is ViewGroup) for (i in 0 until node.childCount) visit(node.getChildAt(i), depth + 1)
             }
             visit(root, 0)
+            if (mediaWindow && detailToolbarTransition == null)
+                detailToolbarTransition = HostDetailToolbarTransition.create(root)
             containers = nextContainers.distinctBy { it.get() }
             lists = nextLists
             texts = nextTexts
@@ -286,8 +290,11 @@ internal class HostBackgroundPages(
                 if (prepared && !HostViewVisibility.visible(page, visibleBounds)) return@runCatching
                 if (dirty) discover(page)
                 prepared = true
-                // 播放窗口只给前景面板铺壁纸，状态栏、播放器及其工具栏保留宿主材质。
-                if (mediaWindow) return@runCatching
+                // 播放窗口保留原生材质；工具栏背景仅按实际收起距离连续过渡。
+                if (mediaWindow) {
+                    detailToolbarTransition?.apply()
+                    return@runCatching
+                }
                 val night = host.isNight(page.context) || background.requiresNight
                 if (kind == HostBackgroundPagePolicy.Kind.OPUS && opusChrome == null)
                     opusChrome = HostOpusChrome.create(page, detailBackgrounds)

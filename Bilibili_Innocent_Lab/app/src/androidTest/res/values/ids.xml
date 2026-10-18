@@ -52,6 +52,8 @@
     <item name="rv_messages" type="id" />
     <item name="im_top_hint" type="id" />
     <item name="app_bar" type="id" />
+    <item name="appbar" type="id" />
+    <item name="collapsing_toolbar" type="id" />
     <item name="content_frame" type="id" />
     <item name="suggest_list" type="id" />
     <item name="root_container" type="id" />
