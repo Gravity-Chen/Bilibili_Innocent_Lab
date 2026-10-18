@@ -99,6 +99,8 @@ class Telegram:
         else:body,content_type=multipart(fields,apk)
         connection=http.client.HTTPSConnection("api.telegram.org",timeout=180)
         try:
+            if method in {"sendDocument","sendMessage"}:
+                print("TELEGRAM_POST_ATTEMPT: "+method,flush=True)
             connection.request("POST",f"/bot{self.token}/{method}",body,{"Content-Type":content_type})
             response=connection.getresponse();data=response.read(MAX_RESPONSE_BYTES+1)
             if len(data)>MAX_RESPONSE_BYTES:raise DeliveryError("Telegram response exceeds budget")
@@ -144,6 +146,7 @@ def main() -> int:
     parser.add_argument("--receipt",type=Path)
     parser.add_argument("--dry-run",action="store_true")
     args=parser.parse_args()
+    print("TELEGRAM_DELIVERY_PROTOCOL: 2",flush=True)
     try:
         digest=validate_identity(args.apk,args.build_info,args.tag,args.commit,args.source_url)
         notes=args.notes.read_text(encoding="utf-8")

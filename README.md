@@ -457,7 +457,7 @@ Bilibili Innocent Lab 是一个面向 Android 哔哩哔哩客户端的 Xposed/LS
 
 **Canary 获取方式**：在模块内的「更新渠道」选择 Canary，发现更新后可通过提示中的 Telegram 或 Actions 入口下载。直接使用 Actions 时，选择成功的运行，在 Artifacts 中下载 `Bilibili_Innocent_Lab-vX.Y.Z-canary.N-提交短 SHA` 压缩包，解压后安装其中的 APK；下载需登录 GitHub，构建产物保留 30 天。包内同时提供构建信息、SHA-256 校验文件和更新记录。
 
-**发布方式**：Alpha 由开发者确认后通过工作流发布到 GitHub Release。Canary 在 `main` 推送后自动构建，也支持手动触发，产物保存在 Actions。Telegram 发布频道由开发者手动选取成功的 Canary 构建同步，因此频道版本可能晚于最新 Actions 构建。
+**发布方式**：Alpha 由开发者确认后通过工作流发布到 GitHub Release。Canary 在 `main` 推送后自动构建，也支持手动触发，产物保存在 Actions。Telegram 发布频道每天北京时间 22:00 定时同步最新通过检查的 Canary；当天已有手动触发、当天已成功投递或构建与上次发布一致时跳过。开发者仍可随时手动选取成功构建同步，次数不限；定时任务可能排队延迟，因此频道版本可能晚于最新 Actions 构建。
 
 > **版本号规则**：Alpha 与 Canary 均使用当前稳定版的下一个补丁版本作为前缀。例如稳定版为 `1.2.0` 时，Alpha 使用 `1.2.1-alpha.N`，Canary 使用 `1.2.1-canary.N`；Canary 的 `N` 为构建流水号。正式发布 `1.2.1` 后，开发版本前缀再切换到 `1.2.2`。
 

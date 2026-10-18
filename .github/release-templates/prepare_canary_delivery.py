@@ -114,7 +114,8 @@ def inspect_archive(archive: Path, artifact: dict, run: dict, destination: Path)
     validate_identity(destination / apk_name, destination / "BUILD_INFO.txt", tag, run["head_sha"], source_url)
     return {"package_directory": str(destination.resolve()), "apk_filename": apk_name, "release_tag": tag,
             "version_name": info["apk_version_name"], "version_code": info["apk_version_code"],
-            "source_commit": run["head_sha"], "source_run_url": source_url}
+            "source_commit": run["head_sha"], "source_run_url": source_url,
+            "source_artifact_digest": artifact["digest"]}
 
 
 def api_json(path: str) -> dict:
@@ -129,11 +130,14 @@ def main() -> None:
     parser.add_argument("--run-url", required=True)
     parser.add_argument("--destination", required=True, type=Path)
     parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--expected-artifact-digest", default="")
     args = parser.parse_args()
     run_id, _ = parse_run_url(args.run_url)
     run = api_json(f"repos/{REPOSITORY}/actions/runs/{run_id}")
     artifacts = api_json(f"repos/{REPOSITORY}/actions/runs/{run_id}/artifacts?per_page=100")
     artifact = select_artifact(run, artifacts, run_id)
+    if args.expected_artifact_digest and artifact["digest"] != args.expected_artifact_digest:
+        raise ValueError("Selected Canary artifact changed after the publication decision")
     args.destination.parent.mkdir(parents=True, exist_ok=True)
     archive = args.destination.with_suffix(".zip")
     with archive.open("wb") as output:

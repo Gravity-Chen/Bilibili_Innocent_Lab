@@ -65,6 +65,7 @@ class CanarySelectionTest(unittest.TestCase):
         self.assertEqual("v1.2.1-canary.3", outputs["release_tag"])
         self.assertEqual(run["html_url"], outputs["source_run_url"])
         self.assertEqual("21", outputs["version_code"])
+        self.assertEqual(artifact["digest"], outputs["source_artifact_digest"])
         self.assertEqual(files[outputs["apk_filename"]], (root / "delivery" / outputs["apk_filename"]).read_bytes())
 
     def test_failed_fork_and_non_canary_runs_are_rejected(self):
