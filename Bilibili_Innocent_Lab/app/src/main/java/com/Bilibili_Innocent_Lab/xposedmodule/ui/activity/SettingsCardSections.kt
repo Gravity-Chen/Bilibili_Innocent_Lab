@@ -23,7 +23,6 @@ import com.highcapable.betterandroid.ui.extension.view.toast
 import com.highcapable.betterandroid.ui.extension.view.updateMargins
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
 import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.base.Hikagable
 import com.highcapable.hikage.core.layout.LayoutParams
 import com.highcapable.hikage.widget.android.widget.ImageView
 import com.highcapable.hikage.widget.android.widget.LinearLayout
@@ -51,8 +50,6 @@ import android.R as Android_R
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.SettingsSearchSection
 
 /** 设置备份入口卡片。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.settingsBackupEntryCard(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     LinearLayout(
@@ -136,8 +133,6 @@ internal fun MainActivity.settingsBackupEntryCard(scope: Hikage.Performer<Native
 }
 
 /** 净化设置卡片；进阶子分区的分类标题在此注册 marker，顺序必须与 AdvancedSettingsCategory 一致。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     LinearLayout(
@@ -459,8 +454,6 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
  *   所以要把启动快照传进来。刻意用参数而不是字段：快照只在 `onCreate` 构建期有效，
  *   写回偏好之后它就是过期的（见 AGENTS.md 里 `uiSettings` 那条红线）。
  */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.enhancementSettingsCard(
     scope: Hikage.Performer<NativeLinearLayout.LayoutParams>,
@@ -925,8 +918,6 @@ internal fun MainActivity.hostAppearanceHeading(
 }
 
 /** 实验性功能卡片（含外观、风格与配色等子区）。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.experimentalFeaturesCard(
     scope: Hikage.Performer<NativeLinearLayout.LayoutParams>,
@@ -1535,8 +1526,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                             val intent = Intent(RoamingCompatHook.ACTION_SET_ROAMING_COMPAT)
                                 .setPackage(HookEntry.TARGET_PACKAGE)
                                 .putExtra(RoamingCompatHook.EXTRA_ENABLED, isChecked)
-                            // 外移后标签换成扩展接收者；指向的仍是同一个 MainActivity。
-                            this@experimentalFeaturesCard.sendBroadcast(intent)
+                            // 这里的 this 是开关 View，sendBroadcast 落到外层的 MainActivity 接收者上。
+                            sendBroadcast(intent)
                         }.onFailure { t ->
                             Log.e("BilibiliInnocentLab", "send roaming compat broadcast failed", t)
                         }
@@ -1646,8 +1637,6 @@ internal fun MainActivity.experimentalFeaturesCard(
 }
 
 /** 日志设置卡片。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.logSettingsCard(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     LinearLayout(

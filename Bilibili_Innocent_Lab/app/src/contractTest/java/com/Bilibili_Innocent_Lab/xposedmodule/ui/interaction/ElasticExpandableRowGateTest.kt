@@ -120,8 +120,12 @@ class ElasticExpandableRowGateTest {
         assertEquals(2, body.lines().count { it.trimStart().startsWith("cornerRadius = ") })
     }
 
+    // 只在锚点所在的那个文件里取窗口，避免锚点靠近文件开头时把上一个文件的尾部算进来。
     private fun windowBefore(anchor: String): String =
-        main().before(anchor).takeLast(360)
+        SettingsUiSource.settingsPageFiles().map { it.second.replace("\r\n", "\n") }
+            .singleOrNull { it.contains(anchor) }
+            .let { requireNotNull(it) { "anchor must appear in exactly one settings file: $anchor" } }
+            .before(anchor).takeLast(360)
 
     // 设置页本体：MainActivity 加外移的 *Sections.kt（各卡片的展开头与角标都在分区文件里）。
     private fun main(): String = SettingsUiSource.settingsPage().replace("\r\n", "\n")

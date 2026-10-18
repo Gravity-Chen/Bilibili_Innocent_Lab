@@ -107,10 +107,16 @@ class ModalBackdropBlurSpecTest {
         // 开关行在外观卡片里，已外移到 SettingsCardSections.kt；扫整个设置页。
         val main = SettingsUiSource.settingsPage()
         assertTrue(main.contains("userEnabled = ModalBackdropBlurStore.read(this)"))
-        // 开关落在配色规范那条的下面，并且登记进备份目录。
+        // 开关落在配色规范那条的下面，并且登记进备份目录。先后只在同一个文件里比才有意义，
+        // 设置页是多文件拼接，跨文件比较的是拼接顺序。
+        val layout = SettingsUiSource.settingsPageFiles().map { it.second }.singleOrNull {
+            it.contains("R.string.panel_window_blur_title") &&
+                it.contains("R.string.material_color_spec_summary")
+        }
+        assertTrue("blur toggle and color-spec row must live in one settings file", layout != null)
         assertTrue(
-            main.indexOf("R.string.panel_window_blur_title") >
-                main.indexOf("R.string.material_color_spec_summary")
+            layout!!.indexOf("R.string.panel_window_blur_title") >
+                layout.indexOf("R.string.material_color_spec_summary")
         )
         assertTrue(main.contains("putBoolean(ModalBackdropBlurStore.PREF_KEY, checked)"))
     }

@@ -15,7 +15,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
 import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.base.Hikagable
 import com.highcapable.hikage.core.layout.LayoutParams
 import com.highcapable.hikage.widget.android.widget.ImageView
 import com.highcapable.hikage.widget.android.widget.LinearLayout

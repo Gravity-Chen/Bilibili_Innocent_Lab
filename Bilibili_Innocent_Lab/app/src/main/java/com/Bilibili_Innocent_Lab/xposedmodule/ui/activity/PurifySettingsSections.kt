@@ -17,7 +17,6 @@ import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.toast
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
 import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.base.Hikagable
 import com.highcapable.hikage.core.layout.LayoutParams
 import com.highcapable.hikage.widget.android.widget.ImageView
 import com.highcapable.hikage.widget.android.widget.LinearLayout
@@ -75,8 +74,6 @@ internal fun MainActivity.recommendSummaryRow(
 }
 
 /** 进阶净化 · PURIFY_SHARED 分类；标题即 marker，必须是本组第一个子控件。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.purifySharedCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     TextView(
@@ -103,8 +100,6 @@ internal fun MainActivity.purifySharedCategory(scope: Hikage.Performer<NativeLin
 }
 
 /** 进阶净化 · PURIFY_SHARE 分类；标题即 marker，必须是本组第一个子控件。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.purifyShareCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     TextView(
@@ -200,8 +195,6 @@ internal fun MainActivity.purifyShareCategory(scope: Hikage.Performer<NativeLine
 }
 
 /** 进阶净化 · PURIFY_STARTUP 分类；标题即 marker，必须是本组第一个子控件。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     TextView(
@@ -413,8 +406,6 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
 }
 
 /** 进阶净化 · PURIFY_COMMENTS 分类；标题即 marker，必须是本组第一个子控件。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     TextView(
@@ -967,8 +958,6 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
 }
 
 /** 进阶净化 · PURIFY_PLAYBACK 分类；标题即 marker，必须是本组第一个子控件。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     TextView(
@@ -1921,8 +1910,6 @@ internal fun MainActivity.semanticFilterDetails(
 }
 
 /** 进阶净化 · PURIFY_MINE 分类；标题即 marker，必须是本组第一个子控件。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.purifyMineCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     TextView(
@@ -2048,8 +2035,6 @@ internal fun MainActivity.purifyMineCategory(scope: Hikage.Performer<NativeLinea
 }
 
 /** 进阶净化 · PURIFY_SEARCH 分类；标题即 marker，必须是本组第一个子控件。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     TextView(
@@ -2308,8 +2293,6 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
 }
 
 /** 进阶净化 · PURIFY_NAVIGATION 分类；标题即 marker，必须是本组第一个子控件。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     TextView(
@@ -2829,8 +2812,6 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
 }
 
 /** 进阶净化 · PURIFY_HOME 分类；标题即 marker，必须是本组第一个子控件。 */
-// 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
-// （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
 @com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
     TextView(
