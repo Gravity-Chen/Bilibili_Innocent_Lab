@@ -512,7 +512,8 @@ internal class HostBackgroundPages(
         fun contains(view: View) = kind(view) != null
         fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||
             HostBackgroundPagePolicy.imageViewer(view.javaClass.name) ||
-            name(view) in protectedNames || HostDetailFloatLayers.slot(view) || selectionChrome(view) || view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
+            name(view) in protectedNames || HostDetailFloatLayers.slot(view) || selectionChrome(view) || searchSuggestions(view) || commentMask(view) ||
+            view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
             view.javaClass.name.startsWith("com.bilibili.video.story.") ||
             view.javaClass.name.startsWith("com.bilibili.cron.") || view.javaClass.name.startsWith("tv.danmaku.render.")
 
@@ -550,6 +551,27 @@ internal class HostBackgroundPages(
             if (name != "head_layout" && name != "top_layout") return false
             val parent = view.parent as? ViewGroup ?: return false
             return (0 until parent.childCount).any { name(parent.getChildAt(it)) == "select_list" }
+        }
+        private fun searchSuggestions(view: View): Boolean {
+            if (view !is android.widget.ListView || name(view) != "suggest_list") return false
+            val parent = view.parent as? ViewGroup ?: return false
+            // ChannelSearchActivity 只显示/隐藏建议列表，底下的搜索结果仍可见；整层底板不能清空。
+            return name(parent) == "content_frame" &&
+                (0 until parent.childCount).any { name(parent.getChildAt(it)) == "recycler" }
+        }
+        private fun commentMask(view: View): Boolean {
+            val parent = view.parent as? ViewGroup ?: return false
+            if (name(parent) != "root_container" || view !is ViewGroup || view.childCount != 1) return false
+            val body = view.getChildAt(0) as? ViewGroup ?: return false
+            if (!body.isClickable || !body.isFocusable ||
+                (0 until body.childCount).none { name(body.getChildAt(it)) == "close" } ||
+                (0 until body.childCount).none { body.getChildAt(it) is ImageView }) return false
+            if (generateSequence(view.javaClass as Class<*>?) { it.superclass }
+                    .none { it.name == "androidx.core.widget.NestedScrollView" }) return false
+            // 旧评论的课堂/青少年遮罩无根 id，动态盖在 root_container 上；正文仍在下层。
+            val content = (0 until parent.childCount).map { parent.getChildAt(it) }
+                .firstOrNull { name(it) == "content" } as? ViewGroup ?: return false
+            return (0 until content.childCount).any { name(content.getChildAt(it)) == "footer_container" }
         }
         private fun videoPanel(view: View): Boolean {
             if (view !is ViewGroup || name(view) != "content_container") return false

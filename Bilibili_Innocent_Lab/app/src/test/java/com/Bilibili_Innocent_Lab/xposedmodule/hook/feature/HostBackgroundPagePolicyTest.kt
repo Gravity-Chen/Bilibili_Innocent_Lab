@@ -6,6 +6,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostBackgroundPagePolicyTest {
+    @Test fun commentPushSheetsAreNotCommentContentPages() {
+        for (name in listOf(
+            "com.bilibili.app.comment3.push.CommentPushDialogFragment",
+            "com.bilibili.app.comment3.push.CommentPushContainerFragment",
+            "com.bilibili.app.comment3.push.ui.moremenu.CommentPushMoreMenuDialogFragment"
+        )) assertNull(HostBackgroundPagePolicy.kind(name))
+        for (name in listOf(
+            "com.bilibili.app.comment3.CommentV3Fragment",
+            "com.bilibili.app.comment3.ui.CommentV3MainFragment",
+            "com.bilibili.app.comment3.ui.CommentV3DetailFragment",
+            "com.bilibili.app.comment3.ui.CommentV3DialogFragment"
+        )) assertEquals(Kind.COMMENT, HostBackgroundPagePolicy.kind(name))
+    }
+
     @Test fun embeddedCommentImageViewersKeepTheirMediaComposition() {
         for (name in listOf(
             "com.bilibili.app.comment3.ui.widget.imagecardviewer.CommentImageCardViewerDialogFragment",

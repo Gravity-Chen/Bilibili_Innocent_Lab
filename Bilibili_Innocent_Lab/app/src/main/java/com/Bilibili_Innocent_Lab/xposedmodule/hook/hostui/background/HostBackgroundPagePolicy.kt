@@ -12,6 +12,8 @@ internal object HostBackgroundPagePolicy {
 
     fun kind(name: String): Kind? = when {
         imageViewer(name) -> null
+        // 推送订阅及其菜单用独立 BottomSheet 材质，不是评论正文，不能整页重铺壁纸。
+        name.startsWith("com.bilibili.app.comment3.push.") -> null
         name == "com.bilibili.bplus.followinglist.page.opus.OpusDetailFragment" -> Kind.OPUS
         name.startsWith("com.bilibili.app.comment") && name.substringAfterLast('.').startsWith("Comment") && name.endsWith("Fragment") -> Kind.COMMENT
         name.startsWith("com.bilibili.ogv.operation") && name.substringAfterLast('.').startsWith("BangumiHome") -> Kind.COMPOSE
