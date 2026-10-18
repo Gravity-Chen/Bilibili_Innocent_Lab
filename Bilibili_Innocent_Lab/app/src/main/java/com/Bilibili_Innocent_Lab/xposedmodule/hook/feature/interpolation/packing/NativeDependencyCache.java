@@ -41,9 +41,7 @@ final class NativeDependencyCache {
             throw new IOException("classloader_mismatch");
         requireRuntimeAbi(spec.abi);
         byte[] archive = ArchiveVerifier.readVerified(archiveInput, spec);
-        Path base = ownCodeCache.toPath().toAbsolutePath().normalize();
-        if (base.getFileName() == null || !"code_cache".equals(base.getFileName().toString()) ||
-                !base.toFile().getCanonicalFile().toPath().equals(base)) throw new IOException("cache_path_not_canonical");
+        Path base = CanonicalCacheRoot.resolve(ownCodeCache).toPath();
         requireOwned(base, true, false);
         Path scope = privateDirectory(base.resolve("native-dependency-packing-v1"));
         Path abi = privateDirectory(scope.resolve(spec.abi));

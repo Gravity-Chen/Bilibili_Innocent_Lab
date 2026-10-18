@@ -21,7 +21,9 @@ public final class FrameNativeLoader {
 
     /**
      * Caller must pass API102 getModuleApplicationInfo().sourceDir and the actual host
-     * Context.codeCacheDir. Never use ProtectionDomain, module-private data, or a host APK here.
+     * Context.codeCacheDir. An owned directory alias is accepted only after matching repeated
+     * raw/canonical identity snapshots; subsequent cache checks still apply to the canonical root.
+     * Never use ProtectionDomain, module-private data, or a host APK here.
      * Runs synchronously on the caller's bounded background worker; no thread or work queue is created.
      */
     public static Status prepare(File moduleApk, File hostCodeCache, Class<?> actualJniClass) {
