@@ -1,10 +1,15 @@
 import unittest
 from unittest.mock import patch
 
-from telegram_delivery_state import previous_commit, record_delivery, github, REPOSITORY, SEND_STEP
+from telegram_delivery_state import previous_commit, previous_delivery, legacy_previous_commit, record_delivery, github, REPOSITORY, SEND_STEP
 
 
 class TelegramDeliveryStateTest(unittest.TestCase):
+    def completed_jobs(self, completed="2026-10-16T15:59:59Z", attempt=1):
+        return {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK", "run_id": 9,
+                          "run_attempt": attempt, "steps": [{"name": SEND_STEP, "conclusion": "success",
+                                                               "completed_at": completed}]}]}
+
     def step_log(self, output, step=SEND_STEP):
         return "\n".join(f"Verify selected Canary and send its APK\t{step}\t2026-10-11T21:16:15.6773972Z {line}"
                          for line in output.splitlines())
@@ -72,7 +77,7 @@ class TelegramDeliveryStateTest(unittest.TestCase):
         with patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": runs},
                    {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, log]) as api:
             self.assertEqual("a" * 40, previous_commit("@Bilibili_Innocent_LabRelease"))
-        self.assertEqual({"raw": True, "run_id": 10}, api.call_args.kwargs)
+        self.assertEqual({"raw": True, "run_id": 10, "attempt": 1}, api.call_args.kwargs)
 
     def test_other_step_sources_do_not_change_the_real_delivery_source(self):
         run = {"id": 1, "path": ".github/workflows/canary-telegram.yml",
@@ -102,15 +107,16 @@ class TelegramDeliveryStateTest(unittest.TestCase):
                 previous_commit("@Bilibili_Innocent_LabRelease")
 
     def test_completed_receipt_records_selected_source_without_merging_or_moving_tags(self):
-        with patch("telegram_delivery_state.github", side_effect=[{"id": 7, "sha": "a" * 40}, {"state": "success"}]) as api:
+        with patch("telegram_delivery_state.github", side_effect=[self.completed_jobs(), {"id": 7, "sha": "a" * 40}, {"state": "success"}]) as api:
             identity = record_delivery(self.receipt(), f"https://github.com/{REPOSITORY}/actions/runs/9")
         self.assertEqual(7, identity)
-        payload = api.call_args_list[0].args[1]
+        payload = api.call_args_list[1].args[1]
         self.assertEqual("a" * 40, payload["ref"])
         self.assertFalse(payload["auto_merge"])
         self.assertEqual([], payload["required_contexts"])
         self.assertEqual("@bilibili_innocent_labrelease", payload["payload"]["channel"])
-        self.assertFalse(api.call_args_list[1].args[1]["auto_inactive"])
+        self.assertFalse(api.call_args_list[2].args[1]["auto_inactive"])
+        self.assertEqual("2026-10-16T15:59:59Z", payload["payload"]["delivered_at"])
 
     def test_incomplete_delivery_never_writes_a_checkpoint(self):
         with patch("telegram_delivery_state.github") as api:
@@ -124,6 +130,274 @@ class TelegramDeliveryStateTest(unittest.TestCase):
                 record_delivery(dict(self.receipt(), announcement_message_ids=[]),
                                 f"https://github.com/{REPOSITORY}/actions/runs/9")
         api.assert_not_called()
+
+    def test_checkpoint_retains_artifact_digest_and_delivery_date(self):
+        digest = "sha256:" + "b" * 64
+        with patch("telegram_delivery_state.github", side_effect=[self.completed_jobs(), {"id": 7, "sha": "a" * 40}, {}]) as api:
+            record_delivery(self.receipt(), f"https://github.com/{REPOSITORY}/actions/runs/9", artifact_digest=digest)
+        payload = api.call_args_list[1].args[1]["payload"]
+        self.assertEqual(digest, payload["source_artifact_digest"])
+        checkpoint = {"id": 7, "sha": "a" * 40, "environment": "canary-telegram", "task": "canary-telegram",
+                      "payload": payload, "created_at": "2026-10-16T14:02:00Z"}
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": [{"id": 9}]}]):
+            receipt = previous_delivery("@Bilibili_Innocent_LabRelease")
+        self.assertEqual(digest, receipt["source_artifact_digest"])
+        self.assertEqual("2026-10-16T15:59:59Z", receipt["delivered_at"])
+
+    def test_bad_artifact_digest_never_records_a_checkpoint(self):
+        with patch("telegram_delivery_state.github") as api, self.assertRaises(ValueError):
+            record_delivery(self.receipt(), f"https://github.com/{REPOSITORY}/actions/runs/9", artifact_digest="invalid")
+        api.assert_not_called()
+
+    def history_run(self, identity=10, attempt=1, updated="2026-10-17T14:00:00Z"):
+        return {"id": identity, "path": ".github/workflows/canary-telegram.yml", "head_branch": "main",
+                "event": "schedule", "run_attempt": attempt, "updated_at": updated}
+
+    def checkpoint(self, commit="a" * 40, identity=1, sent="2026-10-16T14:00:00Z"):
+        return {"id": identity, "sha": commit, "environment": "canary-telegram", "task": "canary-telegram",
+                "created_at": "2026-10-18T00:00:00Z", "payload": dict(self.receipt(commit), schema=1,
+                channel="@bilibili_innocent_labrelease", delivered_at=sent, delivery_run_attempt=1,
+                delivery_run_url=f"https://github.com/{REPOSITORY}/actions/runs/{identity + 8}")}
+
+    def history_log(self, tail, *, channel="@Bilibili_Innocent_LabRelease", stamp="2026-10-17T14:00:00Z"):
+        rows = ["SOURCE_COMMIT: " + "b" * 40, "TELEGRAM_CHAT_ID: " + channel] + tail
+        return "\n".join(f"Verify selected Canary and send its APK\t{SEND_STEP}\t{stamp} {row}" for row in rows)
+
+    def test_instrumented_preflight_failure_and_dry_run_do_not_block_automation(self):
+        for tail in [["TELEGRAM_DELIVERY_PROTOCOL: 2", "Telegram delivery failed: Telegram network/protocol failure"],
+                     ["DELIVERY_DRY_RUN: true", "Telegram delivery failed: fixture validation"],
+                     ["Validated Telegram payload; dry-run only"]]:
+            with self.subTest(tail=tail), patch("telegram_delivery_state.github", side_effect=[[],
+                    {"workflow_runs": [self.history_run()]},
+                    {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK", "run_attempt": 1}]},
+                    self.history_log(tail)]):
+                self.assertEqual({}, previous_delivery("@Bilibili_Innocent_LabRelease", strict=True))
+
+    def test_other_channel_uncertain_post_does_not_block_this_channel(self):
+        checkpoint = self.checkpoint()
+        log = self.history_log(["TELEGRAM_DELIVERY_PROTOCOL: 2", "TELEGRAM_POST_ATTEMPT: sendDocument"], channel="@other_channel")
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": [self.history_run()]},
+                {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, log]):
+            self.assertEqual("a" * 40, previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)["source_commit"])
+
+    def test_uncertain_post_older_than_confirmed_delivery_is_not_a_permanent_lock(self):
+        checkpoint = self.checkpoint(sent="2026-10-17T15:00:00Z")
+        log = self.history_log(["TELEGRAM_POST_ATTEMPT: sendMessage", "Telegram delivery failed: fixture"], stamp="2026-10-17T14:00:00Z")
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": [self.history_run(updated="2026-10-18T14:00:00Z")]},
+                {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, log]):
+            self.assertEqual("a" * 40, previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)["source_commit"])
+
+    def test_partial_announcement_or_old_uninstrumented_network_failure_blocks_only_automatic_retry(self):
+        for tail in [["TELEGRAM_DELIVERY_PROTOCOL: 2", "TELEGRAM_POST_ATTEMPT: sendDocument", "TELEGRAM_POST_ATTEMPT: sendMessage"],
+                     ["Telegram delivery failed: Telegram network/protocol failure; check delivery before retrying"]]:
+            responses = [[], {"workflow_runs": [self.history_run()]},
+                         {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, self.history_log(tail)]
+            with self.subTest(tail=tail), patch("telegram_delivery_state.github", side_effect=responses), \
+                    self.assertRaisesRegex(ValueError, "Unconfirmed Telegram"):
+                previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+            with patch("telegram_delivery_state.github", side_effect=responses):
+                self.assertEqual("", previous_commit("@Bilibili_Innocent_LabRelease"))
+
+    def test_skipped_send_does_not_read_logs_or_block_automation(self):
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [self.history_run()]},
+                {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK", "steps": [
+                    {"name": SEND_STEP, "conclusion": "skipped", "started_at": None}]}]}]) as api:
+            self.assertEqual({}, previous_delivery("@Bilibili_Innocent_LabRelease", strict=True))
+        self.assertEqual(3, api.call_count)
+
+    def test_late_checkpoint_creation_does_not_override_a_newer_actual_delivery(self):
+        old = self.checkpoint("a" * 40, identity=20, sent="2026-10-15T14:00:00Z")
+        newer = self.checkpoint("b" * 40, identity=10, sent="2026-10-16T14:00:00Z")
+        with patch("telegram_delivery_state.github", side_effect=[[old, newer], {"workflow_runs": []}]):
+            self.assertEqual("b" * 40, previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)["source_commit"])
+
+    def test_rerunning_current_scheduled_run_inspects_its_previous_attempt(self):
+        run = self.history_run(identity=90, attempt=2)
+        jobs = {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK", "run_id": 90, "run_attempt": 1},
+                         {"id": 8, "name": "Verify selected Canary and send its APK", "run_id": 90, "run_attempt": 2}]}
+        with patch("telegram_delivery_state.github", side_effect=[[], jobs,
+                self.history_log(["TELEGRAM_POST_ATTEMPT: sendDocument"]), {"workflow_runs": []}]) as api, \
+                self.assertRaisesRegex(ValueError, "Unconfirmed Telegram"):
+            previous_delivery("@Bilibili_Innocent_LabRelease", strict=True, active_run=run)
+        self.assertEqual({"raw": True, "run_id": 90, "attempt": 1}, api.call_args_list[2].kwargs)
+
+    def test_later_confirmed_attempt_clears_earlier_uncertainty_even_when_jobs_are_reversed(self):
+        run = self.history_run(attempt=2)
+        jobs = {"jobs": [{"id": 8, "name": "Verify selected Canary and send its APK", "run_attempt": 2},
+                         {"id": 7, "name": "Verify selected Canary and send its APK", "run_attempt": 1}]}
+        success = self.history_log(["Telegram delivered Canary APK, message ID 49"], stamp="2026-10-17T15:00:00Z")
+        uncertain = self.history_log(["TELEGRAM_POST_ATTEMPT: sendDocument"], stamp="2026-10-17T14:00:00Z")
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [run]}, jobs, success, uncertain]):
+            result = previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+        self.assertEqual("b" * 40, result["source_commit"])
+        self.assertEqual(2, result["delivery_run_attempt"])
+
+    def test_record_uses_the_matching_attempt_send_step_not_another_attempt(self):
+        jobs = self.completed_jobs(attempt=2)
+        jobs["jobs"].append(self.completed_jobs("2026-10-18T00:00:00Z", attempt=1)["jobs"][0])
+        with patch("telegram_delivery_state.github", side_effect=[jobs, {"id": 7, "sha": "a" * 40}, {}]) as api:
+            record_delivery(self.receipt(), f"https://github.com/{REPOSITORY}/actions/runs/9", attempt=2)
+        payload = api.call_args_list[1].args[1]["payload"]
+        self.assertEqual(2, payload["delivery_run_attempt"])
+        self.assertEqual("2026-10-16T15:59:59Z", payload["delivered_at"])
+
+    def test_record_without_unique_actual_send_completion_does_not_create_checkpoint(self):
+        with patch("telegram_delivery_state.github", return_value={"jobs": []}) as api, self.assertRaisesRegex(ValueError, "completion time"):
+            record_delivery(self.receipt(), f"https://github.com/{REPOSITORY}/actions/runs/9")
+        self.assertEqual(1, api.call_count)
+
+    def test_legacy_checkpoint_without_actual_time_still_supports_manual_notes_but_not_daily_date(self):
+        checkpoint = self.checkpoint()
+        checkpoint["payload"].pop("delivered_at")
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": []}]):
+            self.assertEqual("a" * 40, previous_commit("@Bilibili_Innocent_LabRelease"))
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": []}]), \
+                self.assertRaisesRegex(ValueError, "actual send time"):
+            previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+
+    def test_legacy_checkpoint_recovers_actual_send_time_across_midnight(self):
+        checkpoint = self.checkpoint()
+        checkpoint["payload"].pop("delivered_at")
+        checkpoint["created_at"] = "2026-10-15T16:00:01Z"
+        run = self.history_run(identity=9)
+        jobs = self.completed_jobs("2026-10-15T15:59:59Z")
+        jobs["jobs"][0]["steps"][0].update(number=13, started_at="2026-10-15T15:59:50Z")
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": [run]}, jobs]) as api:
+            result = previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+        self.assertEqual("2026-10-15T15:59:59Z", result["delivered_at"])
+        self.assertEqual(3, api.call_count)
+
+    def test_old_checkpoint_without_attempt_requires_one_unique_successful_send_attempt(self):
+        checkpoint = self.checkpoint()
+        checkpoint["payload"].pop("delivered_at")
+        checkpoint["payload"].pop("delivery_run_attempt")
+        jobs = self.completed_jobs()
+        jobs["jobs"][0]["steps"][0].update(number=13, started_at="2026-10-16T15:59:50Z")
+        duplicate = self.completed_jobs(attempt=2)["jobs"][0]
+        duplicate["id"] = 8
+        duplicate["steps"][0].update(number=13, started_at="2026-10-16T15:59:50Z")
+        jobs["jobs"].append(duplicate)
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint],
+                {"workflow_runs": [self.history_run(identity=9, attempt=2)]}, jobs]) as api, \
+                self.assertRaisesRegex(ValueError, "attempt is not unique"):
+            previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+        self.assertEqual(3, api.call_count)
+
+    def test_old_checkpoint_without_attempt_recovers_from_one_exact_success_job(self):
+        checkpoint = self.checkpoint()
+        checkpoint["payload"].pop("delivered_at")
+        checkpoint["payload"].pop("delivery_run_attempt")
+        jobs = self.completed_jobs()
+        jobs["jobs"][0]["steps"][0].update(number=13, started_at="2026-10-16T15:59:50Z")
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint],
+                {"workflow_runs": [self.history_run(identity=9)]}, jobs]) as api:
+            result = previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+        self.assertEqual(1, result["delivery_run_attempt"])
+        self.assertEqual("2026-10-16T15:59:59Z", result["delivered_at"])
+        self.assertEqual(3, api.call_count)
+
+    def test_delayed_checkpoint_still_recovers_old_run_below_a_newer_confirmation_cutoff(self):
+        old = self.checkpoint()
+        old["payload"].pop("delivered_at")
+        old["created_at"] = "2026-10-18T00:00:00Z"
+        newer = self.checkpoint("b" * 40, identity=2, sent="2026-10-17T14:00:00Z")
+        jobs = self.completed_jobs()
+        jobs["jobs"][0]["steps"][0].update(number=13, started_at="2026-10-16T15:59:50Z")
+        with patch("telegram_delivery_state.github", side_effect=[[old, newer],
+                {"workflow_runs": [self.history_run(identity=9, updated="2026-10-16T16:00:00Z")]}, jobs]) as api:
+            result = previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+        self.assertEqual("b" * 40, result["source_commit"])
+        self.assertEqual(3, api.call_count)
+
+    def test_checkpoint_time_recovery_requires_the_delivery_workflow_main_event(self):
+        for key, value in [("path", ".github/workflows/canary-build.yml"), ("head_branch", "next"), ("event", "pull_request")]:
+            checkpoint = self.checkpoint()
+            checkpoint["payload"].pop("delivered_at")
+            run = self.history_run(identity=9)
+            run[key] = value
+            with self.subTest(key=key), patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": [run]}]) as api, \
+                    self.assertRaisesRegex(ValueError, "actual send time"):
+                previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+            self.assertEqual(2, api.call_count)
+
+    def test_checkpoint_time_recovery_rejects_wrong_run_attempt_and_duplicate_job(self):
+        for mutation in ["run", "attempt", "duplicate"]:
+            checkpoint = self.checkpoint()
+            checkpoint["payload"].pop("delivered_at")
+            jobs = self.completed_jobs()
+            jobs["jobs"][0]["steps"][0].update(number=13, started_at="2026-10-16T15:59:50Z")
+            if mutation == "run": jobs["jobs"][0]["run_id"] = 8
+            if mutation == "attempt": jobs["jobs"][0]["run_attempt"] = 2
+            if mutation == "duplicate":
+                import copy
+                other = copy.deepcopy(jobs["jobs"][0])
+                other["id"] = 8
+                other["steps"][0]["conclusion"] = "failure"
+                jobs["jobs"].append(other)
+            with self.subTest(mutation=mutation), patch("telegram_delivery_state.github", side_effect=[[checkpoint],
+                    {"workflow_runs": [self.history_run(identity=9, attempt=2)]}, jobs]), \
+                    self.assertRaisesRegex(ValueError, "not unique"):
+                previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+
+    def test_checkpoint_with_attempt_recovers_only_its_exact_successful_send_time(self):
+        checkpoint = self.checkpoint()
+        checkpoint["payload"].pop("delivered_at")
+        checkpoint["payload"]["delivery_run_attempt"] = 2
+        jobs = self.completed_jobs(attempt=2)
+        jobs["jobs"][0]["steps"][0].update(number=13, started_at="2026-10-16T15:59:50Z")
+        earlier = self.completed_jobs("2026-10-15T14:00:00Z")["jobs"][0]
+        earlier["steps"][0].update(number=13, started_at="2026-10-15T13:59:50Z")
+        jobs["jobs"].append(earlier)
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint],
+                {"workflow_runs": [self.history_run(identity=9, attempt=2)]}, jobs]) as api:
+            result = previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+        self.assertEqual(2, result["delivery_run_attempt"])
+        self.assertEqual("2026-10-16T15:59:59Z", result["delivered_at"])
+        self.assertEqual(3, api.call_count)
+
+    def test_uncheckpointed_unknown_step_log_is_not_scanned_for_success(self):
+        jobs = self.completed_jobs()
+        jobs["jobs"][0].update(run_id=10)
+        jobs["jobs"][0]["steps"][0].update(number=13, started_at="2026-10-16T15:59:50Z")
+        log = self.history_log(["Telegram delivered Canary APK, message ID 49"]).replace(SEND_STEP, "UNKNOWN STEP")
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [self.history_run()]}, jobs, log]), \
+                self.assertRaisesRegex(ValueError, "actual send log unavailable"):
+            previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)
+
+    def test_old_unknown_network_failure_is_superseded_by_later_actual_confirmation(self):
+        checkpoint = self.checkpoint(sent="2026-10-17T15:00:00Z")
+        log = self.history_log(["Telegram delivery failed: Telegram network/protocol failure"], stamp="2026-10-17T14:00:00Z")
+        with patch("telegram_delivery_state.github", side_effect=[[checkpoint], {"workflow_runs": [self.history_run()]},
+                {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, log]):
+            self.assertEqual("a" * 40, previous_delivery("@Bilibili_Innocent_LabRelease", strict=True)["source_commit"])
+
+    def test_explicit_legacy_checkpoint_is_not_replaced_by_older_dated_success(self):
+        for fallback in ["a" * 40, ""]:
+            with self.subTest(fallback=fallback), patch("telegram_delivery_state.github", side_effect=[
+                    {"workflow_runs": [self.history_run(identity=8)]},
+                    {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]},
+                    self.history_log(["Telegram delivered Canary APK, message ID 49"], stamp="2026-10-11T14:00:00Z")]):
+                self.assertEqual(fallback, legacy_previous_commit("@Bilibili_Innocent_LabRelease", 9, fallback))
+
+    def test_explicit_legacy_checkpoint_still_recovers_a_newer_run(self):
+        with patch("telegram_delivery_state.github", side_effect=[{"workflow_runs": [self.history_run(identity=10)]},
+                {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]},
+                self.history_log(["Telegram delivered Canary APK, message ID 49"])]):
+            self.assertEqual("b" * 40, legacy_previous_commit("@Bilibili_Innocent_LabRelease", 9, "a" * 40))
+
+    def test_scheduled_send_recovers_full_identity_when_checkpoint_write_failed(self):
+        run = {"id": 10, "conclusion": "failure", "path": ".github/workflows/canary-telegram.yml",
+               "head_branch": "main", "event": "schedule", "updated_at": "2026-10-12T02:00:00Z"}
+        source_url = f"https://github.com/{REPOSITORY}/actions/runs/8"
+        log = "SOURCE_COMMIT: " + "b" * 40 + "\nTELEGRAM_CHAT_ID: @Bilibili_Innocent_LabRelease\n"
+        log += "SOURCE_RUN_URL: " + source_url + "\nSOURCE_ARTIFACT_DIGEST: sha256:" + "c" * 64 + "\n"
+        log += "Telegram delivered Canary APK, message ID 49"
+        with patch("telegram_delivery_state.github", side_effect=[[], {"workflow_runs": [run]},
+                   {"jobs": [{"id": 7, "name": "Verify selected Canary and send its APK"}]}, self.step_log(log)]):
+            receipt = previous_delivery("@Bilibili_Innocent_LabRelease")
+        self.assertEqual(source_url, receipt["source_run_url"])
+        self.assertEqual("sha256:" + "c" * 64, receipt["source_artifact_digest"])
+        self.assertEqual("2026-10-11T21:16:15.6773972Z", receipt["delivered_at"])
 
     def test_job_logs_use_the_actions_log_reader_that_handles_ansi(self):
         import subprocess
@@ -140,5 +414,5 @@ class TelegramDeliveryStateTest(unittest.TestCase):
         self.assertIn("deployments: write", workflow)
         self.assertIn("prepare_telegram_notes.py", workflow)
         self.assertIn('--notes "$RUNNER_TEMP/TELEGRAM_CHANGELOG.txt"', workflow)
-        self.assertIn("if: success() && !inputs.dry_run", workflow)
+        self.assertIn("if: success() && steps.delivery.outcome == 'success' && !inputs.dry_run", workflow)
         self.assertLess(workflow.index("publish_telegram.py"), workflow.index("telegram_delivery_state.py"))

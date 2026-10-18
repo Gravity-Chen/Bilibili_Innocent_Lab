@@ -2,8 +2,10 @@ from pathlib import Path
 import tempfile
 import hashlib
 import unittest
+import io
+from contextlib import redirect_stdout
 from unittest.mock import patch
-from publish_telegram import validate_identity,caption,multipart,deliver,split_text,announcement_messages,main,DeliveryError,MAX_FILE_BYTES
+from publish_telegram import validate_identity,caption,multipart,deliver,split_text,announcement_messages,main,DeliveryError,MAX_FILE_BYTES,Telegram
 
 class TelegramDeliveryTest(unittest.TestCase):
     def fixture(self):
@@ -46,6 +48,26 @@ class TelegramDeliveryTest(unittest.TestCase):
         apk,_,_=self.fixture()
         api=type("Fake",(),{"call":lambda self,method,fields,apk=None:{"getMe":{"id":1},"getChat":{"id":-100123,"type":"channel","username":"Bilibili_Innocent_LabRelease"},"getChatMember":{"status":"member"}}[method]})()
         with self.assertRaises(DeliveryError):deliver(api,"@Bilibili_Innocent_LabRelease",apk,"caption")
+
+    def test_post_marker_is_emitted_only_at_a_message_request_boundary(self):
+        for method in ["getMe","getChat","getChatMember","sendDocument","sendMessage"]:
+            output=io.StringIO()
+            with self.subTest(method=method),patch("publish_telegram.http.client.HTTPSConnection") as factory,redirect_stdout(output):
+                factory.return_value.request.side_effect=OSError("fixture connection failure")
+                with self.assertRaises(DeliveryError):Telegram("1:test").call(method,{"chat_id":"-100123"})
+                factory.return_value.request.assert_called_once()
+            self.assertEqual(method in {"sendDocument","sendMessage"},"TELEGRAM_POST_ATTEMPT:" in output.getvalue())
+            self.assertNotIn("1:test",output.getvalue())
+            self.assertNotIn("fixture connection failure",output.getvalue())
+
+    def test_multipart_or_json_preparation_failure_has_no_post_marker(self):
+        for method,fields,apk,error in [("sendDocument",{},Path("invalid upload name.apk"),DeliveryError),
+                                        ("sendMessage",{"unsupported":object()},None,TypeError)]:
+            output=io.StringIO()
+            with self.subTest(method=method),patch("publish_telegram.http.client.HTTPSConnection") as factory,redirect_stdout(output):
+                with self.assertRaises(error):Telegram("1:test").call(method,fields,apk)
+                factory.assert_not_called()
+            self.assertNotIn("TELEGRAM_POST_ATTEMPT:",output.getvalue())
 
     def test_admin_posts_to_the_resolved_channel(self):
         apk,_,_=self.fixture();calls=[]

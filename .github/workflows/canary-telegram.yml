@@ -1,6 +1,9 @@
-name: Manually sync Canary to Telegram
+name: Sync Canary to Telegram
 
 on:
+  schedule:
+    # UTC 14:00 = 北京时间 22:00。
+    - cron: '0 14 * * *'
   workflow_dispatch:
     inputs:
       canary_run_url:
@@ -13,7 +16,7 @@ on:
         type: boolean
         default: false
 
-# 频道投递串行执行，新的手动任务不取消正在发送的文件。
+# 手动与定时发布共用串行锁，资格检查和投递均在锁内执行。
 concurrency:
   group: canary-telegram
   cancel-in-progress: false
@@ -24,8 +27,43 @@ permissions:
   deployments: write
 
 jobs:
+  select:
+    name: Decide whether to publish Canary
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.selection.outputs.should_publish }}
+      run_url: ${{ steps.selection.outputs.run_url }}
+      artifact_digest: ${{ steps.selection.outputs.artifact_digest }}
+    steps:
+      - name: Check out trusted delivery tooling
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Require main
+        run: '[[ "$GITHUB_REF" == "refs/heads/main" ]]'
+
+      - name: Validate selection and delivery tooling
+        run: python3 -m unittest discover -s .github/release-templates -p 'test_*.py'
+
+      - name: Select Canary and apply daily publication policy
+        id: selection
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DELIVERY_EVENT: ${{ github.event_name }}
+          CANARY_RUN_URL: ${{ inputs.canary_run_url }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_RELEASE_CHAT_ID || '@Bilibili_Innocent_LabRelease' }}
+        run: |
+          python3 .github/release-templates/select_canary_delivery.py \
+            --event "$DELIVERY_EVENT" --run-url "$CANARY_RUN_URL" \
+            --delivery-run-id "$GITHUB_RUN_ID" --channel "$TELEGRAM_CHAT_ID" \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
   sync:
     name: Verify selected Canary and send its APK
+    needs: select
+    if: needs.select.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     environment:
       # 只读取固定证书指纹，不恢复私钥，也不重新构建 APK。
@@ -46,17 +84,16 @@ jobs:
           [[ "$GITHUB_REF" == "refs/heads/main" ]]
           : "${TELEGRAM_BOT_TOKEN:?Missing TELEGRAM_BOT_TOKEN}"
 
-      - name: Validate selection and delivery tooling
-        run: python3 -m unittest discover -s .github/release-templates -p 'test_*.py'
-
       - name: Download and verify the selected Canary package
         id: package
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CANARY_RUN_URL: ${{ inputs.canary_run_url }}
+          CANARY_RUN_URL: ${{ needs.select.outputs.run_url }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ needs.select.outputs.artifact_digest }}
         run: |
           python3 .github/release-templates/prepare_canary_delivery.py \
             --run-url "$CANARY_RUN_URL" \
+            --expected-artifact-digest "$EXPECTED_ARTIFACT_DIGEST" \
             --destination "$RUNNER_TEMP/canary-telegram-package" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -110,7 +147,23 @@ jobs:
             --repo-root . --tag "$BUILD_TAG" --commit "$SOURCE_COMMIT" \
             --channel "$TELEGRAM_CHAT_ID" --output "$RUNNER_TEMP/TELEGRAM_CHANGELOG.txt"
 
+      - name: Recheck daily publication policy before sending
+        id: eligibility
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DELIVERY_EVENT: ${{ github.event_name }}
+          CANARY_RUN_URL: ${{ steps.package.outputs.source_run_url }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ steps.package.outputs.source_artifact_digest }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_RELEASE_CHAT_ID || '@Bilibili_Innocent_LabRelease' }}
+        run: |
+          python3 .github/release-templates/select_canary_delivery.py \
+            --event "$DELIVERY_EVENT" --run-url "$CANARY_RUN_URL" \
+            --delivery-run-id "$GITHUB_RUN_ID" --channel "$TELEGRAM_CHAT_ID" \
+            --expected-artifact-digest "$EXPECTED_ARTIFACT_DIGEST" \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
       - name: Send the selected Canary APK to Telegram
+        if: steps.eligibility.outputs.should_publish == 'true'
         id: delivery
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -120,6 +173,7 @@ jobs:
           BUILD_TAG: ${{ steps.package.outputs.release_tag }}
           SOURCE_COMMIT: ${{ steps.package.outputs.source_commit }}
           SOURCE_RUN_URL: ${{ steps.package.outputs.source_run_url }}
+          SOURCE_ARTIFACT_DIGEST: ${{ steps.package.outputs.source_artifact_digest }}
           DELIVERY_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
@@ -135,10 +189,12 @@ jobs:
             "${delivery_args[@]}"
 
       - name: Record the confirmed Telegram delivery source
-        if: success() && !inputs.dry_run
+        if: success() && steps.delivery.outcome == 'success' && !inputs.dry_run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DELIVERY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SOURCE_ARTIFACT_DIGEST: ${{ steps.package.outputs.source_artifact_digest }}
         run: |
           python3 .github/release-templates/telegram_delivery_state.py \
-            --receipt "$RUNNER_TEMP/telegram-delivery.json" --delivery-url "$DELIVERY_RUN_URL"
+            --receipt "$RUNNER_TEMP/telegram-delivery.json" --delivery-url "$DELIVERY_RUN_URL" \
+            --artifact-digest "$SOURCE_ARTIFACT_DIGEST"
