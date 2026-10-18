@@ -161,6 +161,21 @@ class RoamingSettingsLaunchPolicyTest {
         }
     }
 
+    @Test fun filteredCreatorRequiresAnAlreadyVerifiedPrivateReply() {
+        val modulePackage = "com.example.module"
+        assertTrue(RoamingSettingsLaunchPolicy.acceptsPrivateReplyCreator(modulePackage, null, true))
+        assertFalse(RoamingSettingsLaunchPolicy.acceptsPrivateReplyCreator(modulePackage, null, false))
+        assertFalse(RoamingSettingsLaunchPolicy.acceptsPrivateReplyCreator(modulePackage, modulePackage, false))
+    }
+
+    @Test fun privateReplyStillRejectsAnExplicitlyWrongCreator() {
+        val modulePackage = "com.example.module"
+        assertTrue(RoamingSettingsLaunchPolicy.acceptsPrivateReplyCreator(modulePackage, modulePackage, true))
+        assertFalse(RoamingSettingsLaunchPolicy.acceptsPrivateReplyCreator(modulePackage, "com.example.other", true))
+        assertFalse(RoamingSettingsLaunchPolicy.acceptsPrivateReplyCreator(modulePackage, "", true))
+        assertFalse(RoamingSettingsLaunchPolicy.acceptsPrivateReplyCreator("", null, true))
+    }
+
     private fun accepts(
         expectedPackage: String = hostPackage,
         expectedUid: Int = hostUid,

@@ -29,6 +29,13 @@ internal object RoamingSettingsLaunchPolicy {
         sdk >= 34 -> SenderMode.ALLOW_VISIBLE_CALLER
         else -> SenderMode.PLATFORM_DEFAULT
     }
+
+    fun acceptsPrivateReplyCreator(
+        expectedModulePackage: String,
+        reportedCreatorPackage: String?,
+        privateReplyVerified: Boolean
+    ): Boolean = privateReplyVerified && expectedModulePackage.isNotBlank() &&
+        (reportedCreatorPackage == null || reportedCreatorPackage == expectedModulePackage)
 }
 
 /** 点击只允许消费一次；退出页面、过期或主动关闭后不再接受迟到回执。 */

@@ -146,9 +146,11 @@ internal object RoamingSettingsLauncher {
                     if (intent.action != action || intent.getStringExtra(EXTRA_NONCE) != nonce) return@run
                     val launch = IntentCompat.getParcelableExtra(intent, EXTRA_LAUNCH, PendingIntent::class.java)
                     try {
-                        if (!lease.consume(intent.getStringExtra(EXTRA_NONCE), SystemClock.elapsedRealtime(),
-                                isVisible(source.get()))) return@run
-                        if (launch == null || launch.creatorPackage != BuildConfig.APPLICATION_ID ||
+                        val privateReplyVerified = lease.consume(intent.getStringExtra(EXTRA_NONCE),
+                            SystemClock.elapsedRealtime(), isVisible(source.get()))
+                        // 回执能力仅交给固定模块组件；包不可见时 creator 会被系统过滤，来源仍由私有能力验真。
+                        if (launch == null || !RoamingSettingsLaunchPolicy.acceptsPrivateReplyCreator(
+                                BuildConfig.APPLICATION_ID, launch.creatorPackage, privateReplyVerified) ||
                             Build.VERSION.SDK_INT >= 31 && !Api31.isActivityImmutable(launch)) {
                             record("token_rejected")
                             return@run
@@ -157,7 +159,6 @@ internal object RoamingSettingsLauncher {
                         // send 成功只证明提交给系统，页面显示由设备验收确认。
                         record("token_sent")
                     } finally {
-                        runCatching { launch?.cancel() }
                         close()
                     }
                 }
