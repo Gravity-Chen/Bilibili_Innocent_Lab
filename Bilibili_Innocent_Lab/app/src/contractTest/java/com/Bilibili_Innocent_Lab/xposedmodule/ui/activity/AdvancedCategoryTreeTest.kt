@@ -33,7 +33,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
  */
 class AdvancedCategoryTreeTest {
 
-    private val main by lazy { SettingsUiSource.code(SettingsUiSource.mainActivity()) }
+    private val main by lazy { SettingsUiSource.code(SettingsUiSource.settingsPage()) }
 
     private val markerPattern =
         Regex("""advancedCategoryMarkers\[AdvancedSettingsCategory\.(\w+)]\s*=\s*this""")
@@ -56,13 +56,10 @@ class AdvancedCategoryTreeTest {
      * 所以这里自己先 check 一次。
      */
     private fun builderMarkers(): Map<String, List<String>> {
-        val all = SettingsUiSource.declaredFunctions(main, indent = 4)
-        val builders = all.filter { (_, decl) ->
-            decl.substringBefore('\n').contains("Hikage.Performer")
-        }
+        val builders = SettingsUiSource.sectionBuilders()
         check(builders.size >= 14) {
-            "expected the DSL card/category builders, found ${builders.size} " +
-                "of ${all.size} member functions; sample=${all.take(3).map { it.first }}"
+            "expected the DSL card/category builders, found ${builders.size} in " +
+                "${SettingsUiSource.settingsPageFiles().map { it.first }}"
         }
         return builders.associate { (name, decl) ->
             name to markerPattern.findAll(decl).map { it.groupValues[1] }.toList()

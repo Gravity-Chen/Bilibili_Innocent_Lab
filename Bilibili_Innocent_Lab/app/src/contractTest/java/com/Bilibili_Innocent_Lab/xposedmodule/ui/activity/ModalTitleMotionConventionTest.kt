@@ -73,18 +73,18 @@ class ModalTitleMotionConventionTest {
      * 全都传了独立的 `*_dialog_title`（其中 6 个文案是"编辑 X"、与来源行不同）。
      */
     @Test fun ruleEditorCallersPassTheRowTitleNotADialogOnlyString() {
-        val activity = sequenceOf(
-            File("src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/MainActivity.kt"),
-            File("app/src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/MainActivity.kt")
-        ).firstOrNull(File::isFile) ?: error("找不到 MainActivity.kt")
-        val lines = activity.readLines()
-        val callSites = lines.withIndex().filter { it.value.contains("showRuleEditorDialog(") }
+        // 调用点随分区一起外移到 *Sections.kt，所以扫整个设置页而不只是 MainActivity。
+        val callSites = SettingsUiSource.settingsPageFiles().flatMap { (fileName, text) ->
+            val lines = text.lines()
+            lines.withIndex().filter { it.value.contains("showRuleEditorDialog(") }
+                .map { Triple(fileName, it.index, lines) }
+        }
         assertTrue("没扫到 showRuleEditorDialog 调用点，护栏会静默通过", callSites.size >= 5)
-        val offenders = callSites.mapNotNull { (index, _) ->
+        val offenders = callSites.mapNotNull { (fileName, index, lines) ->
             // 标题是第一个实参，紧跟在调用行后面（允许中间夹注释行）。
             val titleRef = lines.drop(index + 1).take(4)
                 .firstNotNullOfOrNull { Regex("""R\.string\.(\w+)""").find(it)?.groupValues?.get(1) }
-            titleRef?.takeIf { it.endsWith("_dialog_title") }?.let { "MainActivity.kt:${index + 1} → $it" }
+            titleRef?.takeIf { it.endsWith("_dialog_title") }?.let { "$fileName:${index + 1} → $it" }
         }
         assertEquals(
             "showRuleEditorDialog 的标题实参要传来源行那一行用的 string，不能另写一条 " +

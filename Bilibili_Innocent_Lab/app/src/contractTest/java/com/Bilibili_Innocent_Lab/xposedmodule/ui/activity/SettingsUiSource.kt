@@ -62,7 +62,8 @@ internal object SettingsUiSource {
      * 加后缀时同步更新 [SettingsUiSourceTest] 里那条"扫描集覆盖所有 MainActivity 扩展"
      * 的断言——它是这套约定唯一的强制力来源。
      */
-    private val VOLUME_SUFFIXES = listOf("Dialogs.kt", "Presenter.kt", "Summaries.kt")
+    // `Sections.kt`：设置页各分区的 Hikage 构建函数（2026-10-18 起从 MainActivity 外移）。
+    private val VOLUME_SUFFIXES = listOf("Dialogs.kt", "Presenter.kt", "Summaries.kt", "Sections.kt")
 
     /** 所有外移分卷的文件名（含弹窗），排序后返回。 */
     val volumeFileNames: List<String> by lazy {
@@ -101,6 +102,29 @@ internal object SettingsUiSource {
 
     /** MainActivity 的源码。 */
     fun mainActivity(): String = file("MainActivity")
+
+    /**
+     * 设置页本体：MainActivity 加上外移出去的分区构建文件（`*Sections.kt`）。
+     *
+     * 分区 builder、它们注册的 marker、常用开关绑定与规则编辑入口都在这里面；
+     * 只扫 MainActivity 的断言在分区外移后会在空集上"通过"，必须改扫这个集合。
+     */
+    fun settingsPageFiles(): List<Pair<String, String>> =
+        listOf("MainActivity.kt" to mainActivity()) + named("Sections.kt").map { it to file(it) }
+
+    /** [settingsPageFiles] 拼在一起。 */
+    fun settingsPage(): String = settingsPageFiles().joinToString("\n") { it.second }
+
+    /**
+     * 分区构建函数：名字 → 含签名的声明（已去注释）。MainActivity 里是 `Hikage.Performer` 的成员扩展，
+     * 外移后是带 `scope: Hikage.Performer<…>` 参数的顶层 `MainActivity` 扩展。
+     */
+    fun sectionBuilders(): List<Pair<String, String>> = settingsPageFiles().flatMap { (fileName, text) ->
+        val indent = if (fileName == "MainActivity.kt") 4 else 0
+        declaredFunctions(code(text), indent).filter { (_, decl) ->
+            decl.substringBefore('{').contains("Hikage.Performer")
+        }
+    }
 
     /** 文件名 → 源码：MainActivity 加上所有已外移分卷（弹窗与逻辑分卷）。 */
     fun settingsUiFiles(): List<Pair<String, String>> =

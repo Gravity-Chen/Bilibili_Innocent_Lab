@@ -40,7 +40,7 @@ class SettingsHomeIntegrationTest {
         assertTrue(home.contains("source.observeState(::sync)"))
         assertFalse(home.contains("putBoolean("))
         assertFalse(home.contains("prefs()"))
-        val main = SettingsUiSource.mainActivity()
+        val main = SettingsUiSource.settingsPage()
         assertTrue(main.contains("bindFavoriteSwitch(this, HookEntry.PREF_FREE_COPY_LIGHT_MODE, directToggle = false)"))
         assertTrue(main.contains("bindFavoriteSwitch(this, HookEntry.PREF_FREE_COPY_AUTO_LIGHT, directToggle = true)"))
         assertTrue(main.contains("SettingsCatalog.byStorageKey[storageKey]?.id"))
