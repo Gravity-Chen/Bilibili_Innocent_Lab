@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 
 import android.os.Looper
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.packing.FrameNativeLoader
 import java.io.File
 import java.nio.ByteBuffer
 import java.security.MessageDigest
@@ -56,13 +57,13 @@ internal class FrameInterpolationBackend private constructor(private var handle:
         fun openResearchModel(directory: File, backend: Backend, threads: Int = 1): OpenResult {
             requireWorker()
             if (threads !in 1..4) return OpenResult(Status.INVALID_ARGUMENT)
+            if (!FrameInterpolationNative.available) return OpenResult(Status.NATIVE_UNAVAILABLE)
             val model = runCatching {
                 val root = directory.canonicalFile
                 require(root.isDirectory)
                 Pair(readVerified(root, "flownet.param", PARAM_SIZE, PARAM_HASH),
                     readVerified(root, "flownet.bin", WEIGHTS_SIZE, WEIGHTS_HASH))
             }.getOrElse { return OpenResult(if (it is OutOfMemoryError) Status.ALLOCATION_FAILED else Status.INVALID_MODEL) }
-            if (!FrameInterpolationNative.available) return OpenResult(Status.NATIVE_UNAVAILABLE)
             val created = runCatching { FrameInterpolationNative.create(backend.nativeValue, 0, threads) }
                 .getOrElse { return OpenResult(Status.NATIVE_UNAVAILABLE) }
             if (created.size != 2 || created[0] != 0L || created[1] <= 0L)
@@ -122,7 +123,13 @@ internal class FrameInterpolationBackend private constructor(private var handle:
 }
 
 internal object FrameInterpolationNative {
-    val available: Boolean by lazy { runCatching { System.loadLibrary("innocent_frame_interpolation") }.isSuccess }
+    val status: FrameNativeLoader.Status get() = FrameNativeLoader.status()
+    val available: Boolean get() = status == FrameNativeLoader.Status.READY
+
+    /** Supply framework module APK + actual host codeCacheDir on a bounded background worker. */
+    fun prepare(moduleApk: File, hostCodeCache: File): FrameNativeLoader.Status =
+        FrameNativeLoader.prepare(moduleApk, hostCodeCache, FrameInterpolationNative::class.java)
+
     external fun create(backend: Int, gpuIndex: Int, threads: Int): LongArray
     external fun load(handle: Long, param: ByteBuffer, weights: ByteBuffer): Int
     external fun process(handle: Long, left: ByteBuffer, right: ByteBuffer, output: ByteBuffer,

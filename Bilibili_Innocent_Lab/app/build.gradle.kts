@@ -5,11 +5,88 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 import java.io.File
 import java.security.MessageDigest
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.Input
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
+import org.gradle.process.ExecOperations
+import javax.inject.Inject
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import java.time.LocalDateTime
+import java.nio.file.Files
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.hikage)
+}
+
+/** Build-owned stripped payloads and trusted specifications. No host/runtime input supplies hashes. */
+abstract class PackFrameNativePayload : DefaultTask() {
+    @get:InputDirectory @get:org.gradle.api.tasks.PathSensitive(PathSensitivity.NONE)
+    abstract val nativeBuildAnchor: DirectoryProperty
+    @get:InputDirectory @get:org.gradle.api.tasks.PathSensitive(PathSensitivity.RELATIVE)
+    abstract val payloadDirectory: DirectoryProperty
+    @get:InputFile @get:org.gradle.api.tasks.PathSensitive(PathSensitivity.NONE)
+    abstract val stripExecutable: RegularFileProperty
+    @get:Input abstract val buildKey: Property<String>
+    @get:Input abstract val requireBothAbis: Property<Boolean>
+    @get:OutputDirectory abstract val assetsDirectory: DirectoryProperty
+    @get:OutputDirectory abstract val javaDirectory: DirectoryProperty
+    @get:Inject abstract val execution: ExecOperations
+
+    @TaskAction fun pack() {
+        val specs = mutableListOf<String>()
+        val approved = listOf("arm64-v8a", "armeabi-v7a")
+        val selected = approved.filter { abi ->
+            val input = payloadDirectory.file("$abi/libinnocent_frame_interpolation.so").get().asFile
+            val receipt = input.parentFile.resolve("frame-build-key.txt")
+            input.isFile && receipt.isFile && receipt.readText() == "${buildKey.get()}\n$abi\n"
+        }
+        check(selected.isNotEmpty() && (!requireBothAbis.get() || selected.size == approved.size)) {
+            "Frame native payloads are missing or stale for this source/configuration; release requires both ARM ABIs."
+        }
+        // Only these task-owned generated ZIP files may disappear when an IDE debug build selects fewer ABIs.
+        for (abi in approved - selected.toSet()) {
+            Files.deleteIfExists(assetsDirectory.file("native-packing/$abi.zip").get().asFile.toPath())
+        }
+        logger.lifecycle("Frame native packaged ABIs: $selected")
+        for (abi in selected) {
+            val input = payloadDirectory.file("$abi/libinnocent_frame_interpolation.so").get().asFile
+            val stripped = temporaryDir.resolve("$abi.so")
+            execution.exec { commandLine(stripExecutable.get().asFile, "--strip-unneeded", "-o", stripped, input) }
+            val bytes = stripped.readBytes()
+            check(bytes.size in 1..16 * 1024 * 1024) { "Native payload exceeds fixed bound." }
+            fun hash(value: ByteArray) = MessageDigest.getInstance("SHA-256").digest(value)
+                .joinToString("") { "%02x".format(it.toInt() and 255) }
+            val archive = assetsDirectory.file("native-packing/$abi.zip").get().asFile
+            archive.parentFile.mkdirs()
+            ZipOutputStream(archive.outputStream()).use { zip ->
+                zip.setLevel(9)
+                val entry = ZipEntry("lib/$abi/libinnocent_frame_interpolation.so")
+                entry.setTimeLocal(LocalDateTime.of(1980, 1, 2, 0, 0))
+                zip.putNextEntry(entry); zip.write(bytes); zip.closeEntry()
+            }
+            check(archive.length() in 1..8L * 1024 * 1024) { "Native archive exceeds fixed bound." }
+            specs += "        if (\"$abi\".equals(abi)) return new ArchiveSpec(\"$abi\", ${archive.length()}, \"${hash(archive.readBytes())}\", ${bytes.size}, \"${hash(bytes)}\");"
+        }
+        val source = javaDirectory.file("com/Bilibili_Innocent_Lab/xposedmodule/hook/feature/interpolation/packing/FrameNativeSpec.java").get().asFile
+        source.parentFile.mkdirs()
+        source.writeText("""package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.packing;
+final class FrameNativeSpec {
+    static ArchiveSpec forAbi(String abi) {
+${specs.joinToString("\n")}
+        throw new IllegalArgumentException("unsupported_abi");
+    }
+}
+""")
+    }
 }
 
 val releaseVersionNameOverride = providers.gradleProperty("innocentLab.releaseVersionName")
@@ -202,6 +279,11 @@ android {
         }
     }
 
+    packaging.jniLibs.excludes += setOf(
+        "lib/arm64-v8a/libinnocent_frame_interpolation.so",
+        "lib/armeabi-v7a/libinnocent_frame_interpolation.so"
+    )
+
     sourceSets {
         getByName("test") {
             // 源码契约测试（读取生产源码文本的"护栏"）独立成目录，与行为测试编进同一个
@@ -209,6 +291,44 @@ android {
             kotlin.directories.add("src/contractTest/java")
         }
     }
+}
+
+androidComponents.onVariants { variant ->
+    val copiedPayload = layout.buildDirectory.dir("intermediates/frame-native-copy/${variant.name}")
+    val sourceKey = providers.provider {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val files = fileTree("src/main/cpp").files.toList() + listOf(
+            file("build.gradle.kts"), rootProject.file("build.gradle.kts"), rootProject.file("settings.gradle.kts"),
+            rootProject.file("gradle.properties"), rootProject.file("gradle/libs.versions.toml"),
+            rootProject.file("gradle/wrapper/gradle-wrapper.properties")
+        )
+        for (source in files.sortedBy { it.relativeTo(rootDir).invariantSeparatorsPath }) {
+            digest.update(source.relativeTo(rootDir).invariantSeparatorsPath.toByteArray(Charsets.UTF_8))
+            digest.update(0)
+            digest.update(source.readBytes())
+        }
+        for (name in listOf("CFLAGS", "CXXFLAGS", "LDFLAGS", "CC", "CXX", "SOURCE_DATE_EPOCH")) {
+            digest.update(name.toByteArray(Charsets.UTF_8)); digest.update(0)
+            digest.update(providers.environmentVariable(name).orElse("").get().toByteArray(Charsets.UTF_8)); digest.update(0)
+        }
+        digest.update(variant.name.toByteArray(Charsets.UTF_8))
+        digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+    }
+    variant.externalNativeBuild?.arguments?.add(sourceKey.map { "-DINNOCENT_FRAME_BUILD_KEY=$it" })
+    variant.externalNativeBuild?.arguments?.add(copiedPayload.map { "-DINNOCENT_FRAME_PAYLOAD_DIR=${it.asFile.invariantSeparatorsPath}" })
+    val pack = tasks.register<PackFrameNativePayload>("pack${variant.name.replaceFirstChar(Char::uppercaseChar)}FrameNativePayload") {
+        nativeBuildAnchor.set(variant.artifacts.get(SingleArtifact.MERGED_NATIVE_LIBS))
+        payloadDirectory.set(copiedPayload)
+        buildKey.set(sourceKey)
+        requireBothAbis.set(variant.buildType == "release")
+        val host = if (System.getProperty("os.name").startsWith("Windows")) "windows-x86_64" else if (System.getProperty("os.name").startsWith("Mac")) "darwin-x86_64" else "linux-x86_64"
+        val executable = if (host == "windows-x86_64") "llvm-strip.exe" else "llvm-strip"
+        stripExecutable.set(androidComponents.sdkComponents.ndkDirectory.map { it.file("toolchains/llvm/prebuilt/$host/bin/$executable") })
+        assetsDirectory.set(layout.buildDirectory.dir("generated/frame-native/${variant.name}/assets"))
+        javaDirectory.set(layout.buildDirectory.dir("generated/frame-native/${variant.name}/java"))
+    }
+    variant.sources.java?.addGeneratedSourceDirectory(pack, PackFrameNativePayload::javaDirectory)
+    variant.sources.assets?.addGeneratedSourceDirectory(pack, PackFrameNativePayload::assetsDirectory)
 }
 
 androidComponents.onVariants(androidComponents.selector().withBuildType("debug")) { variant ->
