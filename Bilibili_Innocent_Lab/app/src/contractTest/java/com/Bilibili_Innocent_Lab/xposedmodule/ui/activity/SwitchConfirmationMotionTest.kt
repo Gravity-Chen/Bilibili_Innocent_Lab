@@ -16,7 +16,7 @@ class SwitchConfirmationMotionTest {
     }
 
     @Test fun theSwitchPassesItsOwnViewAsTheAnimationAnchor() {
-        val main = SettingsUiSource.code(SettingsUiSource.mainActivity())
+        val main = SettingsUiSource.code(SettingsUiSource.settingsPage())
         assertTrue(Regex("showAutoLightConfirmDialog\\(\\s*anchor = button,").containsMatchIn(main))
     }
 }

@@ -104,7 +104,8 @@ class ModalBackdropBlurSpecTest {
         assertTrue(
             body.indexOf("!userEnabled) return null") < body.indexOf("isCrossWindowBlurEnabled")
         )
-        val main = source("MainActivity")
+        // 开关行在外观卡片里，已外移到 SettingsCardSections.kt；扫整个设置页。
+        val main = SettingsUiSource.settingsPage()
         assertTrue(main.contains("userEnabled = ModalBackdropBlurStore.read(this)"))
         // 开关落在配色规范那条的下面，并且登记进备份目录。
         assertTrue(

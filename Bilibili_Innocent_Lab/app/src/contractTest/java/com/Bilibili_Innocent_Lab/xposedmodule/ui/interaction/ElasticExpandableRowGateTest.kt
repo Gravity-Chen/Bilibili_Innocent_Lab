@@ -10,6 +10,7 @@ import org.junit.Test
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.SettingsUiSource
 
 /**
  * 可展开标题（实验性功能的「外观」「兼容」、净化/增强进阶的折叠卡标题）必须参与
@@ -122,8 +123,8 @@ class ElasticExpandableRowGateTest {
     private fun windowBefore(anchor: String): String =
         main().before(anchor).takeLast(360)
 
-    private fun main(): String = source(
-        "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/MainActivity.kt")
+    // 设置页本体：MainActivity 加外移的 *Sections.kt（各卡片的展开头与角标都在分区文件里）。
+    private fun main(): String = SettingsUiSource.settingsPage().replace("\r\n", "\n")
 
     private fun interaction(): String = source(
         "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/interaction/ElasticInteractionController.kt")

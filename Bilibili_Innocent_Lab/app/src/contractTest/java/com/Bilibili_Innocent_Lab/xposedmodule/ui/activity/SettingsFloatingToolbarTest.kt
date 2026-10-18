@@ -73,7 +73,7 @@ class SettingsFloatingToolbarTest {
         val reveal = source(
             "src/main/java/com/Bilibili_Innocent_Lab/xposedmodule/ui/activity/MainActivity.kt")
             .after("internal fun revealSettingsSearchTarget(")
-            .before("private fun launchSettingsBackup()")
+            .before("internal fun launchSettingsBackup()")
         assertTrue(reveal.contains("home?.currentHeaderInset"))
         assertTrue(reveal.indexOf("val topOffset") < reveal.indexOf("val desiredY"))
     }

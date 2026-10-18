@@ -136,7 +136,8 @@ class LiquidControlStyleTest {
         val backup = source("ui/activity/SettingsBackupActivity.kt")
         assertTrue(backup.contains("skinActionButton(this, filled = true, radiusDp = 14f)"))
         assertTrue(backup.contains("skinActionButton(this, filled = false, radiusDp = 14f)"))
-        val main = source("ui/activity/MainActivity.kt")
+        // 日志卡片已外移到 SettingsCardSections.kt，扫整个设置页。
+        val main = SettingsUiSource.settingsPage()
         assertTrue(main.contains("skinUpdateBadge(this)"))
         // 日志档位滑块（LogSegmentScrubBar）保持 primary 显式填充（logLevelThumbBg），
         // 且不再被 skinSelectionControl 的 surface 表面覆盖。
