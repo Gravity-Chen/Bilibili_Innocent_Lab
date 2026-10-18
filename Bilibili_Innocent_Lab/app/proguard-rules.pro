@@ -39,6 +39,8 @@
 }
 
 -dontwarn io.github.libxposed.annotation.**
+# JNI exports use this exact class and method spelling.
+-keep class com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationNative { *; }
 # API 101 的 HookBuilder 没有 setId；该版本桥不能被内联或合并到兼容路径。
 -keep,allowobfuscation class com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookIdsApi102 {
     *;

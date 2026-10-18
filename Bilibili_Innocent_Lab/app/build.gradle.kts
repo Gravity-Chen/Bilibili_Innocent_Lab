@@ -4,6 +4,7 @@ import org.gradle.api.tasks.compile.JavaCompile
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 import java.io.File
+import java.security.MessageDigest
 
 plugins {
     alias(libs.plugins.android.application)
@@ -122,6 +123,7 @@ tasks.register("lintFast") {
 android {
     namespace = gropify.project.app.packageName
     compileSdk = gropify.project.android.compileSdk
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = gropify.project.app.packageName
@@ -132,12 +134,30 @@ android {
         versionName = releaseVersionNameOverride ?: gropify.project.app.versionName
         versionCode = gropify.project.app.versionCode
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_STL=c++_static"
+                providers.gradleProperty("innocentLab.ncnnArchive").orNull?.let {
+                    arguments += "-DINNOCENT_NCNN_ARCHIVE=$it"
+                }
+            }
+        }
         ndk {
-            // 只有 DexKit 带原生核心。Xposed/LSPosed 实机部署实际只有 ARM，x86 与
+            // DexKit 与可选插帧后端携带原生核心。Xposed/LSPosed 实机部署实际只有 ARM，x86 与
             // x86_64 两份 libdexkit.so 会多占约 627 KB；缺失时 DexKitAssistEngine 按
             // NATIVE_UNAVAILABLE 优雅降级，仅失去 block-update 的 DEX 兜底定位，
             // 其余功能不受影响。x86 模拟器上调试 DEX 兜底时需临时去掉此过滤。
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.31.5"
+            // Keep generated native/dependency paths below Windows' tool path limits, per checkout.
+            val checkoutKey = MessageDigest.getInstance("SHA-256").digest(projectDir.canonicalPath.toByteArray())
+                .take(8).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            buildStagingDirectory = File(gradle.gradleUserHomeDir, "caches/innocent-lab-native/$checkoutKey")
         }
     }
     val fixedReleaseSigning = if (hasCompleteReleaseSigningValues) {
