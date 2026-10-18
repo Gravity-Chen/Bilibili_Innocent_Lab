@@ -36,6 +36,14 @@
     <item name="tabs_back_board" type="id" />
     <item name="shadow_dig" type="id" />
     <item name="pager" type="id" />
+    <item name="playlist_container" type="id" />
+    <item name="layout_playlist" type="id" />
+    <item name="fl_tab_pager_container" type="id" />
+    <item name="fl_tab_content_container" type="id" />
+    <item name="fl_root_container" type="id" />
+    <item name="watchpoint_title" type="id" />
+    <item name="watchpoint_close" type="id" />
+    <item name="watchpoint_list" type="id" />
     <item name="mine_recycle" type="id" />
     <item name="item_recycle" type="id" />
     <item name="search_discover_list" type="id" />
@@ -44,4 +52,12 @@
     <item name="rv_messages" type="id" />
     <item name="im_top_hint" type="id" />
     <item name="app_bar" type="id" />
+    <item name="appbar" type="id" />
+    <item name="collapsing_toolbar" type="id" />
+    <item name="content_frame" type="id" />
+    <item name="suggest_list" type="id" />
+    <item name="root_container" type="id" />
+    <item name="content" type="id" />
+    <item name="footer_container" type="id" />
+    <item name="close" type="id" />
 </resources>

@@ -7,6 +7,18 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class HostChromeAppearanceTest {
+    @Test fun prismKeepsItsIdentityOnOlderDevicesAndPreservesTheSoftBackend() {
+        val prism = HostChromeAppearance.read("prism", "software", bottom = true, enabled = true)
+        assertEquals(HostGlassMaterial.PRISM, prism.material)
+        assertEquals(HostGlassRenderer.AUTO, prism.effectiveRenderer)
+        assertEquals(prism, prism.compatible(27))
+        assertEquals(prism, prism.compatible(32))
+        assertEquals(HostGlassRenderer.SOFTWARE, prism.copy(material = HostGlassMaterial.SOFT).effectiveRenderer)
+        for (id in listOf("host.top_bar.glass.material", "host.bottom_bar.glass.material")) {
+            val spec = com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog.byId.getValue(id)
+            org.junit.Assert.assertTrue(spec.accepts(com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingValue.Text("prism")))
+        }
+    }
     @Test fun existingUsersAndOldBackupsKeepTheirSeparateBackends() {
         assertEquals(HostChromeAppearance(), HostChromeAppearance.read(null, null, bottom = false, enabled = true))
         assertEquals(HostChromeAppearance(renderer = HostGlassRenderer.SOFTWARE),

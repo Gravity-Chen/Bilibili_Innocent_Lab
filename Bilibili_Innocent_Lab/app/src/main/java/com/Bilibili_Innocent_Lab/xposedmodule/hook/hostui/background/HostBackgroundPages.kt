@@ -37,7 +37,7 @@ internal class HostBackgroundPages(
     val requiresNight: Boolean get() = background.requiresNight
 
     fun attach(root: ViewGroup, kind: HostBackgroundPagePolicy.Kind, window: Window? = null) {
-        if (protected(root)) return
+        if (protected(root) || HostDetailFloatLayers.contains(root)) return
         val owner = owner(root)
         if (owner === root || owner != null && kinds[owner] != HostBackgroundPagePolicy.Kind.NATIVE && kind != HostBackgroundPagePolicy.Kind.COMMENT) return
         // 内容 Layer 与外层评论 Fragment 属于同一面板，不能在标题栏下面重启壁纸。
@@ -151,6 +151,7 @@ internal class HostBackgroundPages(
             kind == HostBackgroundPagePolicy.Kind.COMMENT)
             HostDetailSurfaces(root, detailBackgrounds) else null
         private var opusChrome: HostOpusChrome? = null
+        private var detailToolbarTransition: HostDetailToolbarTransition? = null
         private val pageChrome = if (kind == HostBackgroundPagePolicy.Kind.NATIVE || kind == HostBackgroundPagePolicy.Kind.DYNAMIC)
             HostPageChrome(root, detailBackgrounds) else null
         private val readingSurfaces = if (kind == HostBackgroundPagePolicy.Kind.NATIVE)
@@ -201,6 +202,7 @@ internal class HostBackgroundPages(
             }
             observer = null
             detailSurfaces?.detach()
+            detailToolbarTransition?.close(); detailToolbarTransition = null
             opusChrome?.close(); opusChrome = null
             pageChrome?.close()
             readingSurfaces?.close()
@@ -270,6 +272,8 @@ internal class HostBackgroundPages(
                 if (node is ViewGroup) for (i in 0 until node.childCount) visit(node.getChildAt(i), depth + 1)
             }
             visit(root, 0)
+            if (mediaWindow && detailToolbarTransition == null)
+                detailToolbarTransition = HostDetailToolbarTransition.create(root)
             containers = nextContainers.distinctBy { it.get() }
             lists = nextLists
             texts = nextTexts
@@ -286,8 +290,11 @@ internal class HostBackgroundPages(
                 if (prepared && !HostViewVisibility.visible(page, visibleBounds)) return@runCatching
                 if (dirty) discover(page)
                 prepared = true
-                // 播放窗口只给前景面板铺壁纸，状态栏、播放器及其工具栏保留宿主材质。
-                if (mediaWindow) return@runCatching
+                // 播放窗口保留原生材质；工具栏背景仅按实际收起距离连续过渡。
+                if (mediaWindow) {
+                    detailToolbarTransition?.apply()
+                    return@runCatching
+                }
                 val night = host.isNight(page.context) || background.requiresNight
                 if (kind == HostBackgroundPagePolicy.Kind.OPUS && opusChrome == null)
                     opusChrome = HostOpusChrome.create(page, detailBackgrounds)
@@ -500,8 +507,8 @@ internal class HostBackgroundPages(
                         return node
                     // 视频详情的前景面板包含简介/评论标签；壁纸不能提升到播放器所在的窗口。
                     return node.takeIf {
-                        kinds[it] == HostBackgroundPagePolicy.Kind.NATIVE && name(it) == "content_container" && name(branch) == "pager" &&
-                            (it.parent as? View)?.let(::name) == "round_container" && page.width > 0 && page.width == it.width
+                        kinds[it] == HostBackgroundPagePolicy.Kind.NATIVE && videoPanel(it) && name(branch) == "pager" &&
+                            page.width > 0 && page.width == it.width
                     }
                 }
                 branch = node
@@ -512,7 +519,8 @@ internal class HostBackgroundPages(
         fun contains(view: View) = kind(view) != null
         fun protected(view: View): Boolean = view is ImageView || view is SurfaceView || view is TextureView || view is WebView ||
             HostBackgroundPagePolicy.imageViewer(view.javaClass.name) ||
-            name(view) in protectedNames || selectionChrome(view) || view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
+            name(view) in protectedNames || HostDetailFloatLayers.slot(view) || selectionChrome(view) || searchSuggestions(view) || commentMask(view) ||
+            view.javaClass.name.contains("Player") || view.javaClass.name.contains("ControlContainer") ||
             view.javaClass.name.startsWith("com.bilibili.video.story.") ||
             view.javaClass.name.startsWith("com.bilibili.cron.") || view.javaClass.name.startsWith("tv.danmaku.render.")
 
@@ -551,8 +559,34 @@ internal class HostBackgroundPages(
             val parent = view.parent as? ViewGroup ?: return false
             return (0 until parent.childCount).any { name(parent.getChildAt(it)) == "select_list" }
         }
-        private fun videoPanel(view: View): Boolean = name(view) == "content_container" &&
-            (view.parent as? View)?.let(::name) == "round_container"
+        private fun searchSuggestions(view: View): Boolean {
+            if (view !is android.widget.ListView || name(view) != "suggest_list") return false
+            val parent = view.parent as? ViewGroup ?: return false
+            // ChannelSearchActivity 只显示/隐藏建议列表，底下的搜索结果仍可见；整层底板不能清空。
+            return name(parent) == "content_frame" &&
+                (0 until parent.childCount).any { name(parent.getChildAt(it)) == "recycler" }
+        }
+        private fun commentMask(view: View): Boolean {
+            val parent = view.parent as? ViewGroup ?: return false
+            if (name(parent) != "root_container" || view !is ViewGroup || view.childCount != 1) return false
+            val body = view.getChildAt(0) as? ViewGroup ?: return false
+            if (!body.isClickable || !body.isFocusable ||
+                (0 until body.childCount).none { name(body.getChildAt(it)) == "close" } ||
+                (0 until body.childCount).none { body.getChildAt(it) is ImageView }) return false
+            if (generateSequence(view.javaClass as Class<*>?) { it.superclass }
+                    .none { it.name == "androidx.core.widget.NestedScrollView" }) return false
+            // 旧评论的课堂/青少年遮罩无根 id，动态盖在 root_container 上；正文仍在下层。
+            val content = (0 until parent.childCount).map { parent.getChildAt(it) }
+                .firstOrNull { name(it) == "content" } as? ViewGroup ?: return false
+            return (0 until content.childCount).any { name(content.getChildAt(it)) == "footer_container" }
+        }
+        private fun videoPanel(view: View): Boolean {
+            if (view !is ViewGroup || name(view) != "content_container") return false
+            if ((view.parent as? View)?.let(::name) == "round_container") return true
+            // 稍后再看播放页直接把前景面板放在 Theseus 根下，没有普通详情页的 round_container。
+            return (0 until view.childCount).any { name(view.getChildAt(it)) == "tabs_back_board" } &&
+                (0 until view.childCount).any { name(view.getChildAt(it)) == "pager" }
+        }
         private val listNames = setOf("recyclerView", "recycler_view", "dy_list", "recycler", "list", "opus_dy_list")
         private val sectionNames = setOf("sticky_container", "sub_sticky_container", "tab_recyclerView", "top_bar", "dy_app_bar", "dy_sticky_group")
         private val chromeNames = setOf("main_top_layout", "nav_top_bar", "top_bar", "mine_top_view", "fake_input_layout", "cmt3_page_title_container")

@@ -7,6 +7,7 @@ import android.view.ViewTreeObserver
 import android.os.Build
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRenderer
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceBackend
 import com.lumen.coacervation.engine.host.LumenSurfaceDiagnostics
@@ -26,6 +27,8 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private val samplingBackend: LumenSurfaceBackend = LumenSurfaceBackend.AUTO,
     private val appearance: HostChromeAppearance = HostChromeAppearance()) {
     private class Surface(var options: LumenSurfaceOptions) {
+        var prism = false
+        var prismSurface: HostPrismSurface? = null
         var binding: LumenSurfaceBinding? = null
         var background: Drawable? = null
         var insetX = 0f
@@ -50,6 +53,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private var focusObserver: ViewTreeObserver? = null
     private var backdropVersion: Long? = null
     private val backdropPreDraw = ViewTreeObserver.OnPreDrawListener {
+        surfaces.forEach { (_, spec) -> spec.prismSurface?.sync(spec.insetX, spec.insetY) }
         if (viewportSource?.sync() == true) session?.notifyPositionChanged()
         // Snapshot child invalidations before the software legibility probe can draw the
         // content and consume their dirty flags later in this same pre-draw dispatch.
@@ -82,16 +86,20 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         previous?.close()
     }
 
-    fun surface(view: View, options: LumenSurfaceOptions) {
+    fun surface(view: View, options: LumenSurfaceOptions) = surface(view, options, prism = false)
+
+    private fun surface(view: View, options: LumenSurfaceOptions, prism: Boolean) {
         if (closed) return
         val existing = surfaces[view]
         if (existing == null) {
             val spec = Surface(options)
+            spec.prism = prism
             surfaces[view] = spec
             if (session == null) anchor.get()?.let { attach(it) }
-            if (spec.binding?.isBound != true) bind(view, spec)
+            if (!owns(view)) bind(view, spec)
         } else {
             existing.options = options
+            if (existing.prism && existing.prismSurface?.owns == true) return
             if (existing.binding?.isBound == true && view.background === existing.background) {
                 existing.binding?.update(effectiveOptions(options))
                 existing.binding?.let { legibility?.bind(view, it, effectiveOptions(options)) }
@@ -100,10 +108,11 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     }
 
     fun floating(view: View, dark: Boolean, radiusDp: Float) =
-        surface(view, HostSurfaceStyle.floating(dark, radiusDp, appearance.compatible(Build.VERSION.SDK_INT)))
+        surface(view, HostSurfaceStyle.floating(dark, radiusDp, appearance.compatible(Build.VERSION.SDK_INT)),
+            prism = appearance.material == HostGlassMaterial.PRISM)
 
     fun owns(view: View): Boolean = surfaces[view]?.let {
-        it.binding?.isBound == true && view.background === it.background
+        it.prismSurface?.owns == true || (it.binding?.isBound == true && view.background === it.background)
     } == true
 
     fun updatePalette(colors: HostChromeColors) {
@@ -115,6 +124,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         garbAccent = colors.garbAccent
         session?.updatePalette(next)
         surfaces.values.forEach { spec -> spec.binding?.update(effectiveOptions(spec.options)) }
+        surfaces.values.forEach { spec -> spec.prismSurface?.updatePalette(next) }
         resetLegibility()
         surfaces.forEach { (view, spec) -> spec.binding?.let { legibility?.bind(view, it, effectiveOptions(spec.options)) } }
     }
@@ -134,7 +144,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         }
         if (changed) resetLegibility()
         surfaces.forEach { (view, spec) ->
-            if (changed || spec.binding?.isBound != true || view.background !== spec.background) bind(view, spec)
+            if (changed || !owns(view)) bind(view, spec)
         }
         if (changed) previous?.close()
     }
@@ -144,6 +154,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         val spec = surfaces[view] ?: return
         spec.insetX = insetX
         spec.insetY = insetY
+        spec.prismSurface?.sync(insetX, insetY)
         applyShape(view, spec)
     }
 
@@ -164,7 +175,17 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private fun bind(view: View, spec: Surface) {
         val active = session ?: return
         spec.binding?.close()
+        spec.binding = null
+        spec.prismSurface?.close()
+        spec.prismSurface = null
         viewportSource?.sync()
+        if (spec.prism) {
+            val source = viewportSource?.takeIf { it.availability == com.lumen.coacervation.engine.host.LumenSourceAvailability.READY }
+                ?.coordinateView
+            if (view.parent !is ViewGroup) return
+            spec.prismSurface = HostPrismSurface(view, palette, active, source).also { it.sync(spec.insetX, spec.insetY) }
+            return
+        }
         spec.binding = active.bindSource(view, effectiveOptions(spec.options),
             (viewportSource ?: contentSource).takeIf { spec.options.sampling.enabled })
         spec.background = view.background
@@ -192,6 +213,8 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
 
     internal fun samplingPerformance() = session?.performanceDiagnostics()
 
+    internal fun prismDiagnostics(view: View) = surfaces[view]?.prismSurface?.diagnostics()
+
     private fun observeFocus(view: View) {
         val observer = view.viewTreeObserver
         if (focusObserver === observer && observer.isAlive) return
@@ -208,7 +231,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
 
     private fun resetLegibility() {
         legibility?.close()
-        legibility = (viewportSource?.coordinateView ?: content)?.takeIf { dark }?.let {
+        legibility = (viewportSource?.coordinateView ?: content)?.takeIf { dark && appearance.material != HostGlassMaterial.PRISM }?.let {
             LumenSurfaceLegibilityController(it, palette.surface, 0xFF9EA3AB.toInt())
         }
     }
@@ -227,6 +250,7 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
         backdropVersion = null
         legibility?.close()
         legibility = null
+        surfaces.values.forEach { it.prismSurface?.close(); it.prismSurface = null }
         session?.close()
         session = null
         viewportSource?.close(); viewportSource = null
@@ -245,11 +269,11 @@ internal class HostSurfaceScope(anchor: View, colors: HostChromeColors,
     private fun createViewportSource(): HostChromeViewportSource? {
         val source = contentSource ?: return null
         if (source.coordinateView !is ViewGroup) return null
-        return HostChromeViewportSource(source) { consume ->
+        return HostChromeViewportSource(source, compositeView = appearance.material == HostGlassMaterial.PRISM) { consume ->
             for ((view, spec) in surfaces) {
                 val sampling = effectiveOptions(spec.options).sampling
                 if (!spec.options.sampling.enabled) continue
-                val blur = maxOf(sampling.blurRadiusDp, sampling.softwareBlurRadiusDp ?: sampling.blurRadiusDp)
+                val blur = if (spec.prism) 8f else maxOf(sampling.blurRadiusDp, sampling.softwareBlurRadiusDp ?: sampling.blurRadiusDp)
                 val padding = maxOf(blur * 4f, 20f * sampling.refractionStrength) * view.resources.displayMetrics.density + 4f
                 consume(view, spec.insetX, spec.insetY, padding)
             }

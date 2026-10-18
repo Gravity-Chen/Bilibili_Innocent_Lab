@@ -15,6 +15,10 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.ListView
+import android.widget.ArrayAdapter
+import android.widget.LinearLayout
+import androidx.core.widget.NestedScrollView
 import com.google.android.material.shape.MaterialShapeDrawable
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -38,6 +42,149 @@ class HostBackgroundPagesInstrumentedTest {
         object : ContextWrapper(InstrumentationRegistry.getInstrumentation().context) {
             override fun getApplicationContext() = activity.applicationContext
         }
+
+    @Test fun channelSuggestionsCoverResultsAcrossQueryAndVisibilityChanges() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = resourceContext(activity)
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(context)
+                val content = FrameLayout(context).apply { id = TestR.id.content_frame }
+                val results = RecyclerView(context).apply {
+                    id = TestR.id.recycler
+                    layoutManager = LinearLayoutManager(context)
+                }
+                val suggestions = ListView(context).apply {
+                    id = TestR.id.suggest_list
+                    setBackgroundColor(Color.WHITE)
+                    adapter = ArrayAdapter(context, android.R.layout.simple_list_item_1, arrayOf("suggestion"))
+                    setPadding(3, 5, 7, 9)
+                }
+                val original = suggestions.background
+                content.addView(results, FrameLayout.LayoutParams(-1, -1))
+                content.addView(suggestions, FrameLayout.LayoutParams(-1, -1))
+                root.addView(content, FrameLayout.LayoutParams(-1, -1))
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                val controller = HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.AURORA), { throw it })
+                val pages = HostBackgroundPages(controller, HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                fun frame() {
+                    root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                    root.layout(0, 0, 320, 640)
+                    root.viewTreeObserver.dispatchOnGlobalLayout()
+                    repeat(2) { root.viewTreeObserver.dispatchOnPreDraw() }
+                }
+                try {
+                    pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                    frame()
+                    assertSame("Suggestions must cover results even below their last row", original, suggestions.background)
+                    assertTrue(HostBackgroundPages.protectedAncestor(suggestions.getChildAt(0)))
+                    val bitmap = Bitmap.createBitmap(320, 640, Bitmap.Config.ARGB_8888)
+                    try {
+                        root.draw(Canvas(bitmap))
+                        assertEquals(Color.WHITE, bitmap.getPixel(160, 600))
+                    } finally { bitmap.recycle() }
+                    for (visibility in listOf(View.GONE, View.VISIBLE, View.GONE, View.VISIBLE)) {
+                        suggestions.visibility = visibility
+                        frame()
+                        assertSame(original, suggestions.background)
+                        assertEquals(View.VISIBLE, results.visibility)
+                    }
+                    var clicked = false
+                    suggestions.setOnItemClickListener { _, _, _, _ -> clicked = true }
+                    suggestions.performItemClick(suggestions.getChildAt(0), 0, 0)
+                    assertTrue(clicked)
+                    assertEquals(listOf(3, 5, 7, 9), listOf(suggestions.paddingLeft, suggestions.paddingTop,
+                        suggestions.paddingRight, suggestions.paddingBottom))
+                    pages.attach(suggestions, HostBackgroundPagePolicy.Kind.PAGE)
+                    assertSame(root, HostBackgroundPages.owner(suggestions))
+                } finally { decor.removeView(root) }
+            }
+        }
+    }
+
+    @Test fun suggestionNamesAloneDoNotProtectAnOrdinaryPageList() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = resourceContext(activity)
+                val content = FrameLayout(context).apply { id = TestR.id.content_frame }
+                val list = ListView(context).apply { id = TestR.id.suggest_list }
+                content.addView(list)
+                assertFalse(HostBackgroundPages.protectedAncestor(list))
+                content.addView(View(context).apply { id = TestR.id.recycler })
+                content.id = View.NO_ID
+                assertFalse(HostBackgroundPages.protectedAncestor(list))
+            }
+        }
+    }
+
+    @Test fun commentRestrictionMasksKeepTheirSurfaceAndCloseAction() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val context = resourceContext(activity)
+                val decor = activity.window.decorView as ViewGroup
+                val root = FrameLayout(context).apply { id = TestR.id.root_container }
+                val content = FrameLayout(context).apply { id = TestR.id.content }
+                val footer = FrameLayout(context).apply { id = TestR.id.footer_container }
+                content.addView(footer)
+                root.addView(content, FrameLayout.LayoutParams(-1, -1))
+                decor.addView(root, ViewGroup.LayoutParams(320, 640))
+                val pages = HostBackgroundPages(HostBackgroundController(HostBackgroundConfig(HostBackgroundPreset.AURORA), { throw it }),
+                    HostVideoCardHostAccess(activity.classLoader)) { throw it }
+                fun frame() {
+                    root.measure(View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY))
+                    root.layout(0, 0, 320, 640)
+                    root.viewTreeObserver.dispatchOnGlobalLayout()
+                    repeat(2) { root.viewTreeObserver.dispatchOnPreDraw() }
+                }
+                try {
+                    pages.attach(root, HostBackgroundPagePolicy.Kind.NATIVE)
+                    for (label in listOf("课堂模式", "青少年模式")) {
+                        val mask = NestedScrollView(context).apply { isFillViewport = true }
+                        val body = LinearLayout(context).apply {
+                            orientation = LinearLayout.VERTICAL
+                            isClickable = true
+                            isFocusable = true
+                            setBackgroundColor(Color.WHITE)
+                        }
+                        val icon = ImageView(context).apply { setBackgroundColor(Color.MAGENTA) }
+                        val title = TextView(context).apply { text = label; setTextColor(Color.BLACK) }
+                        val close = TextView(context).apply { id = TestR.id.close; text = "关闭" }
+                        body.addView(icon, LinearLayout.LayoutParams(80, 80))
+                        body.addView(title)
+                        body.addView(close)
+                        val original = body.background
+                        mask.addView(body, ViewGroup.LayoutParams(-1, -1))
+                        root.addView(mask, FrameLayout.LayoutParams(-1, -1))
+                        frame()
+                        assertSame("The restriction mask must cover the comments", original, body.background)
+                        assertTrue(HostBackgroundPages.protectedAncestor(title))
+                        pages.attach(mask, HostBackgroundPagePolicy.Kind.COMMENT)
+                        assertSame(root, HostBackgroundPages.owner(mask))
+                        val bitmap = Bitmap.createBitmap(320, 640, Bitmap.Config.ARGB_8888)
+                        try {
+                            root.draw(Canvas(bitmap))
+                            assertEquals(Color.WHITE, bitmap.getPixel(160, 600))
+                        } finally { bitmap.recycle() }
+                        close.setOnClickListener { root.removeView(mask) }
+                        close.performClick()
+                        frame()
+                        assertSame(original, body.background)
+                        assertEquals(Color.BLACK, title.currentTextColor)
+                        content.removeView(footer)
+                        root.addView(mask, FrameLayout.LayoutParams(-1, -1))
+                        assertFalse("The parent comment layout must also match", HostBackgroundPages.protectedAncestor(mask))
+                        root.removeView(mask)
+                        content.addView(footer)
+                    }
+                } finally { decor.removeView(root) }
+            }
+        }
+    }
 
     @Test fun searchToolbarKeepsItsMaterialWhenResultTabsCollapse() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

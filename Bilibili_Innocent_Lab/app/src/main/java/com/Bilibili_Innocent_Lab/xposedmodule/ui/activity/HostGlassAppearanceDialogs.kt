@@ -23,7 +23,11 @@ private fun MainActivity.glassAppearance(bottom: Boolean) =
 
 private fun materialKey(bottom: Boolean) = if (bottom) FeaturePreferences.HOST_BOTTOM_BAR_GLASS_MATERIAL else FeaturePreferences.HOST_TOP_BAR_GLASS_MATERIAL
 private fun rendererKey(bottom: Boolean) = if (bottom) FeaturePreferences.HOST_BOTTOM_BAR_GLASS_RENDERER else FeaturePreferences.HOST_TOP_BAR_GLASS_RENDERER
-private fun materialLabel(material: HostGlassMaterial) = if (material == HostGlassMaterial.SOFT) R.string.host_glass_soft else R.string.host_glass_liquid
+private fun materialLabel(material: HostGlassMaterial) = when (material) {
+    HostGlassMaterial.SOFT -> R.string.host_glass_soft
+    HostGlassMaterial.LIQUID -> R.string.host_glass_liquid
+    HostGlassMaterial.PRISM -> R.string.host_glass_prism
+}
 private fun rendererLabel(renderer: HostGlassRenderer) = if (renderer == HostGlassRenderer.AUTO) R.string.host_glass_auto else R.string.host_glass_software
 
 @com.highcapable.hikage.annotation.Hikagable
@@ -65,7 +69,7 @@ internal fun MainActivity.hostGlassConfigurationRows(performer: Hikage.Performer
 
 private fun MainActivity.showHostGlassChoiceDialog(anchor: View, bottom: Boolean, rendering: Boolean, onSaved: () -> Unit) {
     val appearance = glassAppearance(bottom)
-    val liquid = appearance.material == HostGlassMaterial.LIQUID && Build.VERSION.SDK_INT >= 33
+    val automatic = appearance.compatible(Build.VERSION.SDK_INT).material != HostGlassMaterial.SOFT
     val density = resources.displayMetrics.density
     val dialog = Dialog(this).also { installDialogElasticInteraction(it) }
     val container = createModalContainer()
@@ -87,12 +91,12 @@ private fun MainActivity.showHostGlassChoiceDialog(anchor: View, bottom: Boolean
     }
     if (rendering) {
         HostGlassRenderer.entries.forEach { option ->
-            val available = option != HostGlassRenderer.SOFTWARE || !liquid
-            val subtitle = if (!available) R.string.host_glass_liquid_gpu_required
+            val available = option != HostGlassRenderer.SOFTWARE || !automatic
+            val subtitle = if (!available) R.string.host_glass_refraction_auto_required
                 else if (option == HostGlassRenderer.AUTO) R.string.host_glass_auto_tip else R.string.host_glass_software_tip
             container.addView(createGitHubMenuRow(getString(rendererLabel(option)), getString(subtitle),
                 appearance.compatible(Build.VERSION.SDK_INT).effectiveRenderer == option) {
-                if (available) save(if (liquid) appearance else appearance.copy(renderer = option))
+                if (available) save(if (automatic) appearance else appearance.copy(renderer = option))
             }.apply {
                 isEnabled = available; alpha = if (available) 1f else .45f
             }, LinearLayout.LayoutParams(-1, -2))
@@ -101,7 +105,11 @@ private fun MainActivity.showHostGlassChoiceDialog(anchor: View, bottom: Boolean
         HostGlassMaterial.entries.forEach { option ->
             val available = option != HostGlassMaterial.LIQUID || Build.VERSION.SDK_INT >= 33
             val subtitle = if (!available) R.string.host_glass_liquid_unavailable
-                else if (option == HostGlassMaterial.SOFT) R.string.host_glass_soft_tip else R.string.host_glass_liquid_tip
+                else when (option) {
+                    HostGlassMaterial.SOFT -> R.string.host_glass_soft_tip
+                    HostGlassMaterial.LIQUID -> R.string.host_glass_liquid_tip
+                    HostGlassMaterial.PRISM -> R.string.host_glass_prism_tip
+                }
             container.addView(createGitHubMenuRow(getString(materialLabel(option)), getString(subtitle),
                 appearance.material == option) { if (available) save(appearance.copy(material = option)) }.apply {
                 isEnabled = available; alpha = if (available) 1f else .45f
