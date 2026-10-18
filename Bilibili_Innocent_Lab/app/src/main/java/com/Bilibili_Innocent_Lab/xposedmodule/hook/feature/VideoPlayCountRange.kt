@@ -96,11 +96,18 @@ internal object VideoPlayCountReader {
      * 直播人数、封面文案缺失或解析失败一律返回 null。
      */
     fun fromHomeCover(item: Any, playerArgsGetter: Method): Long? {
-        if (!playerArgsGetter.declaringClass.isInstance(item)) return null
-        val playerArgs = runCatching { playerArgsGetter.invoke(item) }.getOrNull() ?: return null
-        if (!isAvVod(playerArgs)) return null
-        val text = coverLeftText(item) ?: return null
-        return parseCoverText(text)
+        if (!isHomeAvVod(item, playerArgsGetter)) return null
+        return coverPlayCount(item)
+    }
+
+    /** 调用方已经确认过是普通投稿时用，避免重复走 PlayerArgs 闸门。 */
+    fun coverPlayCount(item: Any): Long? = coverLeftText(item)?.let(::parseCoverText)
+
+    /** 首页卡片是普通投稿（aid>0、非直播）；发布时间维度复用同一道闸门。 */
+    fun isHomeAvVod(item: Any, playerArgsGetter: Method): Boolean {
+        if (!playerArgsGetter.declaringClass.isInstance(item)) return false
+        val playerArgs = runCatching { playerArgsGetter.invoke(item) }.getOrNull() ?: return false
+        return isAvVod(playerArgs)
     }
 
     fun parseCoverText(raw: String?): Long? {
@@ -193,7 +200,11 @@ internal object VideoPlayCountReader {
     ) { method ->
         method.name in names && method.parameterCount == 0 &&
             method.isPublic && !method.isStatic && accept(method)
-    }.distinctBy(Method::toGenericString).singleOrNull()
+    }
+        // 子类覆写时基类与子类各出一条，toGenericString 含声明类会把它们当成两个方法、
+        // singleOrNull 随之放弃。同名同返回类型的无参方法就是同一个虚方法，invoke 照样分派到子类。
+        .distinctBy { method -> method.name + ":" + method.returnType.name }
+        .singleOrNull()
 
     private fun uniqueField(
         owner: Class<*>,

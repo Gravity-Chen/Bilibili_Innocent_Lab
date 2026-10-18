@@ -7,4 +7,5 @@ open class Relate {
     open fun getRcmdReason(): String = "3万点赞"
     open fun getRcmdReasonExtra(): String = ""
     open fun getRcmdReasonStyle(): ReasonStyle = ReasonStyle()
+    open fun getDesc(): String = "UP主 · 3天前"
 }

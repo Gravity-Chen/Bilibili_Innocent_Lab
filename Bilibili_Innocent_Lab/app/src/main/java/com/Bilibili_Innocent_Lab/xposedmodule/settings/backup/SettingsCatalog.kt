@@ -34,7 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 56
+    const val CATALOG_VERSION = 57
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -47,6 +47,8 @@ internal object SettingsCatalog {
         "recommend.video_play_count.minimum"
     const val ID_RECOMMEND_VIDEO_MAX_PLAY_COUNT =
         "recommend.video_play_count.maximum"
+    const val ID_RECOMMEND_VIDEO_PUBLISH_TIME_RULE =
+        "recommend.video_publish_time.rule"
     const val ID_DANMAKU_WEIGHT_MINIMUM = "player.danmaku.weight_filter.minimum"
     const val ID_MATERIAL_COLOR_SPEC = "module_ui.material_color_spec"
     const val ID_AI_DECLARED_VIDEOS_BLOCKED = "video.ai_declared.blocked"
@@ -745,6 +747,15 @@ internal object SettingsCatalog {
             range = 0..Int.MAX_VALUE,
             introducedCatalogVersion = 27
         ),
+        // 规则文本由宿主侧 VideoPublishTimeRule 解析；导入的坏值在那里整体失效（保守放行）。
+        text(
+            ID_RECOMMEND_VIDEO_PUBLISH_TIME_RULE,
+            FeaturePreferences.RECOMMEND_VIDEO_PUBLISH_TIME_RULE,
+            R.string.recommend_video_publish_time_range,
+            default = "",
+            maxStringLength = 64,
+            introducedCatalogVersion = 57
+        ),
         integer(
             "player.default_quality.qn",
             FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN,
@@ -1002,7 +1013,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 235) { "Expected 235 catalog settings, found ${specs.size}" }
+        check(specs.size == 236) { "Expected 236 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

@@ -962,7 +962,13 @@ object VersionAdapter {
         val authorNameChains: List<ReasonMethodChain> = emptyList(),
         val authorMidChains: List<ReasonMethodChain> = emptyList(),
         val tagNameChains: List<ReasonMethodChain> = emptyList(),
-        val detailRelateService: DetailRelateServicePoint? = null
+        val detailRelateService: DetailRelateServicePoint? = null,
+        /**
+         * 发布时间文案链：`RelateCard#getBasicInfo → CardBasicInfo#getDesc` 与
+         * `view.v1.Relate#getDesc`。35 个宿主版本都没有结构化发布时间，只能读展示文案；
+         * 老缓存缺 `publish_text_chains` 时为空表，发布时间维度报 partial。
+         */
+        val publishTextChains: List<ReasonMethodChain> = emptyList()
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("responses", JSONArray().apply { responseItemGetters.forEach { put(it.toJson()) } })
@@ -1008,6 +1014,7 @@ object VersionAdapter {
             put("author_name_chains", JSONArray().apply { authorNameChains.forEach { put(it.toJson()) } })
             put("author_mid_chains", JSONArray().apply { authorMidChains.forEach { put(it.toJson()) } })
             put("tag_name_chains", JSONArray().apply { tagNameChains.forEach { put(it.toJson()) } })
+            put("publish_text_chains", JSONArray().apply { publishTextChains.forEach { put(it.toJson()) } })
             detailRelateService?.let { put("detail_relate_service", it.toJson()) }
         }
 
@@ -1067,7 +1074,8 @@ object VersionAdapter {
                 authorMidChains = chainsOf(o, "author_mid_chains"),
                 tagNameChains = chainsOf(o, "tag_name_chains"),
                 detailRelateService = o.optJSONObject("detail_relate_service")
-                    ?.let(DetailRelateServicePoint::fromJson)
+                    ?.let(DetailRelateServicePoint::fromJson),
+                publishTextChains = chainsOf(o, "publish_text_chains")
             )
 
             /** 老缓存没有这三个键时得到空表，对应那一档降级，不影响既有维度。 */
@@ -2067,7 +2075,8 @@ object VersionAdapter {
                         value.commercialEvidenceChains.all { chain ->
                             chain.steps.size in 1..2 && chain.steps.all { it.isValid() }
                         } &&
-                        (value.authorNameChains + value.authorMidChains + value.tagNameChains)
+                        (value.authorNameChains + value.authorMidChains + value.tagNameChains +
+                            value.publishTextChains)
                             .all { chain ->
                                 chain.steps.size in 1..3 && chain.steps.all { it.isValid() }
                             } &&
@@ -3794,6 +3803,11 @@ object VersionAdapter {
             points.commercialEvidenceChains.forEachIndexed { chainIndex, chain ->
                 chain.steps.forEachIndexed { stepIndex, point ->
                     add("relate.commercial.$chainIndex.$stepIndex", point)
+                }
+            }
+            points.publishTextChains.forEachIndexed { chainIndex, chain ->
+                chain.steps.forEachIndexed { stepIndex, point ->
+                    add("relate.publish_text.$chainIndex.$stepIndex", point)
                 }
             }
             points.detailRelateService?.let { service ->
@@ -5571,6 +5585,24 @@ object VersionAdapter {
             }
         val commercialEvidenceChains = (directCommercialChains + nestedCommercialChains)
             .distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
+        // 发布时间只有展示文案可读（2026-10-18 跨 35 版静态核对）。只收 String 叶子，
+        // 不走 reasonChain 的 getText 兜底，避免把徽标对象误当成描述。
+        val directPublishTextChains = itemMethods("getDesc")
+            .filter(::isStringMethod)
+            .map { method -> ReasonMethodChain(listOf(method.toHookPoint())) }
+        val nestedPublishTextChains = itemMethods("getBasicInfo").mapNotNull { basicInfoGetter ->
+            KavaMemberLookup.methods(
+                basicInfoGetter.returnType,
+                includeSuperclasses = true,
+                makeAccessible = true
+            ) { method ->
+                method.name == "getDesc" && isStringMethod(method)
+            }.distinctBy(Method::toGenericString).singleOrNull()?.let { descGetter ->
+                ReasonMethodChain(listOf(basicInfoGetter.toHookPoint(), descGetter.toHookPoint()))
+            }
+        }
+        val publishTextChains = (directPublishTextChains + nestedPublishTextChains)
+            .distinctBy { chain -> chain.steps.joinToString("->") { it.label() } }
         if (cases.isEmpty() && gotos.isEmpty() && types.isEmpty() &&
             relateTypes.isEmpty() && sourceTypes.isEmpty() && sourceTypeChains.isEmpty() &&
             relateTypeValues.isEmpty() && directDurations.isEmpty() && durationChains.isEmpty() &&
@@ -5593,7 +5625,8 @@ object VersionAdapter {
             authorNameChains = authorNameChains,
             authorMidChains = authorMidChains,
             tagNameChains = tagNameChains,
-            detailRelateService = detailRelateService
+            detailRelateService = detailRelateService,
+            publishTextChains = publishTextChains
         )
     }.getOrNull()
 

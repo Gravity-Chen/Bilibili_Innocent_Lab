@@ -48,7 +48,13 @@ internal object VersionAdapterContract {
     /** 68 → 69：播放器推广增加后台语义 DEX 兜底和可选专用入口缓存；旧缓存缺键可读。 */
     /** 69 → 70：双 9.15.0 入口更新及可选开屏/关注流 DEX 结果；旧键继续兼容。 */
     /** 70 → 71：默认画质新增可选 Story 角色；普通默认值与 Story 独立缓存及语义兜底。 */
-    const val RULE_VERSION = 71
+    /**
+     * 71 → 72（2026-10-18，按发布时间过滤推荐）：`VideoRelatePoints` 新增可选
+     * `publish_text_chains` 键（`RelateCard#getBasicInfo → CardBasicInfo#getDesc`、
+     * `view.v1.Relate#getDesc`）。老缓存缺键降级成空表，只抬 rule、不抬 schema；
+     * 必须抬，否则已缓存设备永远拿不到详情页发布时间文案链。
+     */
+    const val RULE_VERSION = 72
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

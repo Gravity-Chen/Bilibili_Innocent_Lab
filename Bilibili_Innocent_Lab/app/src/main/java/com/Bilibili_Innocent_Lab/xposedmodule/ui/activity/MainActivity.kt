@@ -346,6 +346,7 @@ class MainActivity : SkinnedActivity() {
     internal var recommendVideoMaxDurationSeconds = 0
     internal var recommendVideoMinPlayCount = 0
     internal var recommendVideoMaxPlayCount = 0
+    internal var recommendVideoPublishTimeRule = ""
     internal var removeStoryAds = false
     internal var removeStoryLive = false
     internal var removeStoryGames = false
@@ -516,6 +517,7 @@ class MainActivity : SkinnedActivity() {
     private var bottomBarRulesSummaryView: NativeTextView? = null
     internal var recommendVideoDurationSummaryView: NativeTextView? = null
     internal var recommendVideoPlayCountSummaryView: NativeTextView? = null
+    internal var recommendVideoPublishTimeSummaryView: NativeTextView? = null
     private var commentKeywordSummaryView: NativeTextView? = null
     internal var commentLevelSummaryView: NativeTextView? = null
     private var commentUserFilterSummaryView: NativeTextView? = null
@@ -4243,6 +4245,7 @@ class MainActivity : SkinnedActivity() {
         bottomBarRulesSummaryView = null
         recommendVideoDurationSummaryView = null
         recommendVideoPlayCountSummaryView = null
+        recommendVideoPublishTimeSummaryView = null
         commentKeywordSummaryView = null
         commentLevelSummaryView = null
         commentUserFilterSummaryView = null
@@ -4379,6 +4382,8 @@ class MainActivity : SkinnedActivity() {
         recommendVideoMaxPlayCount =
             uiSettings.int(FeaturePreferences.RECOMMEND_VIDEO_MAX_PLAY_COUNT)
                 .coerceAtLeast(0)
+        recommendVideoPublishTimeRule =
+            uiSettings.string(FeaturePreferences.RECOMMEND_VIDEO_PUBLISH_TIME_RULE)
         removeStoryAds = uiSettings.bool(FeaturePreferences.REMOVE_STORY_ADS)
         removeStoryLive = uiSettings.bool(FeaturePreferences.REMOVE_STORY_LIVE)
         removeStoryGames = uiSettings.bool(FeaturePreferences.REMOVE_STORY_GAMES)
@@ -6796,6 +6801,46 @@ class MainActivity : SkinnedActivity() {
      */
     private val isLauncherIconShowing
         get() = packageManager?.isComponentEnabled(homeComponent) == true
+    /** 推荐过滤的"标题 + 当前摘要"可点行及其说明；时长、播放量、发布时间三行同构。 */
+    @com.highcapable.hikage.annotation.Hikagable
+    private fun Hikage.Performer<NativeLinearLayout.LayoutParams>.recommendSummaryRow(
+        @StringRes titleRes: Int,
+        @StringRes tipRes: Int,
+        settingIds: List<String>,
+        summary: () -> String,
+        bindSummaryView: (NativeTextView) -> Unit,
+        onClick: (View) -> Unit
+    ) {
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 12.dp
+            }
+        ) {
+            bindSummaryView(this)
+            text = stringResource(titleRes) + "\n" + summary()
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
+            setLineSpacing(5f, 1f)
+            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+            background = selfRippleBackground(10f)
+            isClickable = true
+            isFocusable = true
+            settingIds.forEach { settingsDestinations.bind(it, this) }
+            setOnClickListener(onClick)
+        }
+        TextView(
+            lparams = LayoutParams(widthMatchParent = true)
+        ) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(tipRes)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
+    }
+
     /** 进阶净化 · PURIFY_SHARED 分类；标题即 marker，必须是本组第一个子控件。 */
     // 注解用全限定名：本文件已经导入了同名的**函数** com.highcapable.hikage.core.base.Hikagable
     // （见 createPromotionItem 的 Hikagable<MarginLayoutParams> { }），不能再按简名导入注解。
@@ -6813,67 +6858,14 @@ class MainActivity : SkinnedActivity() {
             textSize = 12f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
-                topMargin = 12.dp
-            }
-        ) {
-            recommendVideoDurationSummaryView = this
-            text = stringResource(R.string.recommend_video_duration_range) +
-                "\n" + recommendVideoDurationSummary()
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            maxLines = 3
-            ellipsize = TextUtils.TruncateAt.END
-            setLineSpacing(5f, 1f)
-            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-            background = selfRippleBackground(10f)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                showRecommendVideoDurationRangeDialog(it)
-            }
+        recommendSummaryRow(R.string.recommend_video_duration_range, R.string.recommend_video_duration_tip, emptyList(), { recommendVideoDurationSummary() }, { recommendVideoDurationSummaryView = it }) {
+            showRecommendVideoDurationRangeDialog(it)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
-        ) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.recommend_video_duration_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
+        recommendSummaryRow(R.string.recommend_video_play_count_range, R.string.recommend_video_play_count_tip, listOf(SettingsCatalog.ID_RECOMMEND_VIDEO_MIN_PLAY_COUNT, SettingsCatalog.ID_RECOMMEND_VIDEO_MAX_PLAY_COUNT), { recommendVideoPlayCountSummary() }, { recommendVideoPlayCountSummaryView = it }) {
+            showRecommendVideoPlayCountRangeDialog(it)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
-                topMargin = 12.dp
-            }
-        ) {
-            recommendVideoPlayCountSummaryView = this
-            text = stringResource(R.string.recommend_video_play_count_range) +
-                "\n" + recommendVideoPlayCountSummary()
-            textColor = colorResource(R.color.colorTextGray)
-            textSize = 15f
-            maxLines = 3
-            ellipsize = TextUtils.TruncateAt.END
-            setLineSpacing(5f, 1f)
-            setPadding(12.dp, 10.dp, 12.dp, 10.dp)
-            background = selfRippleBackground(10f)
-            isClickable = true
-            isFocusable = true
-            settingsDestinations.bind(SettingsCatalog.ID_RECOMMEND_VIDEO_MIN_PLAY_COUNT, this)
-            settingsDestinations.bind(SettingsCatalog.ID_RECOMMEND_VIDEO_MAX_PLAY_COUNT, this)
-            setOnClickListener {
-                showRecommendVideoPlayCountRangeDialog(it)
-            }
-        }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
-        ) {
-            alpha = 0.6f
-            setLineSpacing(6f, 1f)
-            text = stringResource(R.string.recommend_video_play_count_tip)
-            textColor = colorResource(R.color.colorTextDark)
-            textSize = 12f
+        recommendSummaryRow(R.string.recommend_video_publish_time_range, R.string.recommend_video_publish_time_tip, listOf(SettingsCatalog.ID_RECOMMEND_VIDEO_PUBLISH_TIME_RULE), { recommendVideoPublishTimeSummary() }, { recommendVideoPublishTimeSummaryView = it }) {
+            showRecommendVideoPublishTimeDialog(it)
         }
     }
 

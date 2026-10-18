@@ -39,6 +39,73 @@ class VideoRelateFilterFeatureInstallerTest {
     }
 
 
+    @Test
+    fun `publish text chains cover the basic info desc and the legacy relate desc`() {
+        val points = requireNotNull(VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader)))
+        val labels = points.publishTextChains.map { chain -> chain.steps.joinToString("->") { it.methodName } }
+
+        assertTrue(labels.toString(), "getBasicInfo->getDesc" in labels)
+        assertTrue(labels.toString(), "getDesc" in labels)
+        assertEquals(
+            points.publishTextChains,
+            VersionAdapter.VideoRelatePoints.fromJson(points.toJson()).publishTextChains
+        )
+        // 老缓存没有这个键：降级成空表，不影响其余维度解析。
+        val legacy = points.toJson().apply { remove("publish_text_chains") }
+        assertEquals(emptyList<VersionAdapter.ReasonMethodChain>(),
+            VersionAdapter.VideoRelatePoints.fromJson(legacy).publishTextChains)
+    }
+
+    @Test
+    fun `publish time filter alone installs and reports usable coverage`() {
+        val statuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader)))
+        val records = mutableListOf<FeatureInstallRecord>()
+        val env = environment(statuses).copy(installationEvidence = { records += it })
+
+        FeatureInstallCoordinator(env).installAll(listOf(VideoRelateFilterFeatureInstaller(
+            hiddenTypes = emptySet(), minDurationSeconds = 0, maxDurationSeconds = 0,
+            rawPublishTimeRule = "v1|after|r:2d", points = points
+        )))
+
+        assertTrue(records.last { it.id == "video_related_publish_time_filter" }.result is FeatureInstallResult.Installed)
+        assertEquals(listOf("video_relate_filter_status" to "success"), statuses)
+    }
+
+    @Test
+    fun `missing publish text chains are partial instead of silently never matching`() {
+        val statuses = mutableListOf<Pair<String, String>>()
+        val points = requireNotNull(VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader)))
+            .copy(publishTextChains = emptyList())
+        val records = mutableListOf<FeatureInstallRecord>()
+        val env = environment(statuses).copy(installationEvidence = { records += it })
+
+        FeatureInstallCoordinator(env).installAll(listOf(VideoRelateFilterFeatureInstaller(
+            hiddenTypes = setOf("game"), minDurationSeconds = 0, maxDurationSeconds = 0,
+            rawPublishTimeRule = "v1|before|d:2021-06-04", points = points
+        )))
+
+        assertTrue(records.last { it.id == "video_related_game_removed" }.result is FeatureInstallResult.Installed)
+        assertEquals(FeatureSkipReason.MISSING_HOST_STRUCTURE,
+            (records.last { it.id == "video_related_publish_time_filter" }.result as FeatureInstallResult.Skipped).reasonCode)
+        assertEquals(
+            listOf("video_relate_filter_status" to "partial:missing-publish-time-accessor"),
+            statuses
+        )
+    }
+
+    @Test
+    fun `corrupt publish time rule alone leaves the feature disabled`() {
+        val statuses = mutableListOf<Pair<String, String>>()
+        val result = VideoRelateFilterFeatureInstaller(
+            hiddenTypes = emptySet(), minDurationSeconds = 0, maxDurationSeconds = 0,
+            rawPublishTimeRule = "v1|between|d:2021-09-01|d:2021-07-08",
+            points = VersionAdapter.locateVideoRelate(requireNotNull(javaClass.classLoader))
+        ).install(environment(statuses))
+
+        assertEquals(FeatureInstallResult.Skipped("invalid-publish-time-rule"), result)
+    }
+
     private fun hookCount(points: VersionAdapter.VideoRelatePoints): Int =
         points.responseItemGetters.size + if (points.detailRelateService != null) 1 else 0
 

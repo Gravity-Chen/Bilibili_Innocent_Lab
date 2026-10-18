@@ -3,6 +3,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import java.time.Instant
+import java.time.ZoneId
 
 /** 在首页推荐响应的公开 List 边界过滤广告、图文和游戏推广。 */
 internal class HomeRecommendPurifyFeatureInstaller(
@@ -55,6 +57,10 @@ internal class HomeRecommendPurifyFeatureInstaller(
      * 这里必须据此打开 UP 维度的读取链，否则"本进程立即生效"那半句不成立。
      */
     aiDeclaredStrongMode: Boolean = false,
+    /** 发布时间规则，见 [VideoPublishTimeRule]；空串表示关闭。 */
+    rawPublishTimeRule: String = "",
+    private val clock: () -> Instant = Instant::now,
+    private val ruleZone: () -> ZoneId = ZoneId::systemDefault,
     /**
      * 智能过滤推荐视频（JEV，按标题）。列表 getter 可能在主线程：主线程只查缓存并投后台；
      * 后台线程且开了"首屏等待"时在当前线程等结果。
@@ -74,6 +80,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
     }
     private val durationRange = VideoDurationRange(minDurationSeconds, maxDurationSeconds)
     private val playCountRange = VideoPlayCountRange(minPlayCount, maxPlayCount)
+    private val publishTimeRule = VideoPublishTimeRule.parse(rawPublishTimeRule)
 
     /** 没有开关，名单非空即启用——与标题关键词同模式，避免"开着但名单为空"的无意义状态。 */
     private val blockedTids = TidBlocklistCodec.parse(rawBlockedTids)
@@ -100,8 +107,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
     /** `shouldRemove` 的其余判定也全部关闭时，直接跳过整段分类/规则工作。 */
     private val itemRemovalEnabled = semanticClassificationEnabled ||
         titleKeywords.isNotEmpty() || durationRange.isEnabled ||
-        playCountRange.isEnabled || tagDimensionEnabled || authorDimensionEnabled ||
-        removeAiDeclared || semantic.enabled
+        playCountRange.isEnabled || publishTimeRule.isEnabled || tagDimensionEnabled ||
+        authorDimensionEnabled || removeAiDeclared || semantic.enabled
 
     override val id: String = ID
     override val capabilityIds: List<String> get() = buildList {
@@ -120,6 +127,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
         if (removeSpecialCards) add("home_recommend_special_cards_removed")
         if (durationRange.isEnabled) add("home_recommend_duration_filter")
         if (playCountRange.isEnabled) add("home_recommend_play_count_filter")
+        if (publishTimeRule.isEnabled) add("home_recommend_publish_time_filter")
         if (tagDimensionEnabled) add("home_recommend_tid_block")
         if (authorDimensionEnabled) add("home_recommend_author_block")
         if (removeAiDeclared) add(AiDeclaredVideoPolicy.CAPABILITY_HOME)
@@ -145,10 +153,19 @@ internal class HomeRecommendPurifyFeatureInstaller(
                     "min=${playCountRange.minimum},max=${playCountRange.maximum}"
             )
         }
-        if (!hasContentFilter && !durationRange.isEnabled && !playCountRange.isEnabled) {
+        if (!publishTimeRule.isValid) {
+            environment.logError(
+                "home_recommend_publish_time_invalid",
+                "[BIL] 推荐视频发布时间规则无法解析，已保守放行"
+            )
+        }
+        if (!hasContentFilter && !durationRange.isEnabled && !playCountRange.isEnabled &&
+            !publishTimeRule.isEnabled
+        ) {
             val reason = when {
                 durationRange.isConfigured && !durationRange.isValid -> "invalid-duration-range"
                 playCountRange.isConfigured && !playCountRange.isValid -> "invalid-play-count-range"
+                !publishTimeRule.isValid -> "invalid-publish-time-rule"
                 else -> "disabled"
             }
             environment.reportStatus(CHANNEL_STATUS, reason)
@@ -174,7 +191,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
             duration = resolveDuration(environment, adapted),
             playCountGate = resolvePlayCountGate(environment, adapted),
             tid = resolveTid(environment, adapted),
-            author = resolveAuthor(environment, adapted)
+            author = resolveAuthor(environment, adapted),
+            publishTimeGate = resolvePublishTimeGate(environment, adapted)
         )
         var partialReason: String? = null
         val extraTypesReadable = accessors.cardType != null || accessors.cardGoto != null || accessors.goTo != null
@@ -188,7 +206,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
             partialReason = partialReason?.let { "$it+missing-comic-readers" } ?: "missing-comic-readers"
         }
         if (durationRange.isEnabled && accessors.duration == null) {
-            if (!hasContentFilter && !playCountRange.isEnabled) {
+            if (!hasContentFilter && !playCountRange.isEnabled && !publishTimeRule.isEnabled) {
                 return missing(environment, "missing-duration-accessor")
             }
             partialReason = "missing-duration-accessor"
@@ -199,7 +217,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
         }
         val playCountGate = accessors.playCountGate ?: accessors.duration?.playerArgsGetter
         if (playCountRange.isEnabled && playCountGate == null) {
-            if (!hasContentFilter && !durationRange.isEnabled) {
+            if (!hasContentFilter && !durationRange.isEnabled && !publishTimeRule.isEnabled) {
                 return missing(environment, "missing-play-count-gate")
             }
             partialReason = if (partialReason == null) {
@@ -210,6 +228,21 @@ internal class HomeRecommendPurifyFeatureInstaller(
             environment.logError(
                 "home_recommend_play_count_missing",
                 "[BIL] 首页推荐播放量读取门禁适配不完整，其他推荐过滤继续生效"
+            )
+        }
+        // 发布时间读首页卡片描述文案，前提是能确认卡片是普通投稿（PlayerArgs 闸门）。
+        if (publishTimeRule.isEnabled && accessors.publishTimeGate == null) {
+            if (!hasContentFilter && !durationRange.isEnabled && !playCountRange.isEnabled) {
+                return missing(environment, "missing-publish-time-gate")
+            }
+            partialReason = if (partialReason == null) {
+                "missing-publish-time-gate"
+            } else {
+                "$partialReason+missing-publish-time-gate"
+            }
+            environment.logError(
+                "home_recommend_publish_time_missing",
+                "[BIL] 首页推荐发布时间读取门禁适配不完整，其他推荐过滤继续生效"
             )
         }
         // 名单非空却读不到 tid：必须报 partial。否则每张卡都拿 null、静默变成"从不命中"，
@@ -278,9 +311,15 @@ internal class HomeRecommendPurifyFeatureInstaller(
                         var removedComics = 0
                         val advertisements = if (removeAds || removeCmV2) AdvertisementCounts() else null
                         val semanticVerdicts = semantic.verdicts(source) { item -> invokeString(accessors.title, item) }
+                        val publishContext = if (publishTimeRule.isEnabled && accessors.publishTimeGate != null) {
+                            PublishTimeContext(clock(), ruleZone())
+                        } else {
+                            null
+                        }
+                        publishProbeEnvironment = environment
                         val filtered = CopyOnFilter.list(source) { item ->
                             if (semanticVerdicts?.get(item) == SemanticVerdict.BLOCK) return@list true
-                            val signals = signals(item, accessors, advertisements)
+                            val signals = signals(item, accessors, advertisements, publishContext)
                             probeTag(signals, environment)
                             val isBanner = removeBanner && isHomeBanner(signals)
                             if (isBanner) removedBanners += 1
@@ -367,6 +406,7 @@ internal class HomeRecommendPurifyFeatureInstaller(
                 "home_recommend_duration_filter" -> accessors.duration != null
                 "home_recommend_play_count_filter" ->
                     (accessors.playCountGate ?: accessors.duration?.playerArgsGetter) != null
+                "home_recommend_publish_time_filter" -> accessors.publishTimeGate != null
                 "home_recommend_title_filter_enabled" -> accessors.title != null
                 "home_recommend_ads_removed" -> true // required holderType is a valid advertisement-token source
                 "home_recommend_cm_v2_removed" -> accessors.cardType != null // this predicate reads cardType only
@@ -399,11 +439,35 @@ internal class HomeRecommendPurifyFeatureInstaller(
             "[BIL] 首页推荐服务端过滤已安装，hooks=$installed," +
                 "duration=${durationRange.isEnabled}," +
                 "playCount=${playCountRange.isEnabled}," +
+                "publishTime=${publishTimeRule.isEnabled}," +
                 // 只记条数不记内容；用来区分"名单没传到宿主"和"传到了但不命中"。
                 "tagIds=${blockedTids.size},tagNames=${blockedTagNames.size}," +
                 "tnameReadable=${accessors.tid?.tnameGetter != null}"
         )
         return FeatureInstallResult.Installed(installed, complete = partialReason == null && installed == adapted.responseItemGetters.size)
+    }
+
+    private val publishTimeProbe = PublishTimeParseProbe()
+
+    /** 抽样回报要写日志；安装后由 hook 回填，`signals` 本身不持有环境。 */
+    @Volatile
+    private var publishProbeEnvironment: HookEnvironment? = null
+
+    private fun recordPublishTimeProbe(parsed: Boolean) {
+        val sample = publishTimeProbe.record(parsed) ?: return
+        val environment = publishProbeEnvironment ?: return
+        if (sample.parsed == 0) {
+            environment.logError(
+                "home_recommend_publish_time_unparsed",
+                "[BIL] 首页前 ${sample.seen} 张投稿卡片的描述里都没有可识别的发布时间，" +
+                    "发布时间过滤在此宿主上可能不会命中"
+            )
+        } else {
+            environment.logInfo(
+                "home_recommend_publish_time_sample",
+                "[BIL] 首页发布时间抽样：${sample.parsed}/${sample.seen} 张卡片读出了发布时间"
+            )
+        }
     }
 
     /** 已经记过的 `tid:tname`，每种只记一条。 */
@@ -456,6 +520,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
             (removeLarge && HostContentKind.LARGE in kinds) ||
             durationRange.shouldRemove(signals.durationSeconds) ||
             playCountRange.shouldRemove(signals.playCount) ||
+            signals.publishContext?.let { context ->
+                publishTimeRule.shouldRemove(signals.publishTime, context.now, context.zone)
+            } == true ||
             // 标签是独立维度：精确相等，读不到 tid 放行。
             // **只比 tid**。2026-09-12 实测：宿主把 `args.tid` 写进不感兴趣请求时用的键是
             // `tag_id`，`args.rid` 才是分区——两者不是同一个 id 空间。拿分区 id 去比这份
@@ -474,7 +541,19 @@ internal class HomeRecommendPurifyFeatureInstaller(
             signals.aiDeclared
     }
 
-    private fun signals(item: Any, accessors: Accessors, advertisements: AdvertisementCounts?): Signals {
+    private fun signals(
+        item: Any,
+        accessors: Accessors,
+        advertisements: AdvertisementCounts?,
+        publishContext: PublishTimeContext?
+    ): Signals {
+        // 播放量与发布时间共用同一道 PlayerArgs 闸门；两档都开时每张卡只走一次。
+        val playCountGate = accessors.playCountGate ?: accessors.duration?.playerArgsGetter
+        val publishTimeReadable = publishContext != null && accessors.publishTimeGate != null
+        val coverGateNeeded = (playCountRange.isEnabled && playCountGate != null) || publishTimeReadable
+        val avVod = coverGateNeeded &&
+            (playCountGate ?: accessors.publishTimeGate)
+                ?.let { gate -> VideoPlayCountReader.isHomeAvVod(item, gate) } == true
         val needsRoute = removeAds || removePictures || removeGamePromotions || removeLive ||
             removeCourses || removeVertical || removeLarge || removePgc || removeSpecialCards || removeComic
         val needsClassification = removeAds || removeCmV2 || needsRoute
@@ -540,13 +619,19 @@ internal class HomeRecommendPurifyFeatureInstaller(
             } else {
                 null
             },
-            playCount = if (playCountRange.isEnabled) {
-                (accessors.playCountGate ?: accessors.duration?.playerArgsGetter)?.let { gate ->
-                    VideoPlayCountReader.fromHomeCover(item, gate)
+            playCount = if (playCountRange.isEnabled && playCountGate != null && avVod) {
+                VideoPlayCountReader.coverPlayCount(item)
+            } else {
+                null
+            },
+            publishTime = if (publishTimeReadable && avVod) {
+                VideoPublishTimeReader.fromDesc(item, publishContext.now).also { estimate ->
+                    recordPublishTimeProbe(estimate != null)
                 }
             } else {
                 null
             },
+            publishContext = publishContext,
             // 名单为空且没开面板劫持时 accessors.tid/author 是 null，这里不产生反射调用。
             // 同一张卡的 tid/tname/rid 与 upName/upId 各自共用一次 getArgs()；若两条
             // 适配链确实指向同一个 Method，再额外跨维度复用一次容器读取。
@@ -685,6 +770,15 @@ internal class HomeRecommendPurifyFeatureInstaller(
         return resolve(environment, "player_args_play_count", getterPoint)
     }
 
+    private fun resolvePublishTimeGate(
+        environment: HookEnvironment,
+        points: VersionAdapter.HomeRecommendFeedPoints
+    ): Method? {
+        if (!publishTimeRule.isEnabled) return null
+        val getterPoint = points.playerArgsGetter ?: return null
+        return resolve(environment, "player_args_publish_time", getterPoint)
+    }
+
     private fun resolveOptional(
         environment: HookEnvironment,
         suffix: String,
@@ -758,6 +852,9 @@ internal class HomeRecommendPurifyFeatureInstaller(
         val hasAdInfo: Boolean = false,
         val durationSeconds: Long? = null,
         val playCount: Long? = null,
+        /** 描述文案推出的发布时间区间；读不到或无法解析为 null，null 一律放行。 */
+        val publishTime: PublishTimeEstimate? = null,
+        val publishContext: PublishTimeContext? = null,
         /**
          * `args.tid`——**标签 id**（宿主自己按 `tag_id` 上报），不是分区。
          *
@@ -798,7 +895,8 @@ internal class HomeRecommendPurifyFeatureInstaller(
         val duration: DurationAccessor?,
         val playCountGate: Method?,
         val tid: TidAccessor?,
-        val author: AuthorAccessor?
+        val author: AuthorAccessor?,
+        val publishTimeGate: Method?
     )
 
     /**

@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 24
+    const val VERSION = 25
     val definitions = listOf(
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
@@ -194,6 +194,8 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("video_related_duration_filter", "video_relate_filter", R.string.diagnostics_capability_duration, setOf("recommend.video_duration.minimum_seconds", "recommend.video_duration.maximum_seconds")),
         DiagnosticCapabilityDefinition("home_recommend_play_count_filter", "home_recommend_purify", R.string.diagnostics_capability_play_count, setOf("recommend.video_play_count.minimum", "recommend.video_play_count.maximum"), introducedCatalogVersion = 13),
         DiagnosticCapabilityDefinition("video_related_play_count_filter", "video_relate_filter", R.string.diagnostics_capability_play_count, setOf("recommend.video_play_count.minimum", "recommend.video_play_count.maximum"), introducedCatalogVersion = 13),
+        DiagnosticCapabilityDefinition("home_recommend_publish_time_filter", "home_recommend_purify", R.string.diagnostics_capability_publish_time, setOf("recommend.video_publish_time.rule"), introducedCatalogVersion = 25),
+        DiagnosticCapabilityDefinition("video_related_publish_time_filter", "video_relate_filter", R.string.diagnostics_capability_publish_time, setOf("recommend.video_publish_time.rule"), introducedCatalogVersion = 25),
         DiagnosticCapabilityDefinition("detail_honor_removed", "detail_module_purify", R.string.remove_detail_honor, setOf("purify.detail.honor.removed"), introducedCatalogVersion = 5),
         DiagnosticCapabilityDefinition("detail_live_order_removed", "detail_module_purify", R.string.remove_detail_live_order, setOf("purify.detail.live_order.removed"), introducedCatalogVersion = 5),
         DiagnosticCapabilityDefinition("detail_ugc_season_removed", "detail_module_purify", R.string.remove_detail_ugc_season, setOf("purify.detail.ugc_season.removed"), introducedCatalogVersion = 5),

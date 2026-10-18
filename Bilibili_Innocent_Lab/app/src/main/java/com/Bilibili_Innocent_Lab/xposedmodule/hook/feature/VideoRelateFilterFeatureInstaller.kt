@@ -6,6 +6,8 @@ import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isSubclassOf
 import java.lang.reflect.Field
 import java.lang.reflect.Method
+import java.time.Instant
+import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** 按相关推荐卡片的公开枚举/路由类型做精确过滤。 */
@@ -26,6 +28,10 @@ internal class VideoRelateFilterFeatureInstaller(
     rawPickedTagIds: String = "",
     minPlayCount: Int = 0,
     maxPlayCount: Int = 0,
+    /** 发布时间规则，见 [VideoPublishTimeRule]；空串表示关闭。 */
+    rawPublishTimeRule: String = "",
+    private val clock: () -> Instant = Instant::now,
+    private val ruleZone: () -> ZoneId = ZoneId::systemDefault,
     /**
      * 智能过滤推荐视频（JEV，按标题）。列表 getter 可能在主线程：主线程只查缓存并投后台；
      * 后台线程且开了"首屏等待"时在当前线程等结果。
@@ -40,6 +46,7 @@ internal class VideoRelateFilterFeatureInstaller(
 
     private val durationRange = VideoDurationRange(minDurationSeconds, maxDurationSeconds)
     private val playCountRange = VideoPlayCountRange(minPlayCount, maxPlayCount)
+    private val publishTimeRule = VideoPublishTimeRule.parse(rawPublishTimeRule)
     private val customReasonKeywords = if (matchingEnhancementEnabled && reasonFilterEnabled) {
         VideoRelateReasonMatcher.parseCustom(rawReasonKeywords)
     } else {
@@ -66,6 +73,7 @@ internal class VideoRelateFilterFeatureInstaller(
         if (customReasonKeywords.isNotEmpty()) add("video_related_reason_filter_enabled")
         if (durationRange.isEnabled) add("video_related_duration_filter")
         if (playCountRange.isEnabled) add("video_related_play_count_filter")
+        if (publishTimeRule.isEnabled) add("video_related_publish_time_filter")
         if (blockedAuthors.isNotEmpty()) add("video_related_author_block")
         if (blockedTags.isNotEmpty()) add("video_related_tag_block")
         if (semantic.enabled) add(CAPABILITY_SEMANTIC)
@@ -97,15 +105,22 @@ internal class VideoRelateFilterFeatureInstaller(
                     "min=${playCountRange.minimum},max=${playCountRange.maximum}"
             )
         }
+        if (!publishTimeRule.isValid) {
+            environment.logError(
+                "video_relate_publish_time_invalid",
+                "[BIL] 推荐视频发布时间规则无法解析，已保守放行"
+            )
+        }
         // 作者/标签名单也算"开着"，否则只设名单不勾类型时整个功能会被判 disabled。
         if (normalizedHidden.isEmpty() && !durationRange.isEnabled && !playCountRange.isEnabled &&
-            !reasonFilteringActive &&
+            !publishTimeRule.isEnabled && !reasonFilteringActive &&
             blockedAuthors.isEmpty() && blockedTags.isEmpty() && !sectionPickEnabled && pickedTagIds.isEmpty() &&
             !semantic.enabled
         ) {
             val reason = when {
                 durationRange.isConfigured && !durationRange.isValid -> "invalid-duration-range"
                 playCountRange.isConfigured && !playCountRange.isValid -> "invalid-play-count-range"
+                !publishTimeRule.isValid -> "invalid-publish-time-rule"
                 else -> "disabled"
             }
             environment.reportStatus(CHANNEL_STATUS, reason)
@@ -187,6 +202,9 @@ internal class VideoRelateFilterFeatureInstaller(
         val tagPaths = resolveChainPaths(
             environment, adapted.tagNameChains, "tag", blockedTags.isNotEmpty()
         )
+        val publishTextPaths = resolveChainPaths(
+            environment, adapted.publishTextChains, "publish_text", publishTimeRule.isEnabled
+        )
         val commercialEvidencePaths = resolveCommercialEvidencePaths(
             environment,
             adapted,
@@ -218,7 +236,8 @@ internal class VideoRelateFilterFeatureInstaller(
         }
         if (durationRange.isEnabled && durationPaths.isEmpty()) {
             if (!strongModeActive && !hasTypeEvidence && reasonPaths.isEmpty() &&
-                playCountPaths.isEmpty() && blockedAuthors.isEmpty() && blockedTags.isEmpty()
+                playCountPaths.isEmpty() && publishTextPaths.isEmpty() &&
+                blockedAuthors.isEmpty() && blockedTags.isEmpty()
             ) {
                 return missing(environment, "missing-duration-accessor")
             }
@@ -230,7 +249,8 @@ internal class VideoRelateFilterFeatureInstaller(
         }
         if (playCountRange.isEnabled && playCountPaths.isEmpty()) {
             if (!strongModeActive && !hasTypeEvidence && durationPaths.isEmpty() &&
-                reasonPaths.isEmpty() && blockedAuthors.isEmpty() && blockedTags.isEmpty()
+                reasonPaths.isEmpty() && publishTextPaths.isEmpty() &&
+                blockedAuthors.isEmpty() && blockedTags.isEmpty()
             ) {
                 return missing(environment, "missing-play-count-accessor")
             }
@@ -258,6 +278,14 @@ internal class VideoRelateFilterFeatureInstaller(
             environment.logError(
                 "video_relate_author_missing",
                 "[BIL] 详情页作者读取适配不完整，作者档不生效，其余判据继续"
+            )
+        }
+        // 发布时间同理：读不到文案链时该档从不命中，必须如实报 partial。
+        if (publishTimeRule.isEnabled && publishTextPaths.isEmpty()) {
+            partialReasons += "missing-publish-time-accessor"
+            environment.logError(
+                "video_relate_publish_time_missing",
+                "[BIL] 详情页发布时间文案读取适配不完整，发布时间档不生效，其余判据继续"
             )
         }
         if (blockedTags.isNotEmpty() && tagPaths.isEmpty()) {
@@ -289,7 +317,30 @@ internal class VideoRelateFilterFeatureInstaller(
             )
         }
 
-        val shouldRemoveResponseItem: (Any) -> Boolean = filter@{ item ->
+        val publishTimeActive = publishTimeRule.isEnabled && publishTextPaths.isNotEmpty()
+        val publishTimeProbe = PublishTimeParseProbe()
+        fun removedByPublishTime(item: Any, context: PublishTimeContext): Boolean {
+            val estimate = VideoPublishTextParser.parseAll(readTexts(item, publishTextPaths), context.now)
+            publishTimeProbe.record(estimate != null)?.let { sample ->
+                if (sample.parsed == 0) {
+                    environment.logError(
+                        "video_relate_publish_time_unparsed",
+                        "[BIL] 详情页前 ${sample.seen} 张推荐卡片的描述里都没有可识别的发布时间，" +
+                            "发布时间过滤在此宿主上可能不会命中"
+                    )
+                } else {
+                    environment.logInfo(
+                        "video_relate_publish_time_sample",
+                        "[BIL] 详情页发布时间抽样：${sample.parsed}/${sample.seen} 张卡片读出了发布时间"
+                    )
+                }
+            }
+            return publishTimeRule.shouldRemove(estimate, context.now, context.zone)
+        }
+        fun publishContext(): PublishTimeContext? =
+            if (publishTimeActive) PublishTimeContext(clock(), ruleZone()) else null
+
+        val shouldRemoveResponseItem: (Any, PublishTimeContext?) -> Boolean = filter@{ item, publishContext ->
             val evidence = if (typeObservationActive) {
                 extractEvidence(
                     item,
@@ -328,6 +379,7 @@ internal class VideoRelateFilterFeatureInstaller(
             if (playCountRange.shouldRemove(
                     VideoPlayCountReader.fromMethods(item, playCountPaths)
                 )) return@filter true
+            if (publishContext != null && removedByPublishTime(item, publishContext)) return@filter true
             if (commercialEvidenceActive && VideoRelateBooleanEvidenceReader
                     .hasPositiveEvidence(item, commercialEvidencePaths)
             ) return@filter true
@@ -364,8 +416,10 @@ internal class VideoRelateFilterFeatureInstaller(
                         val source = result as? List<*> ?: return@after
                         environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
                         val semanticVerdicts = semantic.verdicts(source) { item -> SemanticTitleReader.read(item) }
+                        val publishContext = publishContext()
                         val filtered = CopyOnFilter.list(source) { item ->
-                            semanticVerdicts?.get(item) == SemanticVerdict.BLOCK || shouldRemoveResponseItem(item)
+                            semanticVerdicts?.get(item) == SemanticVerdict.BLOCK ||
+                                shouldRemoveResponseItem(item, publishContext)
                         }
                         if (filtered !== source) {
                             result = filtered
@@ -432,7 +486,11 @@ internal class VideoRelateFilterFeatureInstaller(
                                 ?.let { runCatching { it.invoke(card) as? String }.getOrNull() }
                                 ?: SemanticTitleReader.read(card)
                         } == SemanticVerdict.BLOCK
-                        if (!tagBlocked && !semanticBlocked && !shouldRemoveDetailServiceItem(
+                        // 第二层同样要看发布时间，否则只经组件工厂构建的卡片会绕过这一档。
+                        val publishBlocked = publishContext()?.let { context ->
+                            removedByPublishTime(item, context)
+                        } == true
+                        if (!tagBlocked && !semanticBlocked && !publishBlocked && !shouldRemoveDetailServiceItem(
                                 item = item,
                                 access = access,
                                 normalizedHidden = normalizedHidden,
@@ -472,6 +530,7 @@ internal class VideoRelateFilterFeatureInstaller(
             val usable = when (capability) {
                 "video_related_duration_filter" -> durationPaths.isNotEmpty()
                 "video_related_play_count_filter" -> playCountPaths.isNotEmpty()
+                "video_related_publish_time_filter" -> publishTextPaths.isNotEmpty()
                 "video_related_reason_filter_enabled" -> reasonPaths.isNotEmpty()
                 "video_related_matching_enhancement_enabled" ->
                     (promotionReasonEnhancementActive && reasonPaths.isNotEmpty()) ||
@@ -505,6 +564,7 @@ internal class VideoRelateFilterFeatureInstaller(
             "[BIL] 视频相关推荐过滤已安装，types=$normalizedHidden," +
                 "duration=${durationRange.isEnabled}," +
                 "playCount=${playCountRange.isEnabled}," +
+                "publishTime=${publishTimeRule.isEnabled}/${publishTextPaths.size}," +
                 "reasonEnhancement=$promotionReasonEnhancementActive," +
                 "strongMode=$strongModeActive," +
                 "responseWriteback=${responseListFields.count { it != null }}," +

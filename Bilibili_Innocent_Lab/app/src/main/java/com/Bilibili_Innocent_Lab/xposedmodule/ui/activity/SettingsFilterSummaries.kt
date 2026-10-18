@@ -4,7 +4,14 @@ import androidx.annotation.StringRes
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ExactRuleSetCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PublishTimeMode
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PublishTimePoint
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PublishTimeUnit
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TidBlocklistCodec
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoPublishTimeRule
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * 各筛选面板的取值与摘要文案。
@@ -219,4 +226,67 @@ internal fun MainActivity.recommendVideoPlayCountSummary(): String = when {
         formatPlayCount(recommendVideoMinPlayCount),
         formatPlayCount(recommendVideoMaxPlayCount)
     )
+}
+
+internal fun MainActivity.recommendVideoPublishTimeSummary(): String {
+    val rule = VideoPublishTimeRule.parse(recommendVideoPublishTimeRule)
+    return when {
+        !rule.isConfigured -> getString(R.string.recommend_video_publish_time_empty)
+        !rule.isValid -> getString(R.string.recommend_video_publish_time_invalid_saved)
+        else -> recommendVideoPublishTimeSummary(rule, now = null)
+    }
+}
+
+/**
+ * 规则的一句话描述。传入 [now] 时，相对时间点后面附上按此刻折算出的本地时间，
+ * 面板预览用它把"3 个月前"落成具体时刻；设置行不传，避免显示一个会过期的时间。
+ */
+internal fun MainActivity.recommendVideoPublishTimeSummary(
+    rule: VideoPublishTimeRule,
+    now: Instant?
+): String {
+    val mode = rule.mode ?: return getString(R.string.recommend_video_publish_time_mode_off)
+    val first = rule.first ?: return getString(R.string.recommend_video_publish_time_mode_off)
+    val zone = ZoneId.systemDefault()
+    val resolvedFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    fun describe(point: PublishTimePoint, inRange: Boolean): String = when (point) {
+        is PublishTimePoint.Absolute -> if (inRange) {
+            point.date.toString()
+        } else {
+            getString(R.string.recommend_video_publish_time_date_point, point.date.toString())
+        }
+        is PublishTimePoint.Relative -> {
+            val text = getString(
+                when (point.unit) {
+                    PublishTimeUnit.HOUR -> R.string.recommend_video_publish_time_ago_hour
+                    PublishTimeUnit.DAY -> R.string.recommend_video_publish_time_ago_day
+                    PublishTimeUnit.WEEK -> R.string.recommend_video_publish_time_ago_week
+                    PublishTimeUnit.MONTH -> R.string.recommend_video_publish_time_ago_month
+                    PublishTimeUnit.YEAR -> R.string.recommend_video_publish_time_ago_year
+                },
+                point.amount
+            )
+            now?.let { instant ->
+                "$text (" + point.resolve(instant, zone).atZone(zone).format(resolvedFormat) + ")"
+            } ?: text
+        }
+    }
+    return when (mode) {
+        PublishTimeMode.BEFORE ->
+            getString(R.string.recommend_video_publish_time_summary_before, describe(first, false))
+        PublishTimeMode.AFTER ->
+            getString(R.string.recommend_video_publish_time_summary_after, describe(first, false))
+        PublishTimeMode.BETWEEN, PublishTimeMode.OUTSIDE -> {
+            val second = rule.second ?: return getString(R.string.recommend_video_publish_time_mode_off)
+            getString(
+                if (mode == PublishTimeMode.BETWEEN) {
+                    R.string.recommend_video_publish_time_summary_between
+                } else {
+                    R.string.recommend_video_publish_time_summary_outside
+                },
+                describe(first, true),
+                describe(second, true)
+            )
+        }
+    }
 }

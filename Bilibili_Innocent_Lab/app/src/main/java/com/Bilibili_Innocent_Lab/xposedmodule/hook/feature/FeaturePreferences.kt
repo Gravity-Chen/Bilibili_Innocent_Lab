@@ -106,6 +106,8 @@ internal object FeaturePreferences {
     const val RECOMMEND_VIDEO_MAX_DURATION_SECONDS = "recommend_video_max_duration_seconds"
     const val RECOMMEND_VIDEO_MIN_PLAY_COUNT = "recommend_video_min_play_count"
     const val RECOMMEND_VIDEO_MAX_PLAY_COUNT = "recommend_video_max_play_count"
+    /** 发布时间规则文本，编码见 VideoPublishTimeRule；空串为关闭。 */
+    const val RECOMMEND_VIDEO_PUBLISH_TIME_RULE = "recommend_video_publish_time_rule"
     const val HIDE_MINE_VIP = "hide_mine_vip"
     const val KEEP_MINE_VIP_SPACE = "keep_mine_vip_space"
     const val BLOCK_APP_UPDATE = "block_app_update"

@@ -572,9 +572,9 @@ class HomeRecommendPurifyFeatureInstallerTest {
                 argsMethod("getUpName"),
                 argsMethod("getUpId")
             )
-        val constructor = accessorsClass.declaredConstructors.single { it.parameterCount == 15 }
+        val constructor = accessorsClass.declaredConstructors.single { it.parameterCount == 16 }
             .apply { isAccessible = true }
-        val values = arrayOfNulls<Any>(15)
+        val values = arrayOfNulls<Any>(16)
         values[0] = holderGetter.apply { isAccessible = true }
         values[13] = tid
         values[14] = author
@@ -590,9 +590,9 @@ class HomeRecommendPurifyFeatureInstallerTest {
         val countsClass = HomeRecommendPurifyFeatureInstaller::class.java.declaredClasses
             .single { it.simpleName == "AdvertisementCounts" }
         val method = HomeRecommendPurifyFeatureInstaller::class.java
-            .getDeclaredMethod("signals", Any::class.java, accessorsClass, countsClass)
+            .getDeclaredMethod("signals", Any::class.java, accessorsClass, countsClass, PublishTimeContext::class.java)
             .apply { isAccessible = true }
-        return method.invoke(installer, item, accessors, null) as HomeRecommendPurifyFeatureInstaller.Signals
+        return method.invoke(installer, item, accessors, null, null) as HomeRecommendPurifyFeatureInstaller.Signals
     }
 
     private class ProbeItem {
