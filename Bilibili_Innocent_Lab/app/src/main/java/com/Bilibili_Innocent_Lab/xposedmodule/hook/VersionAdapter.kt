@@ -19,6 +19,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionA
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PgcAutoActivityPopupLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.AtomicJsonCache
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistAttemptGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistCandidateSelector
@@ -1577,21 +1579,24 @@ object VersionAdapter {
 
     /** 播放器默认画质计算边界；仅保存经逐版本核验的唯一无参 Int 方法。 */
     data class PlayerQualityPoints(
-        val defaultQualityMethod: HookPoint,
+        val defaultQualityMethod: HookPoint?,
         /** 只读结构证据，不注册额外播放响应 Hook。 */
-        val capabilitySignals: List<String> = emptyList()
+        val capabilitySignals: List<String> = emptyList(),
+        val story: StoryQualityPoints? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
-            put("default", defaultQualityMethod.toJson())
+            defaultQualityMethod?.let { put("default", it.toJson()) }
             put("capabilities", JSONArray(capabilitySignals))
+            story?.let { put("story", it.toJson()) }
         }
 
         companion object {
             fun fromJson(o: JSONObject): PlayerQualityPoints = PlayerQualityPoints(
-                defaultQualityMethod = HookPoint.fromJson(o.getJSONObject("default")),
+                defaultQualityMethod = o.optJSONObject("default")?.let(HookPoint::fromJson),
                 capabilitySignals = o.optJSONArray("capabilities")?.let { values ->
                     (0 until values.length()).map(values::getString)
-                }.orEmpty()
+                }.orEmpty(),
+                story = o.optJSONObject("story")?.let(StoryQualityPoints::fromJson)
             )
         }
     }
@@ -2122,8 +2127,10 @@ object VersionAdapter {
                         value.itemStringFields.all { it.isNotBlank() }
                 } != false &&
                 playerQuality?.let { value ->
-                    value.defaultQualityMethod.isValid() &&
-                        value.capabilitySignals.all { it in PLAYER_QUALITY_CAPABILITY_SIGNALS }
+                    (value.defaultQualityMethod != null || value.story != null) &&
+                        value.defaultQualityMethod?.isValid() != false &&
+                        value.capabilitySignals.all { it in PLAYER_QUALITY_CAPABILITY_SIGNALS } &&
+                        value.story?.isStructurallyValid() != false
                 } != false &&
                 teenagersMode?.onCreateMethods?.let { methods ->
                     methods.isNotEmpty() && methods.all { it.isValid() }
@@ -2664,7 +2671,7 @@ object VersionAdapter {
         "com.bilibili.playerbizcommon.utils.PlayerSettingHelper"
 
     internal fun PlayerQualityPoints.usesLegacyQualityHelper(): Boolean =
-        defaultQualityMethod.className == PLAYER_QUALITY_LEGACY_HELPER_CLASS
+        defaultQualityMethod?.className == PLAYER_QUALITY_LEGACY_HELPER_CLASS
 
     private val PLAYER_QUALITY_CAPABILITY_SIGNALS = setOf(
         "stream_quality",
@@ -2932,7 +2939,7 @@ object VersionAdapter {
                     id == KotlinDefaultWordsLocator.DIAGNOSTIC &&
                         runtime.homeTopBar?.kotlinDefaultWords == null &&
                         stored.state == AdaptState.MISSING -> stored
-                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC) &&
+                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC) &&
                         stored.state == AdaptState.MISSING && live.state == AdaptState.NOT_APPLICABLE &&
                         live.detail == "quick-locate" -> stored
                     else -> live
@@ -2973,9 +2980,7 @@ object VersionAdapter {
             storyFeed = runtime.storyFeed ?: cached.storyFeed,
             bottomBar = runtime.bottomBar ?: cached.bottomBar,
             // 实时定位只落到稳定包装层、而后台 DexKit 已找到真实实现时，用缓存里的实现。
-            playerQuality = cached.playerQuality?.takeIf {
-                runtime.playerQuality?.usesLegacyQualityHelper() == true && !it.usesLegacyQualityHelper()
-            } ?: runtime.playerQuality ?: cached.playerQuality,
+            playerQuality = mergePlayerQuality(runtime.playerQuality, cached.playerQuality),
             teenagersMode = runtime.teenagersMode ?: cached.teenagersMode,
             commentPurify = runtime.commentPurify ?: cached.commentPurify,
             commentFilter = runtime.commentFilter ?: cached.commentFilter,
@@ -2991,6 +2996,15 @@ object VersionAdapter {
             brandSplashDecoder = runtime.brandSplashDecoder ?: cached.brandSplashDecoder,
             followFeedStyle = runtime.followFeedStyle ?: cached.followFeedStyle
         )
+    }
+
+    internal fun mergePlayerQuality(live: PlayerQualityPoints?, cached: PlayerQualityPoints?): PlayerQualityPoints? {
+        live ?: return cached
+        cached ?: return live
+        val global = if (live.usesLegacyQualityHelper() && cached.defaultQualityMethod != null && !cached.usesLegacyQualityHelper())
+            cached.defaultQualityMethod else live.defaultQualityMethod ?: cached.defaultQualityMethod
+        return PlayerQualityPoints(global, (live.capabilitySignals + cached.capabilitySignals).distinct(),
+            StoryQualityLocator.merge(live.story, cached.story))
     }
 
     /** 缓存是否覆盖当前版本 */
@@ -3088,9 +3102,10 @@ object VersionAdapter {
         commentClassicStyleEnabled: Boolean = false,
         playerPopupPromotionEnabled: Boolean = false,
         brandSplashCustomEnabled: Boolean = false,
-        followFeedStyleEnabled: Boolean = false
+        followFeedStyleEnabled: Boolean = false,
+        playerQualityEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled
     )
 
     internal fun ensureAdapted(
@@ -3104,7 +3119,8 @@ object VersionAdapter {
         commentClassicStyleEnabled: Boolean = false,
         playerPopupPromotionEnabled: Boolean = false,
         brandSplashCustomEnabled: Boolean = false,
-        followFeedStyleEnabled: Boolean = false
+        followFeedStyleEnabled: Boolean = false,
+        playerQualityEnabled: Boolean = false
     ) {
         // reset 不同意味着不是同一次安装快照，必须重新读取而不能复用已缓存的 null/旧结果。
         val startup = if (startupCache.resetTimestamp == resetTimestamp.coerceAtLeast(0L)) {
@@ -3124,6 +3140,10 @@ object VersionAdapter {
         // 评论 high 点缺失只影响整轮快路径，不能使播放器已经完成的兜底每次启动重扫。
         val popupHistory = startup.usableCache(highCandidateExists = false)
         val previousFollow = popupHistory?.followFeedStyle
+        val previousStoryQuality = popupHistory?.playerQuality?.story
+        val previouslyMissingStoryQuality = popupHistory?.diagnostics.orEmpty().any {
+            it.id == StoryQualityLocator.DIAGNOSTIC && it.state == AdaptState.MISSING
+        }
         val previouslyMissingFollow = popupHistory?.diagnostics.orEmpty().any {
             it.id == FollowFeedAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING
         }
@@ -3147,6 +3167,8 @@ object VersionAdapter {
                 SponsorPlayerLocator.direct(classLoader) != null,
                 value.sponsorPlayer?.let { SponsorPlayerLocator.resolve(classLoader, it) } != null,
                 value.diagnostics.any { it.id == SponsorPlayerLocator.DIAGNOSTIC && it.state == AdaptState.MISSING })
+            StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
+                value.diagnostics.any { it.id == StoryQualityLocator.DIAGNOSTIC && it.state == AdaptState.MISSING }).isNotEmpty() ||
             FollowFeedAdapter.needsQuery(classLoader, value.followFeedStyle, followFeedStyleEnabled,
                 value.diagnostics.any { it.id == FollowFeedAdapter.DIAGNOSTIC && it.state == AdaptState.MISSING }) ||
                 BrandSplashDecoderAdapter.needsQuery(classLoader, value.brandSplashDecoder, brandSplashCustomEnabled,
@@ -3183,7 +3205,8 @@ object VersionAdapter {
                     result = runCatching { adapt(context, classLoader, kotlinDefaultWordsEnabled, sponsorBlockEnabled,
                         commentClassicStyleEnabled, playerPopupPromotionEnabled, previousPopup, previouslyMissingPopup,
                         brandSplashCustomEnabled, previousBrand, previouslyMissingBrand,
-                        followFeedStyleEnabled, previousFollow, previouslyMissingFollow) }.getOrNull()
+                        followFeedStyleEnabled, previousFollow, previouslyMissingFollow,
+                        playerQualityEnabled, previousStoryQuality, previouslyMissingStoryQuality) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
                         if (!writeCache(adapted)) {
@@ -3351,7 +3374,8 @@ object VersionAdapter {
                 ),
                 AdaptDiagnostic(KotlinDefaultWordsLocator.DIAGNOSTIC, AdaptState.NOT_APPLICABLE, "quick-locate"),
                 AdaptDiagnostic(BrandSplashDecoderAdapter.DIAGNOSTIC, AdaptState.NOT_APPLICABLE, "quick-locate"),
-                AdaptDiagnostic(FollowFeedAdapter.DIAGNOSTIC, AdaptState.NOT_APPLICABLE, "quick-locate")
+                AdaptDiagnostic(FollowFeedAdapter.DIAGNOSTIC, AdaptState.NOT_APPLICABLE, "quick-locate"),
+                AdaptDiagnostic(StoryQualityLocator.DIAGNOSTIC, AdaptState.NOT_APPLICABLE, "quick-locate")
             ) + PlayerPopupPromotionAdapter.Family.entries.map {
                 AdaptDiagnostic(it.diagnostic, AdaptState.NOT_APPLICABLE, "quick-locate")
             }
@@ -3368,7 +3392,8 @@ object VersionAdapter {
                       commentClassicStyleEnabled: Boolean, playerPopupPromotionEnabled: Boolean,
                       previousPopup: PlayerPopupPromotionPoints?, previouslyMissingPopup: Set<PlayerPopupPromotionAdapter.Family>,
                       brandSplashCustomEnabled: Boolean, previousBrand: HookPoint?, previouslyMissingBrand: Boolean,
-                      followFeedStyleEnabled: Boolean, previousFollow: FollowFeedPoints?, previouslyMissingFollow: Boolean): AdaptResult? {
+                      followFeedStyleEnabled: Boolean, previousFollow: FollowFeedPoints?, previouslyMissingFollow: Boolean,
+                      playerQualityEnabled: Boolean, previousStoryQuality: StoryQualityPoints?, previouslyMissingStoryQuality: Boolean): AdaptResult? {
         val vc = biliVersionCode(context)
         val dexSource = runCatching {
             context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
@@ -3385,6 +3410,7 @@ object VersionAdapter {
         val sponsorNeedsAssist = sponsorBlockEnabled && SponsorPlayerLocator.needsQuery(sponsorBlockEnabled, SponsorPlayerLocator.applicable(loader), directSponsor != null)
         val classicMissing = if (commentClassicStyleEnabled) CommentClassicStyleLocator.missing(loader) else emptySet()
         val followPlanned = FollowFeedAdapter.needsQuery(loader, previousFollow, followFeedStyleEnabled, previouslyMissingFollow)
+        val storyQualityPlanned = StoryQualityLocator.planned(loader, previousStoryQuality, playerQualityEnabled, previouslyMissingStoryQuality)
         val brandPlanned = BrandSplashDecoderAdapter.needsQuery(loader, previousBrand, brandSplashCustomEnabled, previouslyMissingBrand)
         val popupMissing = if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.missing(loader) else emptySet()
         val popupPlanned = PlayerPopupPromotionAdapter.planned(loader, previousPopup, previouslyMissingPopup, playerPopupPromotionEnabled)
@@ -3392,7 +3418,7 @@ object VersionAdapter {
         val directBlockUpdate = locateBlockUpdate(loader)
         val directPlayerQuality = locateDefaultVideoQuality(loader)
         val directTopologyOutcome = locateCommentTopologyWithDiagnostic(loader)
-        val playerQualityNeedsAssist = directPlayerQuality == null ||
+        val playerQualityNeedsAssist = directPlayerQuality?.defaultQualityMethod == null ||
             directPlayerQuality.usesLegacyQualityHelper()
         // 本轮要兜底的点合并成一趟 DEX 查询：每个代码归档只建一次 DexKit 桥。
         val dexAssist = dexSource?.let { source ->
@@ -3407,6 +3433,7 @@ object VersionAdapter {
                 planned = buildSet {
                     if (directBlockUpdate == null) add(DexAssistQuery.BLOCK_UPDATE)
                     if (playerQualityNeedsAssist) add(DexAssistQuery.PLAYER_DEFAULT_QUALITY)
+                    addAll(storyQualityPlanned)
                     if (directTopologyOutcome.points == null) add(DexAssistQuery.COMMENT_REPLY_MAPPER)
                     if (defaultWordsNeedsAssist) add(DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN)
                     if (sponsorNeedsAssist) addAll(SponsorPlayerLocator.queries)
@@ -3521,9 +3548,21 @@ object VersionAdapter {
                 diagnostic = playerQualityAssistDiagnostic(AdaptState.NOT_APPLICABLE, "not-required")
             )
         }
-        val playerQuality = playerQualityAssist.method
+        val globalPlayerQuality = playerQualityAssist.method
             ?.let { locateDefaultVideoQuality(loader, assisted = it) }
             ?: directPlayerQuality
+        val storyQuality = StoryQualityLocator.locate(loader, dexAssist, previousStoryQuality, storyQualityPlanned)
+        val playerQuality = globalPlayerQuality?.copy(story = storyQuality)
+            ?: storyQuality?.let { PlayerQualityPoints(null, story = it) }
+        val storyQualityDiagnostic = AdaptDiagnostic(StoryQualityLocator.DIAGNOSTIC,
+            if (storyQuality?.semanticComplete == true) AdaptState.FOUND
+            else if (playerQualityEnabled || previouslyMissingStoryQuality) AdaptState.MISSING else AdaptState.NOT_APPLICABLE,
+            when {
+                !playerQualityEnabled -> if (previouslyMissingStoryQuality) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                storyQuality == null -> "missing-stable-owner-contract"
+                storyQuality.semanticComplete -> "semantic-roles-complete;runtime-requires-session-admission"
+                else -> "partial:policy=${storyQuality.policyMethod != null},resource=${storyQuality.resourceSelectionMethod != null},match=${storyQuality.matchPreferenceMethod != null}"
+            })
         val teenagersMode = locateTeenagersMode(loader)
         val commentPurify = locateCommentPurify(loader)
         val commentFilter = locateCommentFilter(loader)
@@ -3647,7 +3686,7 @@ object VersionAdapter {
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
             ) + protocolFingerprint.toDiagnostic() + blockUpdateAssist.diagnostic +
-                topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic,
+                topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic,
             dexSourceFingerprint = dexSource?.value ?: DEX_SOURCE_UNAVAILABLE,
             sponsorPlayer = sponsor?.classes,
             commentClassicStyle = classic,
@@ -3788,6 +3827,14 @@ object VersionAdapter {
         }
         quality?.capabilitySignals.orEmpty().sorted().forEach { capability ->
             descriptors += "player.capability:$capability"
+        }
+        add("player.default", quality?.defaultQualityMethod)
+        quality?.story?.let { story ->
+            descriptors += "story.preference:${story.preferenceClassName}:service-field=${story.serviceFieldName}"
+            add("story.manual", story.manualMethod); add("story.create", story.ownerOnCreate)
+            add("story.release", story.ownerRelease); add("story.destroy", story.ownerOnDestroy)
+            add("story.integer", story.integerDefaultMethod); add("story.policy", story.policyMethod)
+            add("story.resource", story.resourceSelectionMethod); add("story.match", story.matchPreferenceMethod)
         }
         mine?.let { points ->
             descriptors += "mine.account:${points.accountMineClass}:" +
@@ -4165,9 +4212,9 @@ object VersionAdapter {
             ),
             AdaptDiagnostic(
                 "player.default_quality",
-                stateFor(playerQuality != null, playerQualityCandidateExists),
+                stateFor(playerQuality?.defaultQualityMethod != null, playerQualityCandidateExists),
                 playerQuality?.let {
-                    "contract=playershared,request_qn=true,capabilities=" +
+                    "global-default=${it.defaultQualityMethod != null},story-semantic=${it.story?.semanticComplete == true},capabilities=" +
                         it.capabilitySignals.joinToString("+").ifBlank { "unobserved" }
                 }.orEmpty()
             ),
@@ -6077,7 +6124,10 @@ object VersionAdapter {
                             "getDefaultQuality"
                         )
             }.singleOrNull()
-        } ?: return@runCatching null
+        }
+
+        val story = StoryQualityLocator.direct(loader)
+        if (defaultMethod == null && story == null) return@runCatching null
 
         fun sharedClass(key: String): Class<*>? = PLAYER_SHARED_CLASS_CANDIDATES[key]
             .orEmpty()
@@ -6108,7 +6158,7 @@ object VersionAdapter {
                 hasPublicNoArg(vodInfo, setOf("getVideoCodecid"))
             ) add("codec")
         }
-        PlayerQualityPoints(defaultMethod.toHookPoint(), capabilities)
+        PlayerQualityPoints(defaultMethod?.toHookPoint(), capabilities, story)
     }.getOrNull()
 
     /**

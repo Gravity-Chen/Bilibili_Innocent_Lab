@@ -41,7 +41,7 @@ internal class HookPointRegistry(
     private data class RegistrationKey(val id: String, val member: Member)
 
     private val diagnostics = LinkedHashMap<String, Diagnostic>()
-    private val registrations = ConcurrentHashMap.newKeySet<RegistrationKey>()
+    private val registrations = ConcurrentHashMap<RegistrationKey, State>()
 
     private fun record(diagnostic: Diagnostic) {
         synchronized(diagnostics) {
@@ -257,14 +257,20 @@ internal class HookPointRegistry(
         else -> KavaMemberLookup.classOrNull(classLoader, name)
     }
 
-    /** 同一逻辑 ID + 同一反射成员只允许安装一次，避免重适配回调重复注册。 */
+    /** 只有已安装的重复点可跳过；进行中的注册不能被调用方误认为安装成功。 */
     fun claim(id: String, member: Member): Boolean {
-        val claimed = registrations.add(RegistrationKey(id, member))
-        if (!claimed) record(Diagnostic(id, State.DUPLICATE, memberLabel(member)))
-        return claimed
+        return when (registrations.putIfAbsent(RegistrationKey(id, member), State.RESOLVED)) {
+            null -> true
+            State.INSTALLED -> {
+                record(Diagnostic(id, State.DUPLICATE, memberLabel(member)))
+                false
+            }
+            else -> throw IllegalStateException("Hook registration is still in progress: $id")
+        }
     }
 
     fun markInstalled(id: String, member: Member) {
+        registrations[RegistrationKey(id, member)] = State.INSTALLED
         record(Diagnostic(id, State.INSTALLED, memberLabel(member)))
     }
 
@@ -277,6 +283,8 @@ internal class HookPointRegistry(
                 "${throwable.javaClass.simpleName}: ${throwable.message.orEmpty()}".trim()
             )
         )
+        // 失败只释放尚未安装的登记；存量非 claim 调用失败不能撤销已安装成员。
+        if (member != null) registrations.remove(RegistrationKey(id, member), State.RESOLVED)
     }
 
     fun snapshot(): List<Diagnostic> = synchronized(diagnostics) {

@@ -34,6 +34,20 @@ class PlayerQualityFeatureInstallerTest {
             )
         ).install(environment)
 
+        assertEquals(FeatureInstallResult.Installed(1, complete = false), result)
+        assertEquals(listOf("player_quality_status" to "partial:1/2"), statuses)
+    }
+
+    @Test
+    fun `host without Story does not add a missing family to coverage`() {
+        val loader = object : ClassLoader(javaClass.classLoader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name == "com.bilibili.video.story.player.quality.StoryQualityService") throw ClassNotFoundException(name)
+                return super.loadClass(name, resolve)
+            }
+        }
+        val result = PlayerQualityFeatureInstaller(80, VersionAdapter.PlayerQualityPoints(
+            VersionAdapter.HookPoint("gh6.h", "c", emptyList()))).install(environment.copy(classLoader = loader))
         assertEquals(FeatureInstallResult.Installed(1), result)
         assertEquals(listOf("player_quality_status" to "success"), statuses)
     }

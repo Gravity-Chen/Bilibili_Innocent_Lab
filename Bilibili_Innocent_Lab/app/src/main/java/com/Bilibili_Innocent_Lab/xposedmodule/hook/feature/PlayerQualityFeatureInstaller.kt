@@ -1,15 +1,24 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityHostAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
 
-/** 在已适配的播放器默认画质业务边界返回用户选择的 QN；默认关闭且不触碰网络响应。 */
+/** 普通默认入口与 Story 会话各自安装；部分家族失败保留在覆盖分母中。 */
 internal class PlayerQualityFeatureInstaller(
     qualityQn: Int,
-    private val points: VersionAdapter.PlayerQualityPoints?
+    private val points: VersionAdapter.PlayerQualityPoints?,
+    private val pointsProvider: () -> VersionAdapter.PlayerQualityPoints? = { points }
 ) : FeatureInstaller {
 
     override val id: String = ID
     private val normalizedQn = PlayerQualityConfig.normalize(qualityQn)
+    private val runtime = StoryQualityRuntime(normalizedQn)
+    private val story = StoryQualityFeatureHooks(runtime)
+    private var globalInstalled = false
+    private var storyApplicable = true
+    val requiresAdaptationRetry: Boolean get() = normalizedQn != 0 &&
+        (!globalInstalled || storyApplicable && !story.complete)
 
     override fun install(environment: HookEnvironment): FeatureInstallResult {
         if (normalizedQn == 0) {
@@ -19,45 +28,43 @@ internal class PlayerQualityFeatureInstaller(
         if (environment.processName != TARGET_PACKAGE) {
             return FeatureInstallResult.Skipped("non-main-process")
         }
-        val point = points?.defaultQualityMethod
-            ?: return missing(environment, "missing-adapter-point")
-
-        return runCatching {
-            environment.registrar.adapted("player.default_quality", point) {
-                before {
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED)
-                    result = normalizedQn
-                    environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
-                }
-            }
-            environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
-            environment.reportStatus(CHANNEL_STATUS, "success")
-            environment.logInfo(
-                "player_quality_ok",
-                "[BIL] 播放器默认画质已安装，qn=$normalizedQn，" +
-                    "point=${point.className}#${point.methodName}"
-            )
-            FeatureInstallResult.Installed(1)
-        }.getOrElse { throwable ->
-            environment.logError(
-                "player_quality_registration",
-                "[BIL] 播放器默认画质 Hook 注册失败(" +
-                    "${point.className}#${point.methodName}): $throwable"
-            )
-            missing(environment, "registration-failed")
+        val current = pointsProvider()
+        val loader = environment.classLoader
+        storyApplicable = loader == null || StoryQualityLocator.applicable(loader)
+        if (storyApplicable && !story.complete && loader != null) {
+            val roles = StoryQualityLocator.resolve(loader, current?.story)
+            val access = roles?.let { StoryQualityHostAccess.resolve(loader, it) }
+            if (access != null) story.install(environment, access)
         }
-    }
-
-    private fun missing(
-        environment: HookEnvironment,
-        reason: String
-    ): FeatureInstallResult.Skipped {
-        environment.reportStatus(CHANNEL_STATUS, reason)
-        environment.logError(
-            "player_quality_missing",
-            "[BIL] 播放器默认画质适配不完整: $reason"
-        )
-        return FeatureInstallResult.Skipped(reason)
+        if (!globalInstalled) current?.defaultQualityMethod?.let { point ->
+            globalInstalled = runCatching {
+                environment.registrar.adapted("player.default_quality", point) {
+                    before {
+                        story.globalTarget(normalizedQn)?.let { qn ->
+                            runCatching { environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED) }
+                            result = qn
+                            runCatching { environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED) }
+                        }
+                    }
+                }
+                true
+            }.getOrElse {
+                environment.logError("player_quality_registration", "[BIL] 播放器默认画质入口注册失败")
+                false
+            }
+        }
+        val installed = (if (globalInstalled) 1 else 0) + (if (story.complete) 1 else 0)
+        val expected = 1 + if (storyApplicable) 1 else 0
+        val status = when {
+            installed == expected -> "success"
+            installed > 0 -> "partial:$installed/$expected"
+            else -> "missing-adapter-point"
+        }
+        environment.reportStatus(CHANNEL_STATUS, status)
+        if (installed == 0) return FeatureInstallResult.Skipped("missing-adapter-point")
+        environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.ADAPTED)
+        environment.logInfo("player_quality_ok", "[BIL] 默认画质家族安装: $installed/$expected")
+        return FeatureInstallResult.Installed((if (globalInstalled) 1 else 0) + story.hookCount, installed == expected)
     }
 
     companion object {

@@ -12,6 +12,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLo
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
 
 /**
  * DexKit 后台实现：只在常规 KavaRef 定位缺失时创建桥，并在每个代码 APK 查询后立即关闭。
@@ -84,7 +85,21 @@ internal object DexKitAssistEngine : DexAssistEngine {
                                     failed[query] = DexAssistResult.Reason.TOO_MANY_MATCHES
                                 } else {
                                     matches.forEach { data ->
-                                        if (query == DexAssistQuery.PLAYER_POPUP_ADVERT_FLOAT) {
+                                        if (query == DexAssistQuery.STORY_QUALITY_MATCH) {
+                                            val method = runCatching { data.getMethodInstance(classLoader) }.getOrNull()
+                                                ?.takeIf(StoryQualityLocator::matchAbi) ?: return@forEach
+                                            val invokes = data.invokes
+                                            if (invokes.size > 128) { failed[query] = DexAssistResult.Reason.TOO_MANY_MATCHES; return@forEach }
+                                            val policyOwners = invokes.mapNotNull { invoked ->
+                                                runCatching { invoked.getMethodInstance(classLoader) }.getOrNull()
+                                                    ?.takeIf { StoryQualityLocator.policyAbi(it, it.returnType.name) }
+                                                    ?.declaringClass
+                                            }.distinct()
+                                            policyOwners.singleOrNull()?.let { policyOwner ->
+                                                found += method
+                                                related.getValue(query).getOrPut(method) { linkedSetOf() } += policyOwner
+                                            }
+                                        } else if (query == DexAssistQuery.PLAYER_POPUP_ADVERT_FLOAT) {
                                             // getValidPanelData 同时收集普通弹幕，不能把它当成纯浮层入口。
                                             val invokes = data.invokes
                                             if (invokes.size > 128) { failed[query] = DexAssistResult.Reason.TOO_MANY_MATCHES; return@forEach }
@@ -119,6 +134,43 @@ internal object DexKitAssistEngine : DexAssistEngine {
                                             val method = runCatching { data.getMethodInstance(classLoader) }.getOrNull()
                                                 ?: return@forEach
                                             found += method
+                                            if (query == DexAssistQuery.STORY_QUALITY_DEFAULT && StoryQualityLocator.integerAbi(method)) {
+                                                // 旧代策略可能经 selector 间接读取整数；限定同 owner 的真实调用链。
+                                                val members = bridge.findMethod { matcher { declaredClass = data.declaredClassName } }
+                                                if (members.size > MAX_MATCHES) { failed[query] = DexAssistResult.Reason.TOO_MANY_MATCHES; return@forEach }
+                                                val policies = members.mapNotNull { member ->
+                                                    val candidate = runCatching { member.getMethodInstance(classLoader) }.getOrNull()
+                                                        ?: return@mapNotNull null
+                                                    if (!StoryQualityLocator.policyAbi(candidate, candidate.returnType.name) ||
+                                                        member.invokes.size > 128 || member.invokes.none { invoked ->
+                                                            runCatching { invoked.getMethodInstance(classLoader) == method }.getOrDefault(false)
+                                                        }) return@mapNotNull null
+                                                    candidate
+                                                }.distinct()
+                                                policies.singleOrNull()?.let { policy ->
+                                                    found += policy
+                                                    val resources = members.mapNotNull { member ->
+                                                        val candidate = runCatching { member.getMethodInstance(classLoader) }.getOrNull()
+                                                            ?: return@mapNotNull null
+                                                        if (!StoryQualityLocator.resourceAbi(candidate) || member.invokes.size > 128) return@mapNotNull null
+                                                        val invokes = member.invokes
+                                                        if (invokes.none { it.declaredClassName == StoryQualityLocator.MEDIA_RESOURCE && it.name == "findMaxAvailableQuality" } ||
+                                                            invokes.none { it.declaredClassName == StoryQualityLocator.MEDIA_RESOURCE && it.name == "setResolvedIndex" }) return@mapNotNull null
+                                                        val readsInteger = invokes.any { invoked ->
+                                                            val reader = runCatching { invoked.getMethodInstance(classLoader) }.getOrNull()
+                                                            reader == method || reader?.let { StoryQualityLocator.integerAbi(it) &&
+                                                                it.declaringClass == method.declaringClass && invoked.invokes.size <= 128 &&
+                                                                invoked.invokes.any { leaf ->
+                                                                    runCatching { leaf.getMethodInstance(classLoader) == method }.getOrDefault(false)
+                                                                }
+                                                            } == true
+                                                        }
+                                                        if (!readsInteger) return@mapNotNull null
+                                                        candidate
+                                                    }.distinct()
+                                                    resources.singleOrNull()?.let { found += it }
+                                                }
+                                            }
                                             if (query in SponsorPlayerLocator.queries) {
                                                 // 同一真实调用者的构造引用保持成对，不跨包装器拼接保护协程。
                                                 val invokes = data.invokes
@@ -152,6 +204,38 @@ internal object DexKitAssistEngine : DexAssistEngine {
     }
 
     private fun find(bridge: DexKitBridge, query: DexAssistQuery) = when (query) {
+        // 8.84–8.93 仅 key，8.94–8.96 仅 helper，8.97+ 两者皆有；必须做并集。
+        DexAssistQuery.STORY_QUALITY_DEFAULT -> bridge.findMethod {
+            searchPackages(StoryQualityLocator.QUALITY_PACKAGE)
+            matcher {
+                modifiers(Modifier.STATIC, MatchType.Contains); paramCount(0)
+                usingStrings(listOf(StoryQualityLocator.WIFI_KEY), StringMatchType.Equals)
+            }
+        } + bridge.findMethod {
+            searchPackages(StoryQualityLocator.QUALITY_PACKAGE)
+            matcher {
+                modifiers(Modifier.STATIC, MatchType.Contains); paramCount(0)
+                addInvoke { declaredClass = StoryQualityLocator.DEFAULT_HELPER; name = "getDefaultQuality"; paramCount(0); returnType = "int" }
+            }
+        }
+        DexAssistQuery.STORY_QUALITY_RESOURCE -> bridge.findMethod {
+            searchPackages(StoryQualityLocator.QUALITY_PACKAGE)
+            matcher {
+                modifiers(Modifier.STATIC, MatchType.Contains); returnType = "void"
+                paramTypes(StoryQualityLocator.MEDIA_RESOURCE)
+                usingStrings(listOf(StoryQualityLocator.RESOURCE_MARK), StringMatchType.Equals)
+                addInvoke { declaredClass = StoryQualityLocator.MEDIA_RESOURCE; name = "findMaxAvailableQuality"; paramTypes("int") }
+                addInvoke { declaredClass = StoryQualityLocator.MEDIA_RESOURCE; name = "setResolvedIndex"; paramTypes("int") }
+            }
+        }
+        DexAssistQuery.STORY_QUALITY_MATCH -> bridge.findMethod {
+            matcher {
+                declaredClass = StoryQualityLocator.SERVICE; returnType = "java.lang.Object"
+                paramCount(1)
+                // 旧代通过私有 selector→整数 helper 间接读取；不能要求 key 或全局 helper 内联。
+                usingStrings(listOf(StoryQualityLocator.MATCH_MARK), StringMatchType.Contains)
+            }
+        }
         DexAssistQuery.FOLLOW_FEED_STYLE -> bridge.findMethod {
             matcher {
                 name = "getItemOffsets"; returnType = "void"

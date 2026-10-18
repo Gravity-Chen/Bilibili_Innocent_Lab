@@ -3406,17 +3406,13 @@ class HookEntry : XposedModule() {
                 )
             )
 
-            featureInstallCoordinator.installAll(
-                listOf(
-                    PlayerQualityFeatureInstaller(
-                        qualityQn = prefs.getInt(
-                            FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN,
-                            0
-                        ),
-                        points = hostAdaptResult?.playerQuality
-                    )
-                )
+            val qualityPointsRef = java.util.concurrent.atomic.AtomicReference(hostAdaptResult?.playerQuality)
+            val qualityInstaller = PlayerQualityFeatureInstaller(
+                qualityQn = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, 0),
+                points = hostAdaptResult?.playerQuality,
+                pointsProvider = { qualityPointsRef.get() }
             )
+            featureInstallCoordinator.installAll(listOf(qualityInstaller))
 
             featureInstallCoordinator.installAll(
                 listOf(
@@ -4775,6 +4771,14 @@ class HookEntry : XposedModule() {
 
                             override fun onAdaptFinished(ok: Boolean) {
                                 if (ok) {
+                                    if (qualityInstaller.requiresAdaptationRetry) {
+                                        qualityPointsRef.set(VersionAdapter.loadCached(attachedContext,
+                                            versionAdapterResetTimestamp)?.playerQuality)
+                                        hookEnvironment.postToMain?.invoke {
+                                            if (qualityInstaller.requiresAdaptationRetry)
+                                                featureInstallCoordinator.installAll(listOf(qualityInstaller))
+                                        }
+                                    }
                                     if (popupInstaller.requiresAdaptationRetry) {
                                         popupPointsRef.set(VersionAdapter.loadCached(attachedContext,
                                             versionAdapterResetTimestamp)?.playerPopupPromotion)
@@ -4823,7 +4827,9 @@ class HookEntry : XposedModule() {
                         playerPopupPromotionEnabled = prefs.getBoolean(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, false),
                         brandSplashCustomEnabled = prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_CUSTOM, false) &&
                             !prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
-                        followFeedStyleEnabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false)
+                        followFeedStyleEnabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
+                        playerQualityEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig.normalize(
+                            prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, 0)) != 0
                     )
                 }.onFailure { throwable ->
                     logError(

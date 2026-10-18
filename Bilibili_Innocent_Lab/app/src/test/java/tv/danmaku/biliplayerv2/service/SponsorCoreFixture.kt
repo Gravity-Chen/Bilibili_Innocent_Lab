@@ -5,7 +5,9 @@ interface PlayerSeekObserver { fun onSeekStart(position: Long); fun onSeekComple
 interface PlayerStateObserver { fun onPlayerStateChanged(state: Int) }
 interface IPlayerReleaseObserver { fun onPlayerWillRelease() }
 interface IPlayerCoreService {
+    fun getMediaResource(): com.bilibili.lib.media.resource.MediaResource? = null
     fun getCurrentPosition(): Int = 0
+    fun getRealCurrentPosition(): Int = getCurrentPosition()
     fun getDuration(): Int = 100_000
     fun getState(): Int = 4
     fun seekTo(position: Int, accurate: Boolean) {}

@@ -23,6 +23,13 @@ internal enum class DexAssistQuery {
      */
     PLAYER_DEFAULT_QUALITY,
 
+    /** Story 默认决策：严格包内 static ()，Wi-Fi key 或公共默认 helper 调用。 */
+    STORY_QUALITY_DEFAULT,
+    /** Story 已加载资源选档：专用日志及 findMaxAvailableQuality/setResolvedIndex 调用。 */
+    STORY_QUALITY_RESOURCE,
+    /** Story 服务的二次匹配：稳定 owner、ContinuationImpl ABI 和专用业务日志。 */
+    STORY_QUALITY_MATCH,
+
     /**
      * 回复脉络的 `ReplyInfo -> CommentItem` 映射入口。
      *
