@@ -53,8 +53,12 @@ abstract class PackFrameNativePayload : DefaultTask() {
             "Frame native payloads are missing or stale for this source/configuration; release requires both ARM ABIs."
         }
         // Only these task-owned generated ZIP files may disappear when an IDE debug build selects fewer ABIs.
-        for (abi in approved - selected.toSet()) {
+        for (abi in approved) {
+            // Retire only the previous task-owned name; never carry duplicate payloads into the APK.
             Files.deleteIfExists(assetsDirectory.file("native-packing/$abi.zip").get().asFile.toPath())
+        }
+        for (abi in approved - selected.toSet()) {
+            Files.deleteIfExists(assetsDirectory.file("native-packing/$abi/VisionTool.zip").get().asFile.toPath())
         }
         logger.lifecycle("Frame native packaged ABIs: $selected")
         for (abi in selected) {
@@ -65,7 +69,7 @@ abstract class PackFrameNativePayload : DefaultTask() {
             check(bytes.size in 1..16 * 1024 * 1024) { "Native payload exceeds fixed bound." }
             fun hash(value: ByteArray) = MessageDigest.getInstance("SHA-256").digest(value)
                 .joinToString("") { "%02x".format(it.toInt() and 255) }
-            val archive = assetsDirectory.file("native-packing/$abi.zip").get().asFile
+            val archive = assetsDirectory.file("native-packing/$abi/VisionTool.zip").get().asFile
             archive.parentFile.mkdirs()
             ZipOutputStream(archive.outputStream()).use { zip ->
                 zip.setLevel(9)

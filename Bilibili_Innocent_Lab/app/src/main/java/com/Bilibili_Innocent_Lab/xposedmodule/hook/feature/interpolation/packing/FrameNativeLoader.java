@@ -37,7 +37,7 @@ public final class FrameNativeLoader {
             File source = moduleApk.getAbsoluteFile();
             if (!source.equals(source.getCanonicalFile()) || !source.isFile()) throw new IOException("module_apk_not_canonical");
             try (ZipFile apk = new ZipFile(source)) {
-                String name = "assets/native-packing/" + spec.abi + ".zip";
+                String name = "assets/native-packing/" + spec.abi + "/VisionTool.zip";
                 ZipEntry selected = null;
                 Enumeration<? extends ZipEntry> entries = apk.entries();
                 int count = 0;

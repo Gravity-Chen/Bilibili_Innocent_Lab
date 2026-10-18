@@ -1,4 +1,4 @@
-Optional video frame interpolation code
+VisionTool - optional video frame interpolation code
 
 RIFE warp and v4 inference algorithm adapted from nihui/rife-ncnn-vulkan
 https://github.com/nihui/rife-ncnn-vulkan
