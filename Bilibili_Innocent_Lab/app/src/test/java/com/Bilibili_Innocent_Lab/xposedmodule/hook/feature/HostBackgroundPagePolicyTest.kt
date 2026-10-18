@@ -36,6 +36,10 @@ class HostBackgroundPagePolicyTest {
         val detail = "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity"
         assertTrue(HostBackgroundPagePolicy.mediaDetailActivity(listOf("host.DetailVariant", detail, "android.app.Activity")))
         assertTrue(HostBackgroundPagePolicy.nativeActivity(listOf(detail)))
+        val playlist = "com.bilibili.ship.theseus.playlist.UnitedPlaylistActivity"
+        assertTrue(HostBackgroundPagePolicy.mediaDetailActivity(listOf("host.PlaylistVariant", playlist, "android.app.Activity")))
+        assertTrue(HostBackgroundPagePolicy.nativeActivity(listOf(playlist)))
+        assertFalse(HostBackgroundPagePolicy.mediaDetailActivity(listOf("another.app.UnitedPlaylistActivity")))
         assertFalse(HostBackgroundPagePolicy.mediaDetailActivity(listOf("tv.danmaku.bili.ui.main2.MainActivityV2")))
         assertFalse(HostBackgroundPagePolicy.mediaDetailActivity(listOf("another.app.UnitedBizDetailsActivity")))
     }

@@ -19,8 +19,11 @@ import java.util.WeakHashMap
 
 /** 视频前景和独立评论面板的语义表面。只取样壁纸，不录制播放器、文字或玻璃自身。 */
 internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMap<View, Drawable>) {
-    private enum class Role { HEADER, BODY, DIVIDER, INPUT }
-    private class Target(val role: Role, var binding: LumenSurfaceBinding? = null, var drawable: Drawable? = null)
+    private enum class Role { HEADER, BODY, DIVIDER, INPUT, OVERLAY }
+    private class Target(val role: Role, var binding: LumenSurfaceBinding? = null, var drawable: Drawable? = null,
+        var overlay: HostDetailOverlay? = null) {
+        fun close() { overlay?.close() ?: binding?.close(); overlay = null; binding = null }
+    }
     private val panel = WeakReference(panel)
     private val targets = WeakHashMap<View, Target>()
     private var session: LumenSurfaceSession? = null
@@ -46,6 +49,9 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
                 view.parent === panel && name == "pager" -> Role.BODY
                 view.parent === panel && name == "shadow_dig" -> Role.DIVIDER
                 name == "fake_input_layout" -> Role.INPUT
+                name == "playlist_container" && view is ViewGroup &&
+                    (0 until view.childCount).any { name(view.getChildAt(it)) == "layout_playlist" } -> Role.OVERLAY
+                chapterPanel(view) -> Role.OVERLAY
                 else -> null
             }
             if (role != null) found[view] = role
@@ -55,7 +61,7 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
         }
         visit(panel, 0)
         for (view in targets.keys.toList()) if (view !in found) {
-            targets.remove(view)?.binding?.close()
+            targets.remove(view)?.close()
             owned.remove(view)
         }
         for ((view, role) in found) targets.getOrPut(view) { Target(role) }
@@ -73,6 +79,8 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
                 override val excludesSurfaces: Boolean = true
                 override fun drawContent(canvas: Canvas) {
                     // 只绘制原有壁纸，绝不调用 panel.draw()，避免祖先采样包含注入表面。
+                    // 模糊会采样到面板边界外；先补齐不透明输入，避免底边把下层文字重新透出来。
+                    canvas.drawColor(if (dark == true) 0xFF181A20.toInt() else 0xFFF8F9FC.toInt())
                     (this@HostDetailSurfaces.panel.get()?.background as? HostBackgroundDrawable)?.draw(canvas)
                 }
             }
@@ -80,12 +88,17 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
         if (themeChanged) { active.updatePalette(LumenPalette.neutral(night)); dark = night }
         for ((view, target) in targets) {
             if (target.binding?.isBound != true || view.background !== target.drawable) {
-                target.binding?.close()
-                target.binding = active.bindSource(view, options(target.role, night),
-                    source.takeIf { target.role == Role.HEADER })
+                target.close()
+                if (target.role == Role.OVERLAY) {
+                    target.overlay = HostDetailOverlay(view, active, options(target.role, night), source)
+                    target.binding = target.overlay?.binding
+                } else target.binding = active.bindSource(view, options(target.role, night),
+                    source.takeIf { frosted(target.role) })
                 target.drawable = view.background
                 target.drawable?.let { owned[view] = it }
-            } else if (themeChanged) target.binding?.update(options(target.role, night))
+            } else if (themeChanged) {
+                target.overlay?.update(options(target.role, night)) ?: target.binding?.update(options(target.role, night))
+            }
         }
         val next = panel.background as? HostBackgroundDrawable
         val nextOffset = next?.scrollOffset ?: 0L
@@ -104,23 +117,37 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
             Role.BODY -> if (night) .56f else .62f
             Role.INPUT -> if (night) .84f else .88f
             Role.DIVIDER -> 1f
+            Role.OVERLAY -> if (night) .74f else .78f
         }
         return LumenSurfaceOptions(
-            material = if (role == Role.HEADER) LumenSurfaceMaterial.FROSTED else LumenSurfaceMaterial.STATIC,
+            material = if (frosted(role)) LumenSurfaceMaterial.FROSTED else LumenSurfaceMaterial.STATIC,
             role = if (role == Role.BODY) SurfaceRole.CARD else SurfaceRole.TOP_BAR,
             radiusDp = 0f,
             color = if (role == Role.DIVIDER) (if (night) 0x38FFFFFF else 0x24000000)
                 else if (night) 0xFF181A20.toInt() else 0xFFF8F9FC.toInt(),
-            tintOpacity = tint, fallbackTintOpacity = if (role == Role.HEADER) .88f else tint,
+            tintOpacity = tint,
+            fallbackTintOpacity = if (role == Role.OVERLAY) 1f else if (role == Role.HEADER) .88f else tint,
             edgeEnabled = false,
             // 磨砂帧完整覆盖底图后再加色罩，避免清晰星点从玻璃下漏出。
             backdropOpacity = 1f,
-            sampling = LumenSurfaceSampling(enabled = role == Role.HEADER, refractionEnabled = false,
+            sampling = LumenSurfaceSampling(enabled = frosted(role), refractionEnabled = false,
                 blurRadiusDp = 16f, softwareBlurRadiusDp = 10f, maxSoftwarePixels = 48_000)
         )
     }
 
+    private fun frosted(role: Role) = role == Role.HEADER || role == Role.OVERLAY
+
+    private fun chapterPanel(view: View): Boolean {
+        if (view !is ViewGroup || (view.parent as? View)?.let(::name) !in
+            setOf("fl_tab_pager_container", "fl_tab_content_container")) return false
+        // 章节浮层覆盖标签栏和正文；底板必须属于整层，不能只加在列表上让标题继续透出。
+        return (0 until view.childCount).any { name(view.getChildAt(it)) == "watchpoint_title" } &&
+            (0 until view.childCount).any { name(view.getChildAt(it)) == "watchpoint_close" } &&
+            (0 until view.childCount).any { name(view.getChildAt(it)) == "watchpoint_list" }
+    }
+
     fun detach() {
+        for (target in targets.values) target.close()
         session?.close()
         session = null
         source = null

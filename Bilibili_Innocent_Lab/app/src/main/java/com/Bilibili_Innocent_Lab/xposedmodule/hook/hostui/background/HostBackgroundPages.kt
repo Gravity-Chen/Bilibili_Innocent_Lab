@@ -500,8 +500,8 @@ internal class HostBackgroundPages(
                         return node
                     // 视频详情的前景面板包含简介/评论标签；壁纸不能提升到播放器所在的窗口。
                     return node.takeIf {
-                        kinds[it] == HostBackgroundPagePolicy.Kind.NATIVE && name(it) == "content_container" && name(branch) == "pager" &&
-                            (it.parent as? View)?.let(::name) == "round_container" && page.width > 0 && page.width == it.width
+                        kinds[it] == HostBackgroundPagePolicy.Kind.NATIVE && videoPanel(it) && name(branch) == "pager" &&
+                            page.width > 0 && page.width == it.width
                     }
                 }
                 branch = node
@@ -551,8 +551,13 @@ internal class HostBackgroundPages(
             val parent = view.parent as? ViewGroup ?: return false
             return (0 until parent.childCount).any { name(parent.getChildAt(it)) == "select_list" }
         }
-        private fun videoPanel(view: View): Boolean = name(view) == "content_container" &&
-            (view.parent as? View)?.let(::name) == "round_container"
+        private fun videoPanel(view: View): Boolean {
+            if (view !is ViewGroup || name(view) != "content_container") return false
+            if ((view.parent as? View)?.let(::name) == "round_container") return true
+            // 稍后再看播放页直接把前景面板放在 Theseus 根下，没有普通详情页的 round_container。
+            return (0 until view.childCount).any { name(view.getChildAt(it)) == "tabs_back_board" } &&
+                (0 until view.childCount).any { name(view.getChildAt(it)) == "pager" }
+        }
         private val listNames = setOf("recyclerView", "recycler_view", "dy_list", "recycler", "list", "opus_dy_list")
         private val sectionNames = setOf("sticky_container", "sub_sticky_container", "tab_recyclerView", "top_bar", "dy_app_bar", "dy_sticky_group")
         private val chromeNames = setOf("main_top_layout", "nav_top_bar", "top_bar", "mine_top_view", "fake_input_layout", "cmt3_page_title_container")

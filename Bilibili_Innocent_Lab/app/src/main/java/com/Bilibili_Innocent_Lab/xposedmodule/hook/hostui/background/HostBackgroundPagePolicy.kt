@@ -7,7 +7,8 @@ internal object HostBackgroundPagePolicy {
     enum class Kind { FEED, LIVE, DYNAMIC, OPUS, COMPOSE, PAGE, NATIVE, COMMENT }
 
     /** 视频详情仍接入内容面板，系统栏和播放器窗口由宿主负责。 */
-    fun mediaDetailActivity(names: List<String>): Boolean = VIDEO_DETAIL_ACTIVITY in names
+    fun mediaDetailActivity(names: List<String>): Boolean = VIDEO_DETAIL_ACTIVITY in names ||
+        "com.bilibili.ship.theseus.playlist.UnitedPlaylistActivity" in names
 
     fun kind(name: String): Kind? = when {
         imageViewer(name) -> null

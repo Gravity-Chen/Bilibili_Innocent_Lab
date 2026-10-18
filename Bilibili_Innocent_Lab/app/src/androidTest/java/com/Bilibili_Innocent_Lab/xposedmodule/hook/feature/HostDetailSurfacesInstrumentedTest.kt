@@ -3,6 +3,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.content.ContextWrapper
 import android.content.res.Resources
 import android.graphics.Color
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.view.View
@@ -29,26 +31,32 @@ import java.util.WeakHashMap
 
 @RunWith(AndroidJUnit4::class)
 class HostDetailSurfacesInstrumentedTest {
-    private class Panel(activity: MainActivity) {
+    private class Panel(activity: MainActivity, wrapped: Boolean = true) {
         private val testResources = InstrumentationRegistry.getInstrumentation().context.resources
         // 测试 id 来自测试 APK，生命周期和 Application 仍使用真实 Activity。
         private val context = object : ContextWrapper(activity) {
             override fun getResources(): Resources = testResources
         }
-        val round = FrameLayout(context).apply { id = TestR.id.round_container }
+        val round = FrameLayout(context).apply { if (wrapped) id = TestR.id.round_container }
         val root = FrameLayout(context).apply { id = TestR.id.content_container }
         val header = View(context).apply { id = TestR.id.tabs_back_board; setBackgroundColor(Color.WHITE) }
         val divider = View(context).apply { id = TestR.id.shadow_dig; setBackgroundColor(Color.GRAY) }
         val body = FrameLayout(context).apply { id = TestR.id.pager; setBackgroundColor(Color.WHITE) }
+        val introduction = FrameLayout(context)
         val input = View(context).apply { id = TestR.id.fake_input_layout; setBackgroundColor(Color.WHITE) }
         val title = TextView(activity).apply { text = "简介 / 评论"; setTextColor(Color.RED) }
+        val playlist = FrameLayout(context).apply { id = TestR.id.playlist_container }
+        val playlistBody = FrameLayout(context).apply { id = TestR.id.layout_playlist }
         init {
             round.addView(root, FrameLayout.LayoutParams(-1, -1))
             root.addView(header, FrameLayout.LayoutParams(-1, 80))
             root.addView(body, FrameLayout.LayoutParams(-1, 560).apply { topMargin = 80 })
             root.addView(divider, FrameLayout.LayoutParams(-1, 1).apply { topMargin = 79 })
             root.addView(title, FrameLayout.LayoutParams(-1, 80))
-            body.addView(input, FrameLayout.LayoutParams(-1, 40).apply { topMargin = 520 })
+            body.addView(introduction, FrameLayout.LayoutParams(-1, -1))
+            introduction.addView(input, FrameLayout.LayoutParams(-1, 40).apply { topMargin = 520 })
+            playlist.addView(playlistBody, FrameLayout.LayoutParams(-1, -1))
+            root.addView(playlist, FrameLayout.LayoutParams(-1, 400).apply { topMargin = 240 })
             header.setPadding(3, 5, 7, 11)
         }
         fun layout() {
@@ -59,6 +67,14 @@ class HostDetailSurfacesInstrumentedTest {
     }
 
     @Test fun backgroundPassesKeepSurfaceBoundariesAndLeaveThePlaybackWindowAlone() {
+        checkPlaybackPanel(wrapped = true)
+    }
+
+    @Test fun unwrappedPlaylistPanelSharesWallpaperAndKeepsAnIndependentReadingSurface() {
+        checkPlaybackPanel(wrapped = false)
+    }
+
+    private fun checkPlaybackPanel(wrapped: Boolean) {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.activeConfirmDialog?.dismiss()
@@ -70,7 +86,7 @@ class HostDetailSurfacesInstrumentedTest {
                     setBackgroundColor(Color.RED)
                 }
                 val originalMedia = media.background
-                val panel = Panel(activity)
+                val panel = Panel(activity, wrapped)
                 val originalChildCount = panel.root.childCount
                 window.background = originalWindow
                 window.addView(media, FrameLayout.LayoutParams(-1, -1))
@@ -92,21 +108,85 @@ class HostDetailSurfacesInstrumentedTest {
                     val body = panel.body.background
                     val divider = panel.divider.background
                     val input = panel.input.background
+                    val playlist = panel.playlist.background
                     assertNotNull(header)
                     assertNotNull(body)
                     assertNotNull(divider)
                     assertNotNull(input)
+                    assertNotNull(playlist)
+                    assertNotSame(panel.root.background, playlist)
                     repeat(3) { window.viewTreeObserver.dispatchOnPreDraw() }
                     assertSame(header, panel.header.background)
                     assertSame(body, panel.body.background)
                     assertSame(divider, panel.divider.background)
                     assertSame(input, panel.input.background)
+                    assertSame(playlist, panel.playlist.background)
                     assertSame(panel.header, header.callback)
                     assertEquals(Color.RED, panel.title.currentTextColor)
                     assertEquals(originalChildCount, panel.root.childCount)
                     assertEquals(listOf(3, 5, 7, 11), listOf(panel.header.paddingLeft, panel.header.paddingTop,
                         panel.header.paddingRight, panel.header.paddingBottom))
+                    pages.attach(panel.introduction, HostBackgroundPagePolicy.Kind.PAGE)
+                    assertSame(panel.root, HostBackgroundPages.sharedWallpaperOwner(panel.introduction))
                 } finally { decor.removeView(window) }
+            }
+        }
+    }
+
+    @Test fun chapterOverlayInsertedLaterCoversHeaderAndBodyAndRestoresAfterClosing() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.activeConfirmDialog?.dismiss()
+                val decor = activity.window.decorView as ViewGroup
+                val panel = Panel(activity)
+                decor.addView(panel.round, ViewGroup.LayoutParams(320, 640))
+                panel.root.background = HostBackgroundDrawable(HostBackgroundConfig(HostBackgroundPreset.AURORA))
+                val slot = FrameLayout(panel.root.context).apply { id = TestR.id.fl_tab_pager_container }
+                panel.root.addView(slot, FrameLayout.LayoutParams(-1, -1))
+                val chapter = FrameLayout(panel.root.context).apply { setBackgroundColor(Color.WHITE) }
+                val original = chapter.background
+                val title = TextView(panel.root.context).apply { id = TestR.id.watchpoint_title; text = "章节" }
+                val close = View(panel.root.context).apply { id = TestR.id.watchpoint_close }
+                val list = FrameLayout(panel.root.context).apply { id = TestR.id.watchpoint_list }
+                val row = TextView(activity).apply { text = "Intro" }
+                list.addView(row)
+                chapter.addView(title, FrameLayout.LayoutParams(-1, 44))
+                chapter.addView(close, FrameLayout.LayoutParams(44, 44))
+                chapter.addView(list, FrameLayout.LayoutParams(-1, -1).apply { topMargin = 44 })
+                val owned = WeakHashMap<View, Drawable>()
+                val surfaces = HostDetailSurfaces(panel.root, owned)
+                try {
+                    surfaces.discover(); surfaces.apply(false)
+                    val header = panel.header.background
+                    slot.addView(chapter, FrameLayout.LayoutParams(-1, -1))
+                    panel.layout()
+                    surfaces.discover(); surfaces.apply(false)
+                    val backdrop = chapter.background
+                    assertNotSame(original, backdrop)
+                    assertSame(backdrop, owned[chapter])
+                    assertSame(header, panel.header.background)
+                    assertEquals(panel.root.height, chapter.height)
+                    assertNull(title.background)
+                    assertNull(list.background)
+                    val snapshot = Bitmap.createBitmap(chapter.width, chapter.height, Bitmap.Config.ARGB_8888)
+                    try {
+                        requireNotNull(backdrop).setBounds(0, 0, chapter.width, chapter.height)
+                        backdrop.draw(Canvas(snapshot))
+                        assertEquals("The bottom edge must not reveal the underlying page", 255,
+                            Color.alpha(snapshot.getPixel(chapter.width / 2, chapter.height - 1)))
+                    } finally { snapshot.recycle() }
+                    var selected = false
+                    row.setOnClickListener { selected = true }
+                    row.performClick()
+                    assertTrue(selected)
+                    surfaces.apply(true)
+                    assertSame(backdrop, chapter.background)
+                    close.setOnClickListener { slot.removeView(chapter) }
+                    close.performClick()
+                    surfaces.discover(); surfaces.apply(true)
+                    assertSame(original, chapter.background)
+                    assertFalse(owned.containsKey(chapter))
+                } finally { surfaces.detach(); decor.removeView(panel.round) }
             }
         }
     }
@@ -122,6 +202,7 @@ class HostDetailSurfacesInstrumentedTest {
                 panel.root.background = HostBackgroundDrawable(HostBackgroundConfig(HostBackgroundPreset.AURORA))
                 val originalHeader = panel.header.background
                 val originalInput = panel.input.background
+                val originalPlaylist = panel.playlist.background
                 val owned = WeakHashMap<View, Drawable>()
                 val surfaces = HostDetailSurfaces(panel.root, owned)
                 try {
@@ -140,6 +221,7 @@ class HostDetailSurfacesInstrumentedTest {
                     surfaces.detach()
                     assertSame(originalHeader, panel.header.background)
                     assertSame(originalInput, panel.input.background)
+                    assertSame(originalPlaylist, panel.playlist.background)
                     assertSame(replacement, panel.body.background)
                     assertTrue(owned.isEmpty())
                     surfaces.apply(true)
