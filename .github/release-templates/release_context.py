@@ -417,8 +417,15 @@ def build_context(
     commit: str,
     repository: str = "",
     fetch_published: bool = True,
+    baseline_commit: str | None = None,
 ) -> ReleaseContext:
-    previous_tag, baseline_orphaned = resolve_baseline(repo_root, commit, release_tag, channel)
+    if baseline_commit is None:
+        previous_tag, baseline_orphaned = resolve_baseline(repo_root, commit, release_tag, channel)
+    else:
+        # Telegram uses its confirmed delivery commit; an empty value means first delivery.
+        if baseline_commit and not re.fullmatch(r"[0-9a-fA-F]{40}", baseline_commit):
+            raise ValueError("Invalid explicit delivery baseline")
+        previous_tag, baseline_orphaned = baseline_commit or None, False
     # History rewrites (filter-branch etc.) leave old release tags pointing
     # at commits no longer reachable from HEAD. With no baseline at all the
     # context silently covers the ENTIRE history — that's how release notes

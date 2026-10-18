@@ -123,8 +123,9 @@ H. 同一变化在 summary 与 items 中的分类和说法保持一致（例如 
 def build_system_prompt(config: dict, channel: str) -> str:
     style_notes = "\n".join(f"- {note}" for note in config.get("style_notes", []))
     forbidden = "、".join(config.get("forbidden_terms", []))
-    channel_name = "Stable 正式版" if channel == "stable" else "Alpha 测试版"
-    return f"""你负责为 {config["product_name"]} 撰写 {channel_name} 的 GitHub Release 更新说明。
+    channel_name = {"stable": "Stable 正式版", "alpha": "Alpha 测试版", "canary": "Canary 开发版"}[channel]
+    destination = "Telegram 更新公告" if channel == "canary" else "GitHub Release 更新说明"
+    return f"""你负责为 {config["product_name"]} 撰写 {channel_name} 的 {destination}。
 产品背景：{config["product_context"]}
 
 {style_section(config)}
@@ -263,8 +264,8 @@ def validate_notes(
     summary_sentences = sentences("".join(summary))
     if context.channel == "stable" and not 2 <= len(summary_sentences) <= 4:
         errors.append(f"Stable 的 summary 需要 2～4 句，当前 {len(summary_sentences)} 句")
-    if context.channel == "alpha" and len(summary_sentences) > 2:
-        errors.append(f"Alpha 的 summary 最多 2 句，当前 {len(summary_sentences)} 句")
+    if context.channel in {"alpha", "canary"} and len(summary_sentences) > 2:
+        errors.append(f"{context.channel.title()} 的 summary 最多 2 句，当前 {len(summary_sentences)} 句")
     for sentence in summary_sentences:
         if len(sentence) > MAX_SENTENCE_CHARS:
             errors.append(f"summary 句子超过 {MAX_SENTENCE_CHARS} 字：{sentence[:30]}…")
