@@ -7,7 +7,8 @@ import org.junit.Test
 /** 策略面板的安全边界：草稿不提前发布，五项共用一个导航入口和原有模态生命周期。 */
 class PlayerBufferSettingsContractTest {
     @Test fun allBufferSettingsShareTheAnchoredEntryAndUseTheTypedUiSnapshot() {
-        val main = SettingsUiSource.mainActivity()
+        // 入口调用点在增强分区里，已随分区外移到 *Sections.kt。
+        val main = SettingsUiSource.settingsPage()
         val entry = SettingsUiSource.function("playerBufferSettingsRows")
         val keys = listOf("MODE", "SECONDS", "MEMORY_MB", "DISK_MB", "WIFI_ONLY")
         keys.forEach { key -> assertTrue(main.contains("FeaturePreferences.PLAYER_BUFFER_$key")) }
