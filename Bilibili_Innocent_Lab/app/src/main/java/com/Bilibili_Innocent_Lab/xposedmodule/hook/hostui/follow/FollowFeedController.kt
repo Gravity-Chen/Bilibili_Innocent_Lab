@@ -344,7 +344,12 @@ internal class FollowFeedController(
         override fun onPreDraw(): Boolean {
             safely {
                 val view = root.get() ?: return@safely
-                if (!lifecycleActive || !userVisible || !view.isShown) { pause(); return@safely }
+                // ViewPager 的相邻页会先滑入窗口，之后才收到选中/恢复回调。
+                // 与 pause 的释放边界保持一致：仍参与绘制的页面必须在本帧补齐卡片。
+                if (!view.isShown || ((!lifecycleActive || !userVisible) &&
+                        (view.windowVisibility != View.VISIBLE || !HostViewVisibility.visible(view, visibleBounds)))) {
+                    pause(); return@safely
+                }
                 if (paused) resume()
                 if (personalFeed) syncPersonalChrome(view, palette)
                 val now = SystemClock.uptimeMillis()

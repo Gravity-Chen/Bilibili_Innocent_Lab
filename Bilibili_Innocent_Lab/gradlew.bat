@@ -74,11 +74,11 @@ for %%i in ("%BIL_GRADLE_TMP%") do set "BIL_GRADLE_TMP=%%~fsi"
 @rem so the daemon, worker launcher, test JVM and compiler workers all agree.
 set "TEMP=%BIL_GRADLE_TMP%"
 set "TMP=%BIL_GRADLE_TMP%"
-@rem Keep the Windows local build heap larger without putting a machine-specific
-@rem value into shared gradle.properties used by Linux CI and other checkouts.
+@rem Keep the Windows local build heap aligned with shared gradle.properties
+@rem to avoid reserving an unnecessarily large heap for local JVMs.
 @rem Match org.gradle.jvmargs so --no-daemon can reuse this JVM instead of
 @rem forking a single-use Daemon and opening a local selector/AF_UNIX pipe.
-set "BIL_GRADLE_HEAP=6144m"
+set "BIL_GRADLE_HEAP=4096m"
 set "BIL_JVM_TUNING=-XX:MaxMetaspaceSize=1024m -XX:ReservedCodeCacheSize=512m -XX:+UseCodeCacheFlushing"
 set "JDK_JAVA_OPTIONS=%BIL_JVM_TUNING%"
 set DEFAULT_JVM_OPTS="-Xmx%BIL_GRADLE_HEAP%" "-Dfile.encoding=UTF-8" "-Djava.io.tmpdir=%BIL_GRADLE_TMP%"

@@ -1,8 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.contract
 
 import java.io.File
+import java.util.zip.ZipFile
 
-/** 迁移后的语义护栏读取本轮 Gradle 实际编译的 LCE 源码；先核对模块确实委托到该类型。 */
+/** 语义护栏读取与正式依赖同版本的官方 sources JAR；先核对模块确实委托到该类型。 */
 object LceMotionSource {
     private val delegates = mapOf(
         "LiquidStretchViewport.kt" to ("core/liquid/LiquidStretchViewport.kt" to "com.lumen.coacervation.engine.liquid.LiquidStretchViewport"),
@@ -41,13 +42,17 @@ object LceMotionSource {
     )
 
     fun engine(path: String): String {
-        val root = System.getProperty("innocentLab.lumenSource")
-            ?: throw AssertionError("Missing compiled LCE source path")
+        val archives = System.getProperty("innocentLab.lumenSources")
+            ?: throw AssertionError("Missing published LCE sources JARs")
         val module = if (path.startsWith("core/")) "lumen-engine" else "lumen-motion"
         val relative = path.removePrefix("core/")
-        val source = File(root, "$module/src/main/java/com/lumen/coacervation/engine/$relative")
-        if (!source.isFile) throw AssertionError("Compiled LCE source not found: $source")
-        return SourceContract.normalize(source.readText())
+        val archive = archives.split(File.pathSeparator).map(::File)
+            .single { it.name.startsWith("$module-") && it.name.endsWith("-sources.jar") }
+        return ZipFile(archive).use { zip ->
+            val entry = zip.getEntry("com/lumen/coacervation/engine/$relative")
+                ?: throw AssertionError("Published LCE source not found: $module/$relative")
+            SourceContract.normalize(zip.getInputStream(entry).bufferedReader().use { it.readText() })
+        }
     }
 
     fun read(path: String): String {

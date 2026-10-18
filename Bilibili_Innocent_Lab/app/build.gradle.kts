@@ -348,6 +348,21 @@ androidComponents.onVariants(androidComponents.selector().withBuildType("debug")
     }
 }
 
+// 契约测试读取与正式二进制相同版本的官方 sources JAR，不参与 APK 编译。
+val lumenContractSources = configurations.create("lumenContractSources") {
+    isCanBeConsumed = false
+    isTransitive = false
+}
+for (library in listOf(libs.lumen.engine.get(), libs.lumen.motion.get())) {
+    dependencies.add(lumenContractSources.name, mapOf(
+        "group" to library.module.group,
+        "name" to library.module.name,
+        "version" to library.versionConstraint.requiredVersion,
+        "classifier" to "sources",
+        "ext" to "jar"
+    ))
+}
+
 // 源码护栏读取真实文件，必须把文本也计入 Test 缓存键；仅有测试 classpath 不足以
 // 识别注释、工作流或未改变字节码的源码修改。只允许公开生产输入，不包含构建输出、
 // local.properties、签名文件、环境文件或整个 .gradle 缓存。
@@ -366,14 +381,13 @@ val sourceContractInputs = files(
         include(".github/actions/**/action.yml")
         include(".github/release-templates/*.py")
         exclude(".github/release-templates/test_*.py")
-    },
-    fileTree(File(gradle.extra["innocentLab.lumenSource"].toString())) {
-        include("lumen-engine/src/main/**", "lumen-motion/src/main/**")
     }
 )
 tasks.withType<Test>().configureEach {
-    systemProperty("innocentLab.lumenSource", gradle.extra["innocentLab.lumenSource"])
-    inputs.files(sourceContractInputs)
+    doFirst {
+        systemProperty("innocentLab.lumenSources", lumenContractSources.asPath)
+    }
+    inputs.files(sourceContractInputs, lumenContractSources)
         .withPropertyName("sourceContractInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
