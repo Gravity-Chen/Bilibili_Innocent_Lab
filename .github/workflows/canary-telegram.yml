@@ -193,8 +193,24 @@ jobs:
             --report-output "$RUNNER_TEMP/TELEGRAM_NOTES_REPORT.md" --summary "$GITHUB_STEP_SUMMARY" \
             "${notes_args[@]}"
 
-      - name: Send the selected Canary APK to Telegram
+      - name: Recheck daily publication policy after generating notes
+        id: final_eligibility
         if: steps.eligibility.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DELIVERY_EVENT: ${{ github.event_name }}
+          CANARY_RUN_URL: ${{ steps.package.outputs.source_run_url }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ steps.package.outputs.source_artifact_digest }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_RELEASE_CHAT_ID || '@Bilibili_Innocent_LabRelease' }}
+        run: |
+          python3 .github/release-templates/select_canary_delivery.py \
+            --event "$DELIVERY_EVENT" --run-url "$CANARY_RUN_URL" \
+            --delivery-run-id "$GITHUB_RUN_ID" --channel "$TELEGRAM_CHAT_ID" \
+            --expected-artifact-digest "$EXPECTED_ARTIFACT_DIGEST" \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Send the selected Canary APK to Telegram
+        if: steps.final_eligibility.outputs.should_publish == 'true'
         id: delivery
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -220,7 +236,7 @@ jobs:
             "${delivery_args[@]}"
 
       - name: Record the confirmed Telegram delivery source
-        if: success() && steps.delivery.outcome == 'success' && !inputs.dry_run
+        if: success() && steps.delivery.outcome == 'success' && !inputs.dry_run && steps.final_eligibility.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DELIVERY_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}

@@ -3,6 +3,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -221,3 +222,34 @@ class TelegramNotesTest(unittest.TestCase):
         self.assertNotIn("RELEASE_NOTES_LLM_", build)
         self.assertNotIn("prepare_telegram_notes.py", build)
         self.assertIn("Upload Telegram announcement and generation report", telegram)
+
+
+    def test_final_eligibility_is_after_ai_and_guards_send_and_checkpoint(self):
+        workflow = (Path(__file__).resolve().parents[1] / "workflows/canary-telegram.yml").read_text(encoding="utf-8")
+        final = workflow.index("      - name: Recheck daily publication policy after generating notes")
+        send = workflow.index("      - name: Send the selected Canary APK")
+        checkpoint = workflow.index("      - name: Record the confirmed Telegram delivery source")
+        self.assertLess(workflow.index("      - name: Generate complete notes"), final)
+        self.assertLess(final, send)
+        for value in ["id: final_eligibility", "select_canary_delivery.py", "steps.package.outputs.source_run_url",
+                      "steps.package.outputs.source_artifact_digest", '--expected-artifact-digest "$EXPECTED_ARTIFACT_DIGEST"']:
+            self.assertIn(value, workflow[final:send])
+        self.assertIn("if: steps.final_eligibility.outputs.should_publish == 'true'", workflow[send:checkpoint])
+        self.assertIn("if: success() && steps.delivery.outcome == 'success' && !inputs.dry_run && steps.final_eligibility.outputs.should_publish == 'true'", workflow[checkpoint:])
+
+    def test_ai_delay_rechecks_date_without_retargeting_the_verified_build(self):
+        from test_select_canary_delivery import DailyCanaryDeliveryTest
+        policy = DailyCanaryDeliveryTest()
+        policy.setUp()
+        policy.now = datetime.fromisoformat("2026-10-16T15:59:50+00:00")
+        selected = policy.decision()
+        self.assertEqual("true", selected["should_publish"])
+        # A newer build during AI generation must not replace the already verified APK.
+        policy.builds = [dict(policy.run, id=8, head_sha="c" * 40,
+                             html_url=policy.run["html_url"].replace("runs/7", "runs/8"))]
+        final = policy.decision(selected["run_url"], selected["artifact_digest"])
+        self.assertEqual(selected["run_url"], final["run_url"])
+        policy.now = datetime.fromisoformat("2026-10-16T16:00:10+00:00")
+        expired = policy.decision(selected["run_url"], selected["artifact_digest"])
+        self.assertEqual("false", expired["should_publish"])
+        self.assertIn("日期边界", expired["reason"])
