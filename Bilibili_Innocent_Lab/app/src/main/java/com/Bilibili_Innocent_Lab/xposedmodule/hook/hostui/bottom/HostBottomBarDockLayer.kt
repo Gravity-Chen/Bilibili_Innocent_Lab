@@ -57,6 +57,7 @@ internal class HostBottomBarDockLayer(
     private val hero = HostGarbHeroBinding(tabHost)
     private val heroLayoutListener = ViewTreeObserver.OnGlobalLayoutListener { hero.invalidate() }
     private var materialColors = HostChromeColors(isDark, palette.primary)
+    private val shadow = if (config.liquidGlass) HostBottomBarShadow(tabHost, config.heightDp / 2f) else null
 
     // 1. 独立大胶囊晶体滑块 (硬件加速子 View)
     val selectionView = View(context).apply {
@@ -112,6 +113,7 @@ internal class HostBottomBarDockLayer(
         if (disposed) return@OnPreDrawListener true
         refreshTabSlots()
         refreshMaterial()
+        shadow?.sync(materialColors.dark)
         if (config.liquidGlass) hero.refresh(materialColors.garbAccent != null)
         // 装扮异步图片/切页可只重置 visibility，不触发布局或普通 Tab 背景检查。
         if (config.liquidGlass && artworkId != 0) tabHost.findViewById<View>(artworkId)?.let(HostChromeArtwork::clear)
@@ -249,6 +251,7 @@ internal class HostBottomBarDockLayer(
 
         // 4. 实时透镜：只有真的动了才通知重采样（对齐模块 moved 门控的 onVisualMovement）。
         if (moved) backdrop?.onVisualMovement()
+        shadow?.sync(materialColors.dark)
     }
 
     /** 把点击交还宿主，拖动只预览页面并在松手时决定落点。 */
@@ -575,6 +578,7 @@ internal class HostBottomBarDockLayer(
         if (disposed) return
         resetInteraction()
         disposed = true
+        shadow?.detach()
         backdrop?.close()
     }
 
@@ -601,6 +605,7 @@ internal class HostBottomBarDockLayer(
         hero.restore()
         resetInteraction()
         backdrop?.detach()
+        shadow?.detach()
         super.onDetachedFromWindow()
     }
 }

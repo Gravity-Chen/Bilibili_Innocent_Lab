@@ -39,9 +39,9 @@ rootProject.name = "Bilibili_Innocent_Lab"
 
 include(":app")
 
-// Build the reviewed release source; core and motion always come from the same tag.
+// Pin core and motion together, including the unreleased external control shadow API.
 // Original parity extensions are upstream since 1.2.3; surface continuity since 1.4.1.
-val lumenRevision = "1.4.5"
+val lumenRevision = "7fe96e1a40d6b9fc3be446878b97dc22d5f7a51d"
 val hostVersionCatalog = file("gradle/libs.versions.toml").readText()
 check(hostVersionCatalog.contains("lumen-engine = \"$lumenRevision\"")) {
     "Update the Lumen source pin and archive checksum together with the catalog."
@@ -56,8 +56,7 @@ val lumenHostVersions = listOf("agp", "kotlin", "androidx-core-ktx", "androidx-a
             ?: error("Missing host version for Lumen: $name")
     }
 val lumenVersionFingerprint = lumenHostVersions.entries.joinToString("\n") { "${it.key}=${it.value}" }.toByteArray()
-val lumenPatches = listOf(file("gradle/lumen/acrylic-backdrop.patch"))
-val lumenSourceKey = digest(lumenPatches.fold(lumenVersionFingerprint) { bytes, patch -> bytes + patch.readBytes() })
+val lumenSourceKey = digest(lumenVersionFingerprint)
 val lumenCache = file(".gradle/lumen-source").apply { mkdirs() }
 val lumenDevelopmentSource = providers.gradleProperty("innocentLab.lumenDevelopmentSource").orNull?.let(::file)
 val lumenSource = lumenDevelopmentSource ?: lumenCache.resolve("${lumenRevision.take(12)}-${lumenSourceKey.take(12)}")
@@ -69,12 +68,12 @@ if (lumenDevelopmentSource != null) {
         channel.lock().use {
             if (!lumenSource.resolve(".prepared").isFile) {
                 val archive = lumenCache.resolve("$lumenRevision.zip")
-                val archiveHash = "84fe647935878fc26a06aea5d15c0fe7d9aa4a23aa1ef8f33d5310a190ae06b3"
+                val archiveHash = "f495104928e6cd491c11515a9f76173d95e4ca8cb097c493c5c188e6ccd203ff"
                 if (!archive.isFile) {
                     check(!gradle.startParameter.isOffline) {
                         "Lumen source is not cached. Run Gradle once without --offline to fetch the pinned archive."
                     }
-                    val connection = URI("https://codeload.github.com/jichuo1/LumenCoacervationEngine/zip/refs/tags/$lumenRevision")
+                    val connection = URI("https://codeload.github.com/jichuo1/LumenCoacervationEngine/zip/$lumenRevision")
                         .toURL().openConnection().apply { connectTimeout = 30_000; readTimeout = 30_000 }
                     val bytes = connection.getInputStream().use { it.readBytes() }
                     check(digest(bytes) == archiveHash) { "Lumen archive checksum mismatch." }
@@ -97,14 +96,6 @@ if (lumenDevelopmentSource != null) {
                         }
                     }
                 }
-                // Patch extracted sources only; the repository index and history are never modified.
-                val builder = ProcessBuilder(listOf("git", "-c", "core.longpaths=true", "apply",
-                    "--ignore-space-change", "--whitespace=error-all") + lumenPatches.map { it.absolutePath })
-                    .directory(lumenSource).redirectErrorStream(true)
-                builder.environment()["GIT_CEILING_DIRECTORIES"] = lumenCache.canonicalPath
-                val process = builder.start()
-                val output = process.inputStream.bufferedReader().use { it.readText() }
-                check(process.waitFor() == 0) { "Could not apply the pinned Lumen acrylic fix:\n$output" }
                 val sourceCatalog = lumenSource.resolve("gradle/libs.versions.toml")
                 var alignedCatalog = sourceCatalog.readText()
                 for ((name, version) in lumenHostVersions) {

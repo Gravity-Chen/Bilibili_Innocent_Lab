@@ -188,7 +188,7 @@ internal object HostBottomBarFxController {
             }
         }
         tabHost.clipToOutline = true
-        // 模块胶囊没有 elevation：投影会从半透明玻璃下透出灰边。
+        // 外侧软阴影由父级 overlay 绘制；平台 elevation 会从半透明玻璃内部透出灰边。
         tabHost.elevation = 0f
     }
 
