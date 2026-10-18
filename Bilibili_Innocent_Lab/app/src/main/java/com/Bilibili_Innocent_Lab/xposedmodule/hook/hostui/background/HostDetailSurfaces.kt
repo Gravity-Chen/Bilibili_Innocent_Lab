@@ -5,6 +5,7 @@ import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.TextView
 import com.lumen.coacervation.engine.host.LumenContentSource
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceMaterial
@@ -22,7 +23,9 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
     private enum class Role { HEADER, BODY, DIVIDER, INPUT, OVERLAY }
     private class Target(val role: Role, var binding: LumenSurfaceBinding? = null, var drawable: Drawable? = null,
         var overlay: HostDetailOverlay? = null) {
-        fun close() { overlay?.close() ?: binding?.close(); overlay = null; binding = null }
+        var texts = emptyList<WeakReference<TextView>>()
+        val contrast = HostWallpaperText()
+        fun close() { contrast.restore(); overlay?.close() ?: binding?.close(); overlay = null; binding = null }
     }
     private val panel = WeakReference(panel)
     private val targets = WeakHashMap<View, Target>()
@@ -40,8 +43,18 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
         val panel = panel.get() ?: return
         val found = HashMap<View, Role>()
         fun visit(view: View, depth: Int) {
-            if (depth > 24 || view is ImageView || HostBackgroundPages.protectedAncestor(view)) return
+            if (depth > 24 || view is ImageView) return
             if (view !== panel && HostBackgroundPages.owner(view)?.let { it !== panel } == true) return
+            if (HostDetailFloatLayers.tabSlot(view) && view is ViewGroup) {
+                if ((view.parent as? View)?.let(HostBackgroundPages::protectedAncestor) == true) return
+                // 服务会把分P、笔记、弹幕回复、选集等挂到同一槽位，不依赖每种业务面板的资源 id。
+                for (i in 0 until view.childCount) {
+                    val child = view.getChildAt(i)
+                    if (HostDetailFloatLayers.surface(child)) found[child] = Role.OVERLAY
+                }
+                return
+            }
+            if (HostBackgroundPages.protectedAncestor(view)) return
             val name = name(view)
             val role = when {
                 view.parent === panel && name == "tabs_back_board" -> Role.HEADER
@@ -51,7 +64,6 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
                 name == "fake_input_layout" -> Role.INPUT
                 name == "playlist_container" && view is ViewGroup &&
                     (0 until view.childCount).any { name(view.getChildAt(it)) == "layout_playlist" } -> Role.OVERLAY
-                chapterPanel(view) -> Role.OVERLAY
                 else -> null
             }
             if (role != null) found[view] = role
@@ -64,7 +76,20 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
             targets.remove(view)?.close()
             owned.remove(view)
         }
-        for ((view, role) in found) targets.getOrPut(view) { Target(role) }
+        for ((view, role) in found) {
+            val target = targets.getOrPut(view) { Target(role) }
+            if (role == Role.OVERLAY && HostDetailFloatLayers.contains(view)) {
+                target.contrast.restore()
+                val texts = ArrayList<WeakReference<TextView>>()
+                fun collect(node: View, depth: Int) {
+                    if (depth > 24 || HostBackgroundPages.protected(node)) return
+                    if (node is TextView) texts += WeakReference(node)
+                    else if (node is ViewGroup) for (i in 0 until node.childCount) collect(node.getChildAt(i), depth + 1)
+                }
+                collect(view, 0)
+                target.texts = texts
+            }
+        }
     }
 
     fun apply(night: Boolean) {
@@ -99,6 +124,9 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
             } else if (themeChanged) {
                 target.overlay?.update(options(target.role, night)) ?: target.binding?.update(options(target.role, night))
             }
+            // 槽位不再进入正文的文字遍历，磨砂浮层自行处理深色对比度，并在关闭时恢复。
+            if (night && view is ViewGroup) for (ref in target.texts) ref.get()?.let { target.contrast.apply(it, view) }
+            else target.contrast.restore()
         }
         val next = panel.background as? HostBackgroundDrawable
         val nextOffset = next?.scrollOffset ?: 0L
@@ -136,15 +164,6 @@ internal class HostDetailSurfaces(panel: ViewGroup, private val owned: MutableMa
     }
 
     private fun frosted(role: Role) = role == Role.HEADER || role == Role.OVERLAY
-
-    private fun chapterPanel(view: View): Boolean {
-        if (view !is ViewGroup || (view.parent as? View)?.let(::name) !in
-            setOf("fl_tab_pager_container", "fl_tab_content_container")) return false
-        // 章节浮层覆盖标签栏和正文；底板必须属于整层，不能只加在列表上让标题继续透出。
-        return (0 until view.childCount).any { name(view.getChildAt(it)) == "watchpoint_title" } &&
-            (0 until view.childCount).any { name(view.getChildAt(it)) == "watchpoint_close" } &&
-            (0 until view.childCount).any { name(view.getChildAt(it)) == "watchpoint_list" }
-    }
 
     fun detach() {
         for (target in targets.values) target.close()

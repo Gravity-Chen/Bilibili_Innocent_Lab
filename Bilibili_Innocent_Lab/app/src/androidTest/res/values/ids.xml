@@ -39,6 +39,8 @@
     <item name="playlist_container" type="id" />
     <item name="layout_playlist" type="id" />
     <item name="fl_tab_pager_container" type="id" />
+    <item name="fl_tab_content_container" type="id" />
+    <item name="fl_root_container" type="id" />
     <item name="watchpoint_title" type="id" />
     <item name="watchpoint_close" type="id" />
     <item name="watchpoint_list" type="id" />
