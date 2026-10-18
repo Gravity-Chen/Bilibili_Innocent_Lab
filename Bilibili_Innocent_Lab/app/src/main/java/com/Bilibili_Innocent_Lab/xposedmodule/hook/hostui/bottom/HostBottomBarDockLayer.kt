@@ -8,6 +8,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceScope
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
@@ -57,7 +58,8 @@ internal class HostBottomBarDockLayer(
     private val hero = HostGarbHeroBinding(tabHost)
     private val heroLayoutListener = ViewTreeObserver.OnGlobalLayoutListener { hero.invalidate() }
     private var materialColors = HostChromeColors(isDark, palette.primary)
-    private val shadow = if (config.liquidGlass) HostBottomBarShadow(tabHost, config.heightDp / 2f) else null
+    private val shadow = if (config.liquidGlass && config.appearance.material != HostGlassMaterial.PRISM)
+        HostBottomBarShadow(tabHost, config.heightDp / 2f) else null
 
     // 1. 独立大胶囊晶体滑块 (硬件加速子 View)
     val selectionView = View(context).apply {

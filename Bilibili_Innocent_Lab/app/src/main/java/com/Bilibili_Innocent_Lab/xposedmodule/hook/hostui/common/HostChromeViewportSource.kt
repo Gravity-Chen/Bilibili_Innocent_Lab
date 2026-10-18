@@ -14,9 +14,12 @@ import kotlin.math.floor
 /** 顶/底栏各自只录制实际取样范围；探针仍读取原生前景，保持原来的对比度补偿语义。 */
 internal class HostChromeViewportSource(
     private val source: HostChromeContentSource,
+    private val compositeView: Boolean = false,
     private val regions: (consumer: (View, Float, Float, Float) -> Unit) -> Unit
 ) : LumenVersionedContentSource, AutoCloseable {
     private val content = source.coordinateView as ViewGroup
+    // Prism's public entry accepts a View source. Keep its proxy outside the captured subtree.
+    private val proxyOwner = if (compositeView) content.rootView as ViewGroup else content
     private val mapping = ViewSamplingMatrix()
     private val matrix = Matrix()
     private val matrixValues = FloatArray(9)
@@ -31,14 +34,15 @@ internal class HostChromeViewportSource(
         override fun isShown(): Boolean = content.isShown
 
         override fun onDraw(canvas: Canvas) {
-            // Android may record even an alpha=0 overlay. Only the software legibility probe
-            // needs pixels here; re-entering the owner's hardware recording would recurse.
-            if (!canvas.isHardwareAccelerated && !drawing) draw(canvas, foregroundOnly = true)
+            // Ordinary proxies serve the software legibility probe only. Prism's public View
+            // source also records the composed scene on GPU, outside the captured subtree.
+            if (!drawing && (compositeView || !canvas.isHardwareAccelerated))
+                draw(canvas, foregroundOnly = !compositeView)
         }
     }.apply {
         alpha = 0f
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        content.overlay.add(this)
+        proxyOwner.overlay.add(this)
     }
     override val observeCoordinateViewInvalidations: Boolean get() = false
     override val sourceEpoch: Long get() = source.sourceEpoch
@@ -128,5 +132,5 @@ internal class HostChromeViewportSource(
         } finally { canvas.restoreToCount(saved); drawing = false }
     }
 
-    override fun close() { content.overlay.remove(coordinateView) }
+    override fun close() { proxyOwner.overlay.remove(coordinateView) }
 }

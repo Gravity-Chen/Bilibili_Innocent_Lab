@@ -1,7 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance
 
 internal enum class HostGlassMaterial(val value: String) {
-    SOFT("soft"), LIQUID("liquid");
+    SOFT("soft"), LIQUID("liquid"), PRISM("prism");
 
     companion object {
         fun parse(value: String?) = entries.firstOrNull { it.value == value } ?: SOFT
@@ -19,13 +19,13 @@ internal enum class HostGlassRenderer(val value: String) {
     }
 }
 
-/** 保存用户意图；Liquid 临时使用自动渲染，不覆盖柔光之前的后端选择。 */
+/** 保存用户意图；折射材质使用自动渲染，不覆盖柔光之前的后端选择。 */
 internal data class HostChromeAppearance(
     val material: HostGlassMaterial = HostGlassMaterial.SOFT,
     val renderer: HostGlassRenderer = HostGlassRenderer.AUTO
 ) {
     val effectiveRenderer: HostGlassRenderer
-        get() = if (material == HostGlassMaterial.LIQUID) HostGlassRenderer.AUTO else renderer
+        get() = if (material != HostGlassMaterial.SOFT) HostGlassRenderer.AUTO else renderer
 
     fun compatible(api: Int) = if (api < 33 && material == HostGlassMaterial.LIQUID)
         copy(material = HostGlassMaterial.SOFT) else this
