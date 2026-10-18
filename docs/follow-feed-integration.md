@@ -2,7 +2,7 @@
 
 ## 依赖与边界
 
-catalog 保留 JitPack 的 `com.github.jichuo1.LumenCoacervationEngine:lumen-engine` 和 `lumen-motion`，基线统一固定为上游正式标签 `1.2.6`。Android settings 的复合构建同时替换两个模块，实际 APK 不混入旧 JitPack 类。线性淡出等历史公共扩展已在 1.2.3 被上游吸收；当前仅应用纯色罩更新保留采样的表面连续性补丁。源码下载校验、工具链对齐、补丁与升级方法见 [接入说明](../Bilibili_Innocent_Lab/gradle/lumen/README.md)。此前发布依赖 1.0.0 不包含局部表面与分段组件；没有使用浮动版本、修改包名或发布依赖。
+catalog 中的 `com.github.jichuo1.LumenCoacervationEngine:lumen-engine` 和 `lumen-motion` 统一固定为正式版 `1.5.0`，直接使用 JitPack Maven 产物。线性淡出、表面连续性与亚克力保色等历史扩展均已由上游吸收，不再使用源码复合构建或本地补丁。依赖和源码契约测试的升级方法见 [接入说明](../Bilibili_Innocent_Lab/gradle/lumen/README.md)。
 
 这是对宿主原生 RecyclerView/TabLayout 的 LSPosed 局部适配，正文及部分辅助内容仍由宿主 Compose 实现。沿用 `HOST_VIDEO_CARDS` 开关与 `HostChromeTheme` 主题源；不接管 Activity、Window、系统栏配置和播放器。状态栏背后的渐隐表面只属于关注页。现有 `HostBottomBarFxController` 及其历史内嵌材质会话保持不变，没有迁移到底部以外的新会话。
 
@@ -36,7 +36,7 @@ catalog 保留 JitPack 的 `com.github.jichuo1.LumenCoacervationEngine:lumen-eng
 
 主题变化通过现有主题源驱动 `updatePalette`、分段前景及已显示模块前景，并影响随后复用的模块。宿主 Compose 正文、富文本链接、认证装饰等继续使用宿主原主题和语义，不直接修改其 Compose 内部实现。
 
-今后统一材质或尺寸调整集中改 `FollowFeedStyle`；生命周期、分组和原背景协调集中改 `FollowFeedController`；混淆契约集中改 `FollowFeedHostAccess` 与安装器。升级引擎时统一更新 catalog 和源码提交/校验，并核对公开契约及像素测试；上游提供线性渐隐后移除公共补丁与复合构建入口。页面只组合公开配置，无需逐个修改散落的自绘实现。
+今后统一材质或尺寸调整集中改 `FollowFeedStyle`；生命周期、分组和原背景协调集中改 `FollowFeedController`；混淆契约集中改 `FollowFeedHostAccess` 与安装器。升级引擎时统一更新 catalog 中的稳定版版本，并核对公开契约及像素测试。页面只组合公开配置，无需逐个修改散落的自绘实现。
 
 ## 可执行验证与实际范围
 
@@ -113,4 +113,4 @@ catalog 保留 JitPack 的 `com.github.jichuo1.LumenCoacervationEngine:lumen-eng
 
 修复 APK 已覆盖安装并冷启动宿主，复测滚动和返回；实际画面为 `captures/follow-linear-rest.png`、`follow-linear-scroll.png`、`follow-linear-final.png`，视图树仍确认官方外层标题 GONE、原底栏 `104,2175–976,2307`。日志为 `follow-linear-build.log`、`follow-linear-regression.log`、`follow-linear-engine-checks.log`、`follow-linear-lint.log`、`follow-linear-instrumentation.log`、`follow-linear-bottom-player.log`、`follow-linear-gpu-pixels.log`、`follow-linear-diagnostics.log`。
 
-本次宿主诊断观察到 SOFTWARE / GPU_UNAVAILABLE 回退，同时 GPU 绘制计数非零；独立 GPU 像素检查通过，不能据此把该次宿主回退说成 GPU / NONE。卡片、分段依然不采样，顶部融合按需录制，原底栏自身会话未更改。完整深色、横屏/平板及其他 Android 版本画面仍未验收，不声明零性能回退。首次复合构建须下载固定源码并补齐依赖缓存，之后可离线；上游合入等效能力后可撤掉补丁，页面继续使用集中公开配置。
+本次宿主诊断观察到 SOFTWARE / GPU_UNAVAILABLE 回退，同时 GPU 绘制计数非零；独立 GPU 像素检查通过，不能据此把该次宿主回退说成 GPU / NONE。卡片、分段依然不采样，顶部融合按需录制，原底栏自身会话未更改。完整深色、横屏/平板及其他 Android 版本画面仍未验收，不声明零性能回退。当前稳定版首次构建须下载 Maven 依赖及测试源码包，之后可离线；页面继续使用集中公开配置。
