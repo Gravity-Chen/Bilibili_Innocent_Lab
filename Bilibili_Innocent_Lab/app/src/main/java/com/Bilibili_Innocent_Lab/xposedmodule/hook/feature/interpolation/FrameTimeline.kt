@@ -208,6 +208,6 @@ internal class FrameTimeline(targetFps: Int, private val maxClockAgeNs: Long = 2
         private const val NS_PER_SECOND = 1_000_000_000L
         private const val MAX_FRAMES = 4
         private const val MAX_CLOCK_UNCERTAINTY_US = 2_000L
-        private val SUPPORTED_FPS = setOf(0, 15, 30, 45, 60)
+        private val SUPPORTED_FPS = setOf(0, 15, 30, 45, 60, 120, 144, 165, 185)
     }
 }

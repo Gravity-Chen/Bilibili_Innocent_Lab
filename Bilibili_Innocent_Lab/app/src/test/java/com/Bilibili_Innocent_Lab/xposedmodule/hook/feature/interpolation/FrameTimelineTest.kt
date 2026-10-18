@@ -69,7 +69,7 @@ class FrameTimelineTest {
     }
 
     @Test fun `all target cadences keep nanosecond remainder without long term drift`() {
-        for (fps in listOf(15, 30, 45, 60)) {
+        for (fps in listOf(15, 30, 45, 60, 120, 144, 165, 185)) {
             val timeline = FrameTimeline(fps)
             val lease = timeline.begin(epoch).lease
             for (index in 0..fps * 4) {
@@ -81,6 +81,34 @@ class FrameTimelineTest {
                 assertEquals(due, proposal.dueNs)
                 assertTrue(proposal.isOriginal)
                 assertTrue(timeline.commit(proposal, due))
+            }
+        }
+    }
+
+    @Test fun `low frame sources reserve motion interpolation at every higher target slot`() {
+        for (fps in listOf(120, 144, 165, 185)) {
+            for (sourceIntervalUs in listOf(33_333L, 41_667L)) {
+                val timeline = FrameTimeline(fps)
+                val lease = timeline.begin(epoch).lease
+                timeline.updateClock(lease, clock())
+                timeline.offer(lease, Frame(1L, 0L))
+                timeline.offer(lease, Frame(2L, sourceIntervalUs))
+                assertTrue(timeline.commit(ready(timeline, lease, 0L), 0L))
+                var tick = 1L
+                while ((tick * 1_000_000_000L / fps / 1_000.0).roundToLong() < sourceIntervalUs) {
+                    val due = tick * 1_000_000_000L / fps
+                    val proposal = ready(timeline, lease, due)
+                    assertEquals(due, proposal.dueNs)
+                    assertEquals(Mode.INTERPOLATE, proposal.mode)
+                    assertEquals(1L, proposal.before.id)
+                    assertEquals(2L, proposal.after.id)
+                    assertEquals((due / 1_000.0).roundToLong().toDouble() / sourceIntervalUs,
+                        proposal.alpha, 0.0000001)
+                    assertTrue(timeline.commit(proposal, due))
+                    tick++
+                }
+                assertEquals(Reason.NO_FUTURE_FRAME,
+                    waiting(timeline, lease, sourceIntervalUs * 1_000L + 1_000L))
             }
         }
     }
@@ -320,21 +348,23 @@ class FrameTimelineTest {
     }
 
     @Test fun `changing target or disabling releases inputs and cannot revive an old proposal`() {
-        val timeline = FrameTimeline(60)
-        val oldLease = timeline.begin(epoch).lease
-        timeline.offer(oldLease, Frame(1L, 0L))
-        val old = readyAfterClock(timeline, oldLease)
-        val next = timeline.begin(epoch, targetFps = 45)
-        assertEquals(listOf(1L), next.discardedIds)
-        assertFalse(timeline.valid(old, 0L))
-        timeline.updateClock(next.lease, clock())
-        timeline.offer(next.lease, Frame(2L, 0L))
-        assertTrue(timeline.commit(ready(timeline, next.lease, 0L), 0L))
-        timeline.offer(next.lease, Frame(3L, 100_000L))
-        assertEquals(22_222_222L, ready(timeline, next.lease, 0L).dueNs)
-        val off = timeline.begin(epoch, targetFps = 0)
-        assertEquals(listOf(2L, 3L), off.discardedIds)
-        assertEquals(Reason.DISABLED, waiting(timeline, off.lease, 0L))
+        for (fps in listOf(45, 120, 144, 165, 185)) {
+            val timeline = FrameTimeline(60)
+            val oldLease = timeline.begin(epoch).lease
+            timeline.offer(oldLease, Frame(1L, 0L))
+            val old = readyAfterClock(timeline, oldLease)
+            val next = timeline.begin(epoch, targetFps = fps)
+            assertEquals(listOf(1L), next.discardedIds)
+            assertFalse(timeline.valid(old, 0L))
+            timeline.updateClock(next.lease, clock())
+            timeline.offer(next.lease, Frame(2L, 0L))
+            assertTrue(timeline.commit(ready(timeline, next.lease, 0L), 0L))
+            timeline.offer(next.lease, Frame(3L, 100_000L))
+            assertEquals(1_000_000_000L / fps, ready(timeline, next.lease, 0L).dueNs)
+            val off = timeline.begin(epoch, targetFps = 0)
+            assertEquals(listOf(2L, 3L), off.discardedIds)
+            assertEquals(Reason.DISABLED, waiting(timeline, off.lease, 0L))
+        }
     }
 
     @Test fun `leases are bound to timeline identity even with equal epoch values`() {
@@ -433,7 +463,7 @@ class FrameTimelineTest {
     }
 
     @Test fun `unsupported target and nonpositive clock age are rejected before use`() {
-        for (fps in listOf(-1, 24, 120)) {
+        for (fps in listOf(-1, 24, 119, 121, 143, 145, 164, 166, 184, 186, 240)) {
             try { FrameTimeline(fps); fail("Unsupported target") } catch (_: IllegalArgumentException) { }
         }
         try { FrameTimeline(60, 0L); fail("Invalid clock lifetime") } catch (_: IllegalArgumentException) { }
