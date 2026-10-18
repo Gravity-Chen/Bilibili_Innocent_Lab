@@ -176,7 +176,6 @@ class HookEntry : XposedModule() {
 
     private val modernRuntime = ModernHookRuntime(this)
     private val targetHooksStarted = java.util.concurrent.atomic.AtomicBoolean(false)
-    private val systemHooksStarted = java.util.concurrent.atomic.AtomicBoolean(false)
 
     @Volatile
     private var loadedProcessName: String = ""
@@ -5040,6 +5039,12 @@ class HookEntry : XposedModule() {
                                 authorizationAttempted.set(false)
                                 frameworkLog("[BIL] 宿主 Activity 已恢复，执行前台授权重试")
                                 authorizeAndInstall(activity.applicationContext, application)
+                                if (authorizedHooksInstalled.get()) {
+                                    HostThreadGuard.run("roaming.lifecycle-retry") {
+                                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher
+                                            .initializeHost(activity)
+                                    }
+                                }
                             }
 
                             override fun onActivityResumed(activity: android.app.Activity) = retry(activity)
@@ -5093,6 +5098,14 @@ class HookEntry : XposedModule() {
                             args.firstOrNull() as? Context,
                             args.firstOrNull() as? android.app.Application
                         )
+                        if (processName == TARGET_PACKAGE && authorizedHooksInstalled.get()) {
+                            (args.firstOrNull() as? android.app.Application)?.let { application ->
+                                HostThreadGuard.run("roaming.lifecycle") {
+                                    com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher
+                                        .initializeHost(application)
+                                }
+                            }
+                        }
                     }
                     after {
                         applicationOnCreateCompleted.set(true)
@@ -5112,79 +5125,4 @@ class HookEntry : XposedModule() {
                 frameworkLog("[BIL] callApplicationOnCreate 授权 bootstrap 注册失败", throwable)
             }
         }
-        // ====== system_server：允许模块 App 在后台启动界面（代开漫游设置） ======
-        // 背景：本机 MIUI 上 B 站进程对任何其他包都不可见（系统级包可见性隔离），
-        // 「我的」页「哔哩漫游设置」入口的点击走「B 站 → 显式广播 → 模块 App
-        // RoamingOpenReceiver → startActivity 代开漫游设置」链路；但 MIUI 的
-        // ActivityStarter#shouldAbortBackgroundActivityStart 对 RECEIVER 状态且无
-        // 可见窗口的应用一律拦掉后台界面启动（allowBackgroundActivityStart=false），
-        // 导致接收器里的 startActivity 被静默丢弃。此处 hook 该方法，仅对本模块包
-        // 放行（返回 false=不拦），其余调用方行为不变。普通设备上模块可见性正常、
-        // 直接 startActivity 即可，本 hook 不起作用也不影响任何行为。
-    override fun onSystemServerStarting(param: XposedModuleInterface.SystemServerStartingParam) {
-        if (!systemHooksStarted.compareAndSet(false, true)) return
-        installSystemHooks(param.classLoader)
-    }
-
-    private fun installSystemHooks(systemClassLoader: ClassLoader) {
-            runCatching {
-                val cl = systemClassLoader
-                val starterClass = KavaMemberLookup.classOrNull(cl, "com.android.server.wm.ActivityStarter")
-                    ?: throw ClassNotFoundException("com.android.server.wm.ActivityStarter")
-                val wpcClass = KavaMemberLookup.classOrNull(cl, "com.android.server.wm.WindowProcessController")
-                    ?: throw ClassNotFoundException("com.android.server.wm.WindowProcessController")
-                val pirClass = KavaMemberLookup.classOrNull(cl, "com.android.server.am.PendingIntentRecord")
-                    ?: throw ClassNotFoundException("com.android.server.am.PendingIntentRecord")
-                val method = KavaMemberLookup.methodOrNull(
-                    starterClass,
-                    "shouldAbortBackgroundActivityStart",
-                    classOf<Int>(),
-                    classOf<Int>(),
-                    classOf<String>(),
-                    classOf<Int>(),
-                    classOf<Int>(),
-                    wpcClass,
-                    pirClass,
-                    classOf<Boolean>(),
-                    classOf<android.content.Intent>(),
-                    classOf<android.app.ActivityOptions>()
-                ) ?: throw NoSuchMethodException("ActivityStarter#shouldAbortBackgroundActivityStart")
-                modernRuntime.install("system:allow-module-background-start", method) {
-                    before {
-                        // 仅对本模块包放行（其接收器代开漫游设置界面时处于后台）
-                        if (argOrNull(2) == MODULE_PACKAGE) {
-                            result = false
-                        }
-                    }
-                }
-            }.onFailure {
-                frameworkLog("[BIL-System] ActivityStarter hook 注册失败", it)
-            }
-            // MIUI 第二层检查：com.android.server.wm.ActivityStarterImpl#isAllowedStartActivity
-            // （miui-services.jar）在 AOSP 的 shouldAbortBackgroundActivityStart 之后执行，
-            // 未通过时把启动重定向到安全中心的确认弹窗（wakepath）。同样仅对本模块包放行。
-            runCatching {
-                val cl = systemClassLoader
-                val starterImplClass = KavaMemberLookup.classOrNull(
-                    cl,
-                    "com.android.server.wm.ActivityStarterImpl"
-                ) ?: throw ClassNotFoundException("com.android.server.wm.ActivityStarterImpl")
-                val method = KavaMemberLookup.methodOrNull(
-                    starterImplClass,
-                    "isAllowedStartActivity",
-                    classOf<Int>(),
-                    classOf<Int>(),
-                    classOf<String>()
-                ) ?: throw NoSuchMethodException("ActivityStarterImpl#isAllowedStartActivity")
-                modernRuntime.install("system:allow-module-background-start-miui", method) {
-                    before {
-                        if (argOrNull(2) == MODULE_PACKAGE) {
-                            result = true
-                        }
-                    }
-                }
-            }.onFailure {
-                frameworkLog("[BIL-System] ActivityStarterImpl hook 注册失败", it)
-            }
-    }
 }

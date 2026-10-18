@@ -13,6 +13,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.CrossAppBroadcastCompat
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetProcess
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.config.HookConfigSource
@@ -602,33 +603,8 @@ object RoamingCompatHook {
             logInfo("br_mine_click", "$LOG_PREFIX 已打开哔哩漫游设置")
             return
         }
-        // 兜底：本机 B 站进程对任何其他包都不可见（系统级包可见性隔离），直接
-        // 启动抛 ActivityNotFoundException，Provider 通道同样被隔离（Unknown
-        // authority）。改用显式广播到本模块 App（广播投递不受包可见性过滤），
-        // 由 RoamingOpenReceiver 以模块 App 身份代开漫游设置。
-        //
-        // 这里不再随广播附带 B 站自建的一次性 PendingIntent（2026-09-04 撤回）：
-        // `PendingIntent.send()` 仍以创建者（B 站）的 uid 与包可见性解析目标组件，
-        // 与上面刚失败的 `context.startActivity` 完全同源；本分支被执行的前提就是
-        // 那次解析已经失败，回放必然拿到 START_CLASS_NOT_FOUND。详见长期文档
-        // 2026-09-04 条目。
-        runCatching {
-            val modulePackage = "com.Bilibili_Innocent_Lab.xposedmodule"
-            val receiverClass = "$modulePackage.receiver.RoamingOpenReceiver"
-            val intent = Intent(
-                com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver.ACTION_OPEN_ROAMING_SETTINGS
-            )
-                .setComponent(android.content.ComponentName(modulePackage, receiverClass))
-                .putExtra(
-                    com.Bilibili_Innocent_Lab.xposedmodule.receiver.RoamingOpenReceiver
-                        .EXTRA_REQUEST_ELAPSED_REALTIME,
-                    android.os.SystemClock.elapsedRealtime()
-                )
-            CrossAppBroadcastCompat.sendBroadcast(context, intent)
-            logInfo("br_mine_click", "$LOG_PREFIX 已请求打开哔哩漫游设置（经模块 App 代开）")
-        }.onFailure { t ->
-            logError("br_mine_click_err", "$LOG_PREFIX 代开哔哩漫游设置失败: $t")
-        }
+        // 可见性隔离时由模块创建固定目标凭证，仍由前台宿主发送；不在后台接收器启动页面。
+        RoamingSettingsLauncher.request(context)
     }
 
     /**

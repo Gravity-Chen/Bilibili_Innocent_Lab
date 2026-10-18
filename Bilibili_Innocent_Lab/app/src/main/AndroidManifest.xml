@@ -129,8 +129,8 @@
 
         <!--
             漫游设置入口点击中转：B 站进程对本模块不可见（无法用 Provider），
-            点击「哔哩漫游设置」时 B 站发送显式广播到本接收器，由模块 App
-            代开 me.iacn.biliroaming 的设置界面（见 RoamingOpenReceiver）。
+            点击「哔哩漫游设置」时 B 站发送显式广播到本接收器，模块返回固定目标
+            凭证，由仍可见的 B 站发送并接受系统启动策略检查（见 RoamingOpenReceiver）。
         -->
         <receiver
             android:name=".receiver.RoamingOpenReceiver"
