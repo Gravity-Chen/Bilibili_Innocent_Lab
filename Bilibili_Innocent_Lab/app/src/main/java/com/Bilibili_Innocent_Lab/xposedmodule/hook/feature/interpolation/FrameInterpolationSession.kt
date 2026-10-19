@@ -12,6 +12,7 @@ import java.nio.ByteBuffer
  * - CAPTURE：[capture] 填充期间；交给 TIMELINE 后立即释放。插帧输出在推理期间也以 CAPTURE 持有。
  * - TIMELINE：时间线窗口内；被淘汰、替换、拒绝或 epoch 撤销时按 discardedIds 释放。
  * - WORKER：推理任务的两张输入；任务结束（含超时/撤销后迟到的结束）才释放。
+ * - COMPARISON：锁外去重比较的上一张输入；比较结束才释放，epoch 撤销不能使它提前回收。
  * - PRESENTER：交给 Presenter 后，直到它调用 done；每次交付一份持有，重复 done 只生效一次。
  *
  * epoch（暂停倍率变化、seek、Surface 或格式变化）由外层 [begin] 换代：TIMELINE 立即归还，
@@ -146,11 +147,20 @@ internal class FrameInterpolationSession(
         }
         val buffer = ledger.buffer(slot.frameId, Holder.CAPTURE)
         val filled = buffer?.let { runCatching { fill(it, slot.format) }.getOrDefault(false) }
-        // 去重比较在锁外：缓冲只由本（捕获）线程取用与复用，前一帧的像素在比较期间不会被改写。
-        val previous = synchronized(this) { lastAcceptedId.takeIf { consecutiveDuplicates < maxConsecutiveDuplicates } }
         val compare = duplicate
-        val isDuplicate = filled == true && buffer != null && previous != null && compare != null &&
-            ledger.buffer(previous, Holder.TIMELINE)?.let { runCatching { compare(it, buffer, slot.format) }.getOrDefault(false) } == true
+        // 比较保持在锁外，但必须独立持有上一帧：驱动线程可在此时撤销 TIMELINE，seek/close 也可换代。
+        val previous = if (filled == true && compare != null) synchronized(this) {
+            lastAcceptedId?.takeIf { lease === current && phase == Phase.ACTIVE &&
+                consecutiveDuplicates < maxConsecutiveDuplicates && ledger.retain(it, Holder.COMPARISON) }
+        } else null
+        val isDuplicate = try {
+            previous != null && buffer != null && compare != null &&
+                ledger.buffer(previous, Holder.COMPARISON)?.let {
+                    runCatching { compare(it, buffer, slot.format) }.getOrDefault(false)
+                } == true
+        } finally {
+            previous?.let { ledger.release(it, Holder.COMPARISON) }
+        }
         synchronized(this) {
             if (isDuplicate && lease === current) {
                 consecutiveDuplicates++
@@ -161,8 +171,8 @@ internal class FrameInterpolationSession(
                 ledger.release(slot.frameId, Holder.CAPTURE); return null
             }
             consecutiveDuplicates = 0
-            lastAcceptedId = slot.frameId
             val offered = timeline.offer(current, FrameTimeline.Frame(slot.frameId, ptsUs))
+            if (offered.accepted) lastAcceptedId = slot.frameId
             ledger.releaseAll(offered.discardedIds, Holder.TIMELINE)
             ledger.release(slot.frameId, Holder.CAPTURE)
             return slot.frameId.takeIf { offered.accepted }

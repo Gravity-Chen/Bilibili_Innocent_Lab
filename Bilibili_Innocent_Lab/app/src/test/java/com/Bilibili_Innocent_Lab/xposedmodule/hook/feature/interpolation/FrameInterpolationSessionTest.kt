@@ -120,6 +120,85 @@ class FrameInterpolationSessionTest {
         assertEquals(1, synth.closed)
     }
 
+    @Test fun `teardown cannot recycle the previous frame while duplicate comparison is reading it`() {
+        val ledger = FrameBufferLedger(3) { ByteBuffer.allocate(it) }
+        val comparing = java.util.concurrent.CountDownLatch(1)
+        val resume = java.util.concurrent.CountDownLatch(1)
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        val session = FrameInterpolationSession(60, ledger, synth, { tasks += it; true }, screen, { now },
+            duplicate = { previous, _, _ ->
+                comparing.countDown()
+                check(resume.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                if (previous.get(0) != 1.toByte()) failure.set(AssertionError("previous pixels changed during teardown"))
+                false
+            })
+        assertTrue(session.begin(epoch(1L), 4, 2))
+        val previous = session.capture(0L, 1)!!
+        val capturing = Thread {
+            try { assertNull(session.capture(33_333L, 2)) } catch (t: Throwable) { failure.set(t) }
+        }
+        capturing.start()
+        try {
+            assertTrue(comparing.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            session.close()
+            assertNotNull("comparison needs a hold independent of the revoked timeline", ledger.format(previous))
+            assertFalse(ledger.drained())
+        } finally {
+            resume.countDown()
+            capturing.join(5_000)
+        }
+        assertFalse(capturing.isAlive)
+        failure.get()?.let { throw AssertionError("capture failed", it) }
+        drain()
+        assertTrue(ledger.drained())
+    }
+
+    @Test fun `seek during duplicate comparison cannot reuse its pixels or admit its stale capture`() {
+        val ledger = FrameBufferLedger(3) { ByteBuffer.allocate(it) }
+        lateinit var session: FrameInterpolationSession
+        var comparisons = 0
+        var restarted = false
+        var nextFrame: Long? = null
+        var liveDuringComparison = 0
+        var previousPixel: Byte? = null
+        session = FrameInterpolationSession(60, ledger, synth, { tasks += it; true }, screen, { now },
+            duplicate = { previous, _, _ ->
+                comparisons++
+                restarted = session.begin(epoch(2L), 4, 2)
+                nextFrame = session.capture(0L, 9)
+                liveDuringComparison = ledger.stats().live
+                previousPixel = previous.get(0)
+                false
+            })
+        assertTrue(session.begin(epoch(1L), 4, 2))
+        assertNotNull(session.capture(0L, 1))
+        assertNull(session.capture(33_333L, 2))
+        assertEquals(1, comparisons)
+        assertTrue(restarted)
+        assertNotNull(nextFrame)
+        assertEquals("old frame is still pinned beside the new capture", 3, liveDuringComparison)
+        assertEquals(1.toByte(), previousPixel)
+        assertEquals(1, ledger.stats().live)
+        assertTrue(ledger.outstanding(Holder.COMPARISON).isEmpty())
+        session.close()
+        drain()
+        assertTrue(ledger.drained())
+    }
+
+    @Test fun `duplicate comparator failure releases its hold and accepts the source frame`() {
+        val ledger = FrameBufferLedger(3) { ByteBuffer.allocate(it) }
+        val session = FrameInterpolationSession(60, ledger, synth, { tasks += it; true }, screen, { now },
+            duplicate = { _, _, _ -> throw IllegalStateException("comparison failed") })
+        assertTrue(session.begin(epoch(1L), 4, 2))
+        assertNotNull(session.capture(0L, 1))
+        assertNotNull(session.capture(33_333L, 2))
+        assertTrue(ledger.outstanding(Holder.COMPARISON).isEmpty())
+        assertEquals(0L, session.snapshot().deduplicated)
+        session.close()
+        drain()
+        assertTrue(ledger.drained())
+    }
+
     @Test fun `seek during inference discards the stale result and releases all its holds`() {
         val (session, ledger, ids) = playing()
         session.tick(0L)

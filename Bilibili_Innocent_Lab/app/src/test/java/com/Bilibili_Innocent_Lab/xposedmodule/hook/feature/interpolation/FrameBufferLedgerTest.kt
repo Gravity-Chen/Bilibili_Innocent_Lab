@@ -22,6 +22,8 @@ class FrameBufferLedgerTest {
         val first = ledger.acquire()!!
         val second = ledger.acquire()!!
         assertNull(ledger.acquire())
+        assertEquals(1L, ledger.stats().exhausted)
+        assertEquals(2, ledger.stats().peakLive)
         assertEquals(2, allocations)
         assertEquals(4 * 2 * 3, ledger.buffer(first.frameId, Holder.CAPTURE)!!.capacity())
         assertNotEquals(first.frameId, second.frameId)
@@ -110,5 +112,6 @@ class FrameBufferLedgerTest {
         assertTrue(ledger.configure(4, 2))
         assertNull(ledger.acquire())
         assertEquals(0, ledger.stats().allocated)
+        assertEquals("allocation failure is not pool exhaustion", 0L, ledger.stats().exhausted)
     }
 }

@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong
  * 正式插帧路径的帧缓冲所有权账本：唯一负责分配、记账、回收与释放 RGB8 直接缓冲。
  *
  * - 分配：只有 [acquire] 分配，且总数不超过 maxBuffers；耗尽时返回 null（背压），绝不越界分配。
- * - 持有：每张帧由若干 [Holder] 共同持有；CAPTURE/TIMELINE/WORKER 对同一帧至多一份，重复 retain 被拒绝；
+ * - 持有：每张帧由若干 [Holder] 共同持有；CAPTURE/TIMELINE/WORKER/COMPARISON 对同一帧至多一份，重复 retain 被拒绝；
  *   PRESENTER 可叠加（同一原帧连续占用多个高帧率槽位），每份各自 release 一次，多余的 release 被拒绝。
  * - 访问：[buffer] 只对当前持有者返回视图，释放后的 ID 永远拿不到缓冲，杜绝 use-after-release。
  * - 回收：最后一个持有者释放时，若格式代次未变且账本未关闭则回到空闲表并换发新帧 ID；
@@ -19,15 +19,16 @@ internal class FrameBufferLedger(
     private val maxBuffers: Int,
     private val allocate: (Int) -> ByteBuffer = ByteBuffer::allocateDirect
 ) {
-    enum class Holder { CAPTURE, TIMELINE, WORKER, PRESENTER }
+    enum class Holder { CAPTURE, TIMELINE, WORKER, PRESENTER, COMPARISON }
     data class Format(val width: Int, val height: Int, val stride: Int) {
         val bytes: Int get() = ((height - 1L) * stride + width * 3L).toInt()
     }
     data class Slot(val frameId: Long, val format: Format)
-    data class Stats(val allocated: Int, val live: Int, val idle: Int, val recycled: Long, val discarded: Long)
+    data class Stats(val allocated: Int, val live: Int, val idle: Int, val recycled: Long, val discarded: Long,
+                     val peakLive: Int, val exhausted: Long)
 
     private class Entry(val buffer: ByteBuffer, val generation: Long, val format: Format) {
-        val holders = HashMap<Holder, Int>(4)
+        val holders = HashMap<Holder, Int>(5)
     }
 
     private val live = HashMap<Long, Entry>()
@@ -37,6 +38,8 @@ internal class FrameBufferLedger(
     private var allocated = 0
     private var recycled = 0L
     private var discarded = 0L
+    private var peakLive = 0
+    private var exhausted = 0L
     private var closed = false
 
     init { require(maxBuffers in 1..MAX_BUFFERS) }
@@ -59,11 +62,12 @@ internal class FrameBufferLedger(
         if (closed) return null
         val buffer = idle.removeFirstOrNull() ?: if (allocated < maxBuffers) {
             runCatching { allocate(current.bytes) }.getOrNull()?.also { allocated++ } ?: return null
-        } else return null
+        } else { exhausted++; return null }
         buffer.clear()
         // 多个播放器会话共享原生引擎；ID 必须跨账本唯一，否则显存缓存会命中上一段视频。
         val id = nextFrameId.getAndIncrement()
         live[id] = Entry(buffer, generation, current).also { it.holders[Holder.CAPTURE] = 1 }
+        peakLive = maxOf(peakLive, live.size)
         return Slot(id, current)
     }
 
@@ -112,7 +116,7 @@ internal class FrameBufferLedger(
     }
 
     @Synchronized fun drained(): Boolean = closed && live.isEmpty() && allocated == 0
-    @Synchronized fun stats() = Stats(allocated, live.size, idle.size, recycled, discarded)
+    @Synchronized fun stats() = Stats(allocated, live.size, idle.size, recycled, discarded, peakLive, exhausted)
 
     private fun dropIdle() {
         discarded += idle.size
