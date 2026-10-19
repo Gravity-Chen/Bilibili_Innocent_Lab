@@ -96,13 +96,22 @@ internal class FrameCaptureBridge private constructor(
         }
     }
 
-    private fun start(): Boolean {
+    /**
+     * attach 非空为「迟接管」：解码器已在原生播放（冷启动时引擎尚未就绪），先建好捕获 Surface，
+     * 由 attach 把运行中的解码器切过来（setOutputSurface 会断开其对显示 Surface 的连接），之后呈现器才能连接显示 Surface；
+     * 任何一步失败都把解码器切回显示 Surface。
+     */
+    private fun start(attach: ((Surface) -> Boolean)? = null): Boolean {
         engine.prewarm(width, height)
-        if (!presenter.start()) return false
         power = FramePowerAdvisor(host.context(), 1_000_000_000L / config.targetFps)
         val listener = FrameGlCapture.FrameListener { timestamp, arrival, read -> onFrame(timestamp, arrival, read) }
         val surface = capture.start(listener) ?: return false
         captureSurface = surface
+        if (attach != null && !attach(surface)) return false
+        if (!presenter.start()) {
+            if (attach != null) runCatching { codec.setOutputSurface(display) }
+            return false
+        }
         capture.handler.post { Choreographer.getInstance().postFrameCallback(frameCallback) }
         host.log("bridge.start", "${width}x$height")
         return true
@@ -222,7 +231,7 @@ internal class FrameCaptureBridge private constructor(
                 "inferUs=${snapshot.averageInferenceUs} leadUs=${snapshot.averageLeadUs} delayUs=${session.effectiveDelayUs()} " +
                 "planned=${snapshot.planned} source=${cadence.describe()} audioDelayUs=$audioDelayUs " +
                 "staticSkips=${engine.staticSkips.get()} cutSkips=${engine.sceneCutSkips.get()} " +
-                "guardUs=${engine.lastGuardUs} nativeUs=${engine.lastNativeUs} thermal=${power?.lastHeadroom}")
+                "guardUs=${engine.lastGuardUs} nativeUs=${engine.lastNativeUs} thermal=${power?.lastHeadroom} batteryC=${power?.lastBatteryC}")
         }
     }
 
@@ -260,11 +269,14 @@ internal class FrameCaptureBridge private constructor(
          * 无加密、尺寸在范围内且推理引擎已就绪的视频解码器。
          */
         fun create(config: Config, codec: MediaCodec, format: MediaFormat, display: Surface, crypto: Any?,
-                   engine: FrameInterpolationEngineHolder, host: Host, requestedTargetFps: Int? = null): FrameCaptureBridge? {
+                   engine: FrameInterpolationEngineHolder, host: Host, requestedTargetFps: Int? = null,
+                   attach: ((Surface) -> Boolean)? = null): FrameCaptureBridge? {
             if (!engine.ready()) { host.log("bridge.skip", "engine:${engine.state}"); return null }
             val width = runCatching { format.getInteger(MediaFormat.KEY_WIDTH) }.getOrNull() ?: return null
             val height = runCatching { format.getInteger(MediaFormat.KEY_HEIGHT) }.getOrNull() ?: return null
-            if (width <= 0 || height <= 0 || width.toLong() * height > config.maxPixels || crypto != null) {
+            // 运行时能力门：超过本机实测可持续尺寸的流保持原生播放。
+            val budget = minOf(config.maxPixels, engine.maxPixels.takeIf { it > 0L } ?: config.maxPixels)
+            if (width <= 0 || height <= 0 || width.toLong() * height > budget || crypto != null) {
                 host.log("bridge.skip", "format:${width}x$height:crypto=${crypto != null}")
                 return null
             }
@@ -283,7 +295,7 @@ internal class FrameCaptureBridge private constructor(
                 FrameCaptureBridge(selected, codec, display, width, height, values(format), name.endsWith(".secure"),
                     tunneled, engine, host)
             }.getOrNull() ?: return null
-            if (!bridge.start()) { bridge.close(); host.log("bridge.skip", "presenter"); return null }
+            if (!bridge.start(attach)) { bridge.close(); host.log("bridge.skip", "presenter"); return null }
             return bridge
         }
 

@@ -26,14 +26,16 @@ import java.util.WeakHashMap
  * 因此在该专用进程里，凡带 Surface 的视频解码器 configure 都视为主播放器（仍受加密、尺寸、准入约束），
  * 引擎在进程启动后即预热；主进程仍只认 IjkMediaPlayAdapter 设置的 Surface。
  *
- * 启用条件：用户开关且 [FrameInterpolationEntryGate.entryOpen]（当前恒为关闭，故发布版不安装任何 Hook）。
+ * 启用条件：用户开关且 [FrameInterpolationEntryGate.entryOpen]（原生库、模型、能力与媒体准入仍在播放时逐次检查，任一不满足即保持原生输出）。
  * 仅 debug 验证构建额外允许：宿主外部私有目录存在 innocent-frame-verify/enable 标记时在该进程启用，
  * 模型同样只从该目录按固定哈希读取，不随包分发。
  */
 internal class FrameInterpolationFeatureInstaller(
     private val enabled: Boolean,
     private val verificationAllowed: Boolean,
-    private val moduleApk: File?
+    private val moduleApk: File?,
+    /** 打开模块写入的 LSPosed 远程文件（模型）；null 时只能使用调试验证目录。 */
+    private val remoteFile: ((String) -> android.os.ParcelFileDescriptor?)? = null
 ) : FeatureInstaller {
     override val id: String = ID
 
@@ -196,6 +198,12 @@ internal class FrameInterpolationFeatureInstaller(
                     if (!mime.startsWith("video/")) return@before
                     val holder = engine ?: return@before
                     bridges.remove(codec)?.close()
+                    if (!holder.ready()) {
+                        // 冷启动：模型仍在后台加载。保持原生播放，就绪后迟接管（见 attachPending），不阻塞解码线程。
+                        if (holder.state != FrameInterpolationEngineHolder.State.FAILED)
+                            pending[codec] = PendingDecoder(format, display, args[2])
+                        return@before
+                    }
                     val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, format, display, args[2],
                         holder, bridgeHost, requestedTargetFps = verificationTarget()) ?: return@before
                     bridges[codec] = bridge
@@ -214,6 +222,7 @@ internal class FrameInterpolationFeatureInstaller(
         }
         for (method in listOf("stop", "release")) hook(method) {
             registrar.exact("$ID.$method", MediaCodec::class.java, method) {
+                before { (instance as? MediaCodec)?.let { pending.remove(it) } }
                 after { (instance as? MediaCodec)?.let { bridges.remove(it)?.close() } }
             }
         }
@@ -322,6 +331,22 @@ internal class FrameInterpolationFeatureInstaller(
 
     private fun shiftFrames(rate: Int): Long = audioDelayUs * rate / 1_000_000L
 
+    private class PendingDecoder(val format: MediaFormat, val display: Surface, val crypto: Any?)
+    private val pending = Collections.synchronizedMap(WeakHashMap<MediaCodec, PendingDecoder>())
+
+    /** 引擎就绪后接管冷启动期间已原生播放的解码器：在 worker 上把其输出切到捕获 Surface。 */
+    private fun attachPending() {
+        val holder = engine ?: return
+        val waiting = synchronized(pending) { pending.entries.map { it.key to it.value }.also { pending.clear() } }
+        for ((codec, decoder) in waiting) {
+            val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, decoder.format, decoder.display,
+                decoder.crypto, holder, bridgeHost, requestedTargetFps = verificationTarget(),
+                attach = { surface -> runCatching { codec.setOutputSurface(surface) }.isSuccess }) ?: continue
+            bridges[codec] = bridge
+            log("bridge.late", "attached")
+        }
+    }
+
     /** 首次需要补偿时按 ijk 已调用过的接口选择平移方式；都没有调用过才退回写静音。 */
     private fun chooseAudioMode() {
         if (audioMode != AudioMode.UNDECIDED) return
@@ -351,9 +376,20 @@ internal class FrameInterpolationFeatureInstaller(
             val verifying = verificationAllowed && external != null && File(external, "$VERIFY_DIR/enable").isFile
             val decided = application != null && external != null && (enabled || verifying)
             if (decided) {
-                engine = FrameInterpolationEngineHolder(apk, application!!.codeCacheDir,
-                    File(external, "$VERIFY_DIR/rife-v4.6"), log = { event, detail -> log(event, detail) })
-                    .also { it.warmUp() }
+                val host = application!!
+                val debugModel = File(external, "$VERIFY_DIR/${FrameModelSpec.NAME}")
+                // 模型来源：debug 验证目录（仅验证构建）优先，否则用模块下载后写入的远程文件，复制并校验到宿主私有目录。
+                val modelSource: () -> File? = {
+                    if (verifying && File(debugModel, FrameModelSpec.WEIGHTS.fileName).isFile) debugModel
+                    else when (val result = FrameModelCache.materialize(host.noBackupFilesDir) { name ->
+                        remoteFile?.invoke(name)?.let(android.os.ParcelFileDescriptor::AutoCloseInputStream) }) {
+                        is FrameModelCache.Result.Ready -> result.directory
+                        else -> { log("model.unavailable", result.toString()); null }
+                    }
+                }
+                engine = FrameInterpolationEngineHolder(apk, host.codeCacheDir, modelSource,
+                    log = { event, detail -> log(event, detail) })
+                    .also { it.onReady = ::attachPending; it.warmUp() }
             }
             log("activate", "enabled=$enabled verifying=$verifying decided=$decided")
             active = decided

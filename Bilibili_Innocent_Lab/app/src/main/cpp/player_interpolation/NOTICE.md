@@ -17,7 +17,7 @@ reads and image capacities, support CPU-only builds, and avoid global GPU destru
 clamps coordinates before float-to-int conversion. TTA, UHD and older model variants are omitted.
 The generic ncnn Extractor handles transfers for Vulkan; this is not a zero-copy Surface renderer.
 Vulkan defaults to float32 pack1/pack4. fp16 storage/arithmetic, reduced-resolution flow (1/2 or 1/4)
-and GPU RGB8 conversion are explicit research options set through `configure` before `load`; ncnn still
+and GPU RGB8 conversion are explicit options set through `configure` before `load` (the host player enables all three); ncnn still
 clips fp16 to device support. Reduced-resolution flow runs the unchanged v4.6 graph on downscaled inputs,
 reads its flow (blob 327) and mask (blob 332), then upsamples them (flow values scaled by the same factor)
 and repeats the graph's final Warp/blend at full resolution. GPU conversion uploads raw RGB8 bytes and

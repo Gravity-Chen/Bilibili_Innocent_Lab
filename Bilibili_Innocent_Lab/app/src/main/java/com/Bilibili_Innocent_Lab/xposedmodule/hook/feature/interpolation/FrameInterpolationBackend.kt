@@ -54,10 +54,6 @@ internal class FrameInterpolationBackend private constructor(private var handle:
 
     companion object {
         private const val MAX_PIXELS = 1920L * 1080L
-        private const val PARAM_SIZE = 16_532
-        private const val WEIGHTS_SIZE = 10_614_320
-        private const val PARAM_HASH = "724569596bcd1e7b9fa50455c604777ebed99746d2ef40aa86e31b5725f1053c"
-        private const val WEIGHTS_HASH = "f334ed2260149ce0188a6dcf049844e8b0cdd912e01cbcfb63553157d2508958"
 
         /**
          * Research caller supplies the exact reviewed files. No network, download or model discovery.
@@ -79,8 +75,8 @@ internal class FrameInterpolationBackend private constructor(private var handle:
             val model = runCatching {
                 val root = directory.canonicalFile
                 require(root.isDirectory)
-                Pair(readVerified(root, "flownet.param", PARAM_SIZE, PARAM_HASH),
-                    readVerified(root, "flownet.bin", WEIGHTS_SIZE, WEIGHTS_HASH))
+                Pair(readVerified(root, FrameModelSpec.PARAM.fileName, FrameModelSpec.PARAM.size, FrameModelSpec.PARAM.sha256),
+                    readVerified(root, FrameModelSpec.WEIGHTS.fileName, FrameModelSpec.WEIGHTS.size, FrameModelSpec.WEIGHTS.sha256))
             }.getOrElse { return OpenResult(if (it is OutOfMemoryError) Status.ALLOCATION_FAILED else Status.INVALID_MODEL) }
             val created = runCatching {
                 if (maxPixels == MAX_PIXELS) FrameInterpolationNative.create(backend.nativeValue, 0, threads)

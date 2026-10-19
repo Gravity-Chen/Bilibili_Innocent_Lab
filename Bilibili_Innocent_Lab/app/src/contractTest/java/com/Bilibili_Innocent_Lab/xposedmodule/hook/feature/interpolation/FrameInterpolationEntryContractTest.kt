@@ -65,8 +65,11 @@ class FrameInterpolationEntryContractTest {
         assertTrue(guard < install.indexOf("registrar."))
         val activation = installer.after("private fun activate(apk: File)").before("private val bridgeHost")
         assertTrue(activation.contains("verificationAllowed && external != null && File(external, \"\$VERIFY_DIR/enable\").isFile"))
-        assertTrue(activation.contains("File(external, \"\$VERIFY_DIR/rife-v4.6\")"))
-        listOf("FrameInterpolationFeatureInstaller.kt", "FrameInterpolationEngineHolder.kt", "FrameCaptureBridge.kt").forEach {
+        assertTrue(activation.contains("File(external, \"\$VERIFY_DIR/\${FrameModelSpec.NAME}\")"))
+        assertTrue(activation.contains("if (verifying && File(debugModel, FrameModelSpec.WEIGHTS.fileName).isFile) debugModel"))
+        assertTrue(activation.contains("FrameModelCache.materialize(host.noBackupFilesDir)"))
+        listOf("FrameInterpolationFeatureInstaller.kt", "FrameInterpolationEngineHolder.kt", "FrameCaptureBridge.kt",
+            "FrameModelCache.kt", "FrameModelSpec.kt").forEach {
             val source = SourceContract.read("$dir/$it")
             assertFalse(it, source.contains("java.net.") || source.contains("HttpURLConnection") || source.contains("okhttp"))
         }

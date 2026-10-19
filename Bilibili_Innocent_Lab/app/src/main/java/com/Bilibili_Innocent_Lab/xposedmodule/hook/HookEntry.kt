@@ -3448,7 +3448,8 @@ class HookEntry : XposedModule() {
                         enabled = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION, false) &&
                             FrameInterpolationEntryGate.entryOpen(),
                         verificationAllowed = com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG,
-                        moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull()
+                        moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull(),
+                        remoteFile = { name -> runCatching { openRemoteFile(name) }.getOrNull() }
                     )
                 )
             )
