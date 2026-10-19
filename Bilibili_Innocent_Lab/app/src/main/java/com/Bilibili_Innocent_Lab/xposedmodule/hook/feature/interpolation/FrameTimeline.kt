@@ -297,6 +297,7 @@ internal class FrameTimeline(
         private const val MAX_DELAY_NS = 250_000_000L
         private const val MAX_PHASE_OFFSET_US = 100_000L
         private const val MAX_SLOT_SCAN = 8
-        private val SUPPORTED_FPS = setOf(0, 15, 30, 45, 50, 60, 120, 144, 165, 185)
+        // 原有验证档位 + 帧率上限自适应（FrameRateTarget）产生的源帧率整数倍（24/25/30 fps 源）。
+        private val SUPPORTED_FPS = setOf(0, 15, 30, 45, 50, 60, 120, 144, 165, 185) + FrameRateTarget.TARGETS
     }
 }

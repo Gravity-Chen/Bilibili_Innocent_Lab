@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 26
+    const val VERSION = 27
     val definitions = listOf(
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
@@ -157,6 +157,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("player_capability_small_window", "player_capabilities", R.string.player_unlock_small_window, setOf("player.capability.small_window")),
         DiagnosticCapabilityDefinition("player_capability_cast", "player_capabilities", R.string.player_unlock_cast, setOf("player.capability.cast")),
         DiagnosticCapabilityDefinition("player_frame_interpolation", "player_capabilities", R.string.player_frame_interpolation, setOf("player.frame_interpolation.enabled"), introducedCatalogVersion = 26),
+        DiagnosticCapabilityDefinition("player_frame_interpolation_max_fps", "player_capabilities", R.string.player_frame_max_fps, setOf("player.frame_interpolation.max_fps"), introducedCatalogVersion = 27),
         DiagnosticCapabilityDefinition("player_long_press_disabled", "player_speed", R.string.player_disable_long_press, setOf("player.long_press.disabled")),
         DiagnosticCapabilityDefinition("player_long_press_speed_percent", "player_speed", R.string.player_long_press_speed, setOf("player.long_press_speed.percent")),
         DiagnosticCapabilityDefinition("player_default_speed_percent", "player_speed", R.string.player_default_speed, setOf("player.default_speed.percent")),

@@ -45,6 +45,21 @@ internal class FrameInterpolationEngineHolder(
     @Volatile var standardFlowScale = 4
         private set
 
+    /** 能力测量中各尺寸（像素数）在所选光流档下的中位耗时（ms）。 */
+    private val measuredMs = java.util.concurrent.ConcurrentHashMap<Long, Double>()
+
+    /**
+     * 估计给定处理尺寸的单次补帧耗时：同一光流档内取不小于它的最近实测尺寸（保守），否则按像素数线性外推。
+     * 未测定时返回 0（调用方视为不可用）。
+     */
+    fun inferenceMsFor(pixels: Long): Double {
+        val scale = flowScaleFor(pixels)
+        val same = measuredMs.entries.filter { flowScaleFor(it.key) == scale }
+        same.filter { it.key >= pixels }.minByOrNull { it.key }?.let { return it.value }
+        val largest = same.maxByOrNull { it.key } ?: return 0.0
+        return largest.value * pixels / largest.key
+    }
+
     /** 本次插帧的光流比例：≤720p 用 1/4，≤1080p 用实测档，以上用 1/8（光流输入约 480×270 或更小）。 */
     fun flowScaleFor(pixels: Long): Int = when {
         pixels <= 1280L * 720L -> 4
@@ -107,8 +122,11 @@ internal class FrameInterpolationEngineHolder(
             val pixels = width.toLong() * height
             val tiers = if (pixels > 1280L * 720L && pixels <= FrameProcessingSize.STANDARD_FLOW_PIXELS) STANDARD_TIERS
                 else listOf(flowScaleFor(pixels))
-            val tier = tiers.firstOrNull { scale -> medianMs(engine, width, height, scale) <= tierLimitMs(scale, tiers.size > 1) }
+            var chosenMs = 0.0
+            val tier = tiers.firstOrNull { scale ->
+                medianMs(engine, width, height, scale).also { chosenMs = it } <= tierLimitMs(scale, tiers.size > 1) }
             if (tier != null && tiers.size > 1) standardFlowScale = tier
+            if (tier != null) measuredMs[pixels] = chosenMs
             tier != null
         }.map { (width, height) -> width.toLong() * height }
         capability = FrameProcessingSize.Capability(

@@ -128,8 +128,14 @@ class FrameCaptureBridgeDeviceTest {
         run(source, target, diagnostic = true, seconds = seconds, onScreen = args.getString("screen") == "true")
     }
 
+    /**
+     * 帧率上限自适应：上限 144 时目标取面板模式、能力与源帧率倍数的最大值；播放中实测 vsync 若低于目标，
+     * 必须切回原生并以实测值回调宿主（宿主据此按实际上限重新接管）；否则全程保持该目标。
+     */
+    @Test fun maxFpsCeilingFollowsTheActualDisplayRate() = run(sourceFps = 30, expectedFps = 0, maxFps = 144)
+
     private fun run(sourceFps: Int, expectedFps: Int, diagnostic: Boolean = false, seconds: Double = 3.0,
-                    onScreen: Boolean = false) {
+                    onScreen: Boolean = false, maxFps: Int = 60) {
         val model = File(context.filesDir, "rife-v4.6")
         assumeTrue("model not pushed", File(model, "flownet.bin").isFile)
         val logs = Collections.synchronizedList(ArrayList<String>())
@@ -208,7 +214,10 @@ class FrameCaptureBridgeDeviceTest {
             }
         }
         val delays = Collections.synchronizedList(ArrayList<Long>())
+        val limited = Collections.synchronizedList(ArrayList<Float>())
         val host = object : FrameCaptureBridge.Host {
+            override fun maxFps(): Int = maxFps
+            override fun onDisplayLimited(codec: MediaCodec, hz: Float) { limited += hz }
             override fun setAudioDelayUs(delayUs: Long) { if (delayUs > 0) delays += delayUs }
             override fun playbackSpeed() = 1.0
             override fun audio() = FrameMediaPolicy.Audio(output = FrameMediaPolicy.AudioOutput.PCM,
@@ -362,6 +371,23 @@ class FrameCaptureBridgeDeviceTest {
             return
         }
 
+        if (maxFps > 60) {
+            val target = logs.first { it.startsWith("bridge.target ") }.substringAfter("bridge.target ").substringBefore("fps").toInt()
+            val vsync = logs.firstOrNull { it.startsWith("bridge.vsync ") }
+                ?.substringAfter("bridge.vsync ")?.substringBefore("Hz")?.toFloat()
+            sendStatus("maxFps", "ceiling=$maxFps target=$target vsync=$vsync limited=$limited native=$native fps=%.1f".format(fps))
+            assertTrue("target $target must be a multiple of the source within the ceiling", target % sourceFps == 0 && target in 60..maxFps)
+            assertNotNull("vsync never measured: $logs", vsync)
+            if (vsync!! < target * 0.95f) {
+                assertEquals("limited display must be reported once", listOf(vsync), limited.toList())
+                assertTrue("must hand back to native", native)
+            } else {
+                assertTrue("unexpected limit $limited", limited.isEmpty())
+                assertFalse("fell back: ${logs.filter { it.startsWith("bridge.") }}", native)
+            }
+            assertEquals(0, closed.ledger.live)
+            return
+        }
         assertTrue(logs.toString(), logs.any { it.startsWith("bridge.admit READY") })
         assertTrue(logs.toString(), logs.any { it.startsWith("bridge.size ${width}x$height->") })
         assertTrue(logs.toString(), logs.any { it.startsWith("bridge.target ${expectedFps}fps") })

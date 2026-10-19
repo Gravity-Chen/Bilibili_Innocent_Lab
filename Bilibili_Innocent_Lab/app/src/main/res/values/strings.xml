@@ -942,6 +942,10 @@
     <string name="player_frame_interpolation_title">Frame interpolation</string>
     <string name="player_frame_interpolation">Video frame interpolation (beta)</string>
     <string name="player_frame_interpolation_tip">Generates in-between frames on the GPU, turning 30 fps videos into 60 fps and 25 fps into 50 fps, for sources up to 4K. Larger videos are scaled to your screen\'s resolution first, so 4K is processed at the size the screen can show; a speed test on first run sets the highest size this phone can sustain. HDR, protected content and unsupported frame rates play normally, and it steps back whenever the phone is hot or cannot keep up. Higher resolutions add a little delay (audio stays in sync) and use more battery. Restart Bilibili to apply.</string>
+    <string name="player_frame_max_fps">Frame rate ceiling</string>
+    <string name="player_frame_max_fps_value">%1$d fps</string>
+    <string name="player_frame_max_fps_current">Up to %1$d fps. The real target follows what the system actually outputs and what this phone can sustain: with a 185 ceiling on a system that only gives 120 Hz, frames are generated up to 120.</string>
+    <string name="highlights_player_frame_max_fps">Frame interpolation can now go above 60 fps: set a ceiling, and the module matches the refresh rate the system actually provides.</string>
     <string name="player_frame_model">Interpolation model</string>
     <string name="player_frame_model_checking">Checking…</string>
     <string name="player_frame_model_ready">RIFE v4.6 downloaded and verified</string>

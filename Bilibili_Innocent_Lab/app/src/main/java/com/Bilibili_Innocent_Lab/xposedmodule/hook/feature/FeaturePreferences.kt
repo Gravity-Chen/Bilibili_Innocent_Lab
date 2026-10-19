@@ -207,6 +207,8 @@ internal object FeaturePreferences {
     const val PLAYER_CODEC_PREFERENCE = "player_codec_preference"
     /** 主播放器插帧（≤720p）；仅当 FrameInterpolationEntryGate 放行时才生效与显示。 */
     const val PLAYER_FRAME_INTERPOLATION = "player_frame_interpolation"
+    /** 补帧帧率上限（60/90/120/144/165/185）；实际目标还受系统实际刷新与本机能力约束。 */
+    const val PLAYER_FRAME_INTERPOLATION_MAX_FPS = "player_frame_interpolation_max_fps"
     const val PLAYER_DECODE_MODE = "player_decode_mode"
     const val PLAYER_BUFFER_MODE = "player_buffer_mode"
     const val PLAYER_BUFFER_SECONDS = "player_buffer_seconds"

@@ -34,7 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 58
+    const val CATALOG_VERSION = 59
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
@@ -836,6 +836,8 @@ internal object SettingsCatalog {
             R.string.player_unlock_cast, introducedCatalogVersion = 13),
         bool("player.frame_interpolation.enabled", FeaturePreferences.PLAYER_FRAME_INTERPOLATION,
             R.string.player_frame_interpolation, introducedCatalogVersion = 58),
+        integer("player.frame_interpolation.max_fps", FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS,
+            R.string.player_frame_max_fps, default = 60, allowed = setOf(60, 90, 120, 144, 165, 185), introducedCatalogVersion = 59),
         bool("player.long_press.disabled", FeaturePreferences.PLAYER_DISABLE_LONG_PRESS,
             R.string.player_disable_long_press, introducedCatalogVersion = 13),
         integer(ID_PLAYER_LONG_PRESS_SPEED, FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT,
@@ -1015,7 +1017,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 237) { "Expected 237 catalog settings, found ${specs.size}" }
+        check(specs.size == 238) { "Expected 238 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

@@ -44,6 +44,15 @@ internal class FrameCaptureBridge private constructor(
         fun context(): android.content.Context? = null
         /** EGL swap 完成时刻；是提交证据，不能当作屏幕实际扫描显示时间。 */
         fun onFrameSubmitted(dueNs: Long, submittedNs: Long) = Unit
+        /** 用户设置的补帧帧率上限（[FrameRateTarget.CEILINGS]）。 */
+        fun maxFps(): Int = 60
+        /** 本进程此前实测到的系统实际刷新上限；null 表示未发现限制。 */
+        fun displayLimitHz(): Float? = null
+        /**
+         * 实测 vsync 明显低于目标：本实例已把解码器切回显示 Surface 并拆除，宿主应记住该上限并按它重新接管。
+         * 在呈现线程调用。
+         */
+        fun onDisplayLimited(codec: MediaCodec, hz: Float) = Unit
     }
 
     /**
@@ -62,6 +71,8 @@ internal class FrameCaptureBridge private constructor(
         val maxBuffers: Int = 12,
         val frameWindow: Int = 4,
         val stageUploads: Boolean = true,
+        /** 播放中实测 vsync，系统实际刷新低于目标时降档重建（显式验证档位关闭）。 */
+        val measureVsync: Boolean = true,
         /** 正式播放：源帧率已达目标时回原生（验证构建的显式档位可做纯复制测试）。 */
         val interpolationRequired: Boolean = true
     )
@@ -90,6 +101,9 @@ internal class FrameCaptureBridge private constructor(
     private var power: FramePowerAdvisor? = null
     private val cadence = FrameSourceCadence(config.targetFps, interpolationRequired = config.interpolationRequired)
     private val native = AtomicBoolean(false)
+    /** 实测 vsync（帧率上限自适应）：显式验证档位不测。 */
+    private val vsync = FrameVsyncMeter()
+    @Volatile private var limitedHz: Float? = null
     private val closed = AtomicBoolean(false)
     /** 交给宿主 configure 的替换 Surface（捕获 SurfaceTexture）。 */
     var captureSurface: Surface? = null
@@ -205,6 +219,15 @@ internal class FrameCaptureBridge private constructor(
 
     private fun drive(vsyncNs: Long) {
         val now = System.nanoTime()
+        if (config.measureVsync && limitedHz == null) vsync.add(vsyncNs)?.let { measured ->
+            val hz = FrameRateTarget.snap(measured, displayModes(host.context()))
+            host.log("bridge.vsync", "%.1fHz target=${config.targetFps}".format(hz))
+            if (hz < config.targetFps * 0.95f) {
+                limitedHz = hz
+                returnToNative("display:%.0fHz".format(hz))
+                return
+            }
+        }
         // 暂停时没有新帧：停止推进时钟，时间线随后因时钟过期而停止规划，屏幕保留最后一帧。
         if (!admitted || lastArrivalNs == Long.MIN_VALUE || now - lastArrivalNs > STALL_NS) return
         // 时钟快照取在 vsync 时刻：时间线以首个快照为锚，槽位网格因此与显示 vsync 对齐，
@@ -260,6 +283,9 @@ internal class FrameCaptureBridge private constructor(
         host.log("bridge.restored", "${report.state}:${report.cause}:switched=$switched")
         // 温控/准入回退后本实例不会再恢复插帧；归还 RGB 账本、GL 线程与读回内存，避免闲置资源常驻。
         if (switched) close()
+        // 系统实际刷新低于目标：解码器已回到显示 Surface，交给宿主按实测上限重新接管。
+        val limit = limitedHz
+        if (switched && limit != null) host.onDisplayLimited(codec, limit)
     }
 
     companion object {
@@ -301,13 +327,15 @@ internal class FrameCaptureBridge private constructor(
                 runCatching { format.containsKey(MediaFormat.KEY_AUDIO_SESSION_ID) }.getOrDefault(false)
             // 25 fps 源按 2 倍插到 50 fps（30/29.97 → 60）；目标随后由实测节奏复核，不符即回原生。
             val hint = sourceFpsHint(format)
-            val target = targetFpsFor(hint, requestedTargetFps)
-            host.log("bridge.target", "${target}fps hint=$hint")
-            // 源已达目标帧率（如 60 fps 视频）：没有可补的帧，不接管，避免 4K 捕获与呈现的空耗。
-            if (requestedTargetFps == null && hint != null && hint >= target * 0.98f) {
-                host.log("bridge.skip", "rate:$hint")
-                return null
-            }
+            // 帧率上限自适应：用户上限、面板模式、此前实测的系统实际刷新与本机推理能力取最小，再取源帧率整数倍。
+            // 源已达上限（如 60 fps 视频在 60 Hz 下）没有可补的帧，不接管。
+            val modes = displayModes(host.context())
+            val target = requestedTargetFps ?: FrameRateTarget.choose(hint, host.maxFps(), modes, host.displayLimitHz(),
+                engine.inferenceMsFor(processing.pixels)) ?: run {
+                    host.log("bridge.skip", "rate:hint=$hint max=${host.maxFps()} limit=${host.displayLimitHz()}")
+                    return null
+                }
+            host.log("bridge.target", "${target}fps hint=$hint max=${host.maxFps()} limit=${host.displayLimitHz()}")
             val bridge = runCatching {
                 // 60 fps 源的四帧窗口只覆盖 50 ms，无法保留 100 ms 延迟管线起步所需的原帧。
                 // 120 验证档扩为八源帧与十六个 RGB 缓冲，仍由账本硬上限约束。
@@ -325,13 +353,20 @@ internal class FrameCaptureBridge private constructor(
                     maxLeadNs = if (deep) DEEP_LEAD_NS else config.maxLeadNs,
                     frameWindow = window,
                     maxBuffers = if (target >= 120 || deep || window > config.frameWindow) 16 else config.maxBuffers,
-                    interpolationRequired = config.interpolationRequired && requestedTargetFps == null)
+                    interpolationRequired = config.interpolationRequired && requestedTargetFps == null,
+                    measureVsync = config.measureVsync && requestedTargetFps == null)
                 FrameCaptureBridge(selected, codec, display, processing.width, processing.height, width, height,
                     values(format), name.endsWith(".secure"), tunneled, engine, host)
             }.getOrNull() ?: return null
             if (!bridge.start(attach)) { bridge.close(); host.log("bridge.skip", "presenter"); return null }
             return bridge
         }
+
+        /** 面板支持的刷新率（去重）；取不到时为空。 */
+        private fun displayModes(context: android.content.Context?): List<Float> = runCatching {
+            context!!.getSystemService(android.hardware.display.DisplayManager::class.java)
+                .getDisplay(android.view.Display.DEFAULT_DISPLAY).supportedModes.map { it.refreshRate }.distinct()
+        }.getOrDefault(emptyList())
 
         /** 面板物理分辨率（长边, 短边）；取不到时为 (0, 0)，处理尺寸只受能力约束。 */
         private fun displaySize(context: android.content.Context?): Pair<Int, Int> = runCatching {

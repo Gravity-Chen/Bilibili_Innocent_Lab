@@ -35,7 +35,9 @@ internal class FrameInterpolationFeatureInstaller(
     private val verificationAllowed: Boolean,
     private val moduleApk: File?,
     /** 打开模块写入的 LSPosed 远程文件（模型）；null 时只能使用调试验证目录。 */
-    private val remoteFile: ((String) -> android.os.ParcelFileDescriptor?)? = null
+    private val remoteFile: ((String) -> android.os.ParcelFileDescriptor?)? = null,
+    /** 用户设置的补帧帧率上限；实际目标还受系统实际刷新与本机能力约束（[FrameRateTarget]）。 */
+    private val maxFps: Int = 60
 ) : FeatureInstaller {
     override val id: String = ID
 
@@ -53,6 +55,10 @@ internal class FrameInterpolationFeatureInstaller(
     private lateinit var environment: HookEnvironment
     private val displayRequests = WeakHashMap<Activity, Triple<Int, Float, Float?>>()
     private val displayProbes = WeakHashMap<Activity, AutoCloseable>()
+    /** 已接管解码器的 configure 参数：实测系统刷新低于目标时按新上限重新接管。 */
+    private val configured = Collections.synchronizedMap(WeakHashMap<MediaCodec, PendingDecoder>())
+    /** 本进程实测到的系统实际刷新上限（帧率上限自适应）；null 表示未发现限制。 */
+    @Volatile private var displayLimit: Float? = null
 
     /** Explicit debug opt-in, shared by the UI and dedicated decoder processes. */
     private fun verificationTarget(): Int? {
@@ -79,7 +85,8 @@ internal class FrameInterpolationFeatureInstaller(
             if (runCatching(block).onFailure { environment.logError("$ID.$name", it.javaClass.simpleName) }.isSuccess) hooks++
         }
         val registrar = environment.registrar
-        if (verificationAllowed && !playerProcess) {
+        // 帧率上限高于 60 时正式播放也需要窗口级请求：TextureView 由宿主 UI 合成，只在生产者 Surface 上投票不足以切换模式。
+        if ((verificationAllowed || maxFps > 60) && !playerProcess) {
             // A TextureView is consumed by the host UI, so a producer-only Surface vote is insufficient.
             // Public, window-scoped request; restore the host's original values when it leaves playback.
             hook("display.resume") {
@@ -87,7 +94,7 @@ internal class FrameInterpolationFeatureInstaller(
                     after {
                         val activity = instance as? Activity ?: return@after
                         if (activity.javaClass.name != "com.bilibili.ship.theseus.detail.UnitedBizDetailsActivity") return@after
-                        val target = verificationTarget() ?: return@after
+                        val target = verificationTarget() ?: maxFps.takeIf { it > 60 } ?: return@after
                         val window = activity.window ?: return@after
                         val attributes = window.attributes
                         displayRequests.putIfAbsent(activity, Triple(attributes.preferredDisplayModeId,
@@ -207,6 +214,7 @@ internal class FrameInterpolationFeatureInstaller(
                     val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, format, display, args[2],
                         holder, bridgeHost, requestedTargetFps = verificationTarget()) ?: return@before
                     bridges[codec] = bridge
+                    configured[codec] = PendingDecoder(format, display, args[2])
                     args[1] = bridge.captureSurface
                 }
                 after {
@@ -222,7 +230,7 @@ internal class FrameInterpolationFeatureInstaller(
         }
         for (method in listOf("stop", "release")) hook(method) {
             registrar.exact("$ID.$method", MediaCodec::class.java, method) {
-                before { (instance as? MediaCodec)?.let { pending.remove(it) } }
+                before { (instance as? MediaCodec)?.let { pending.remove(it); configured.remove(it) } }
                 after { (instance as? MediaCodec)?.let { bridges.remove(it)?.close() } }
             }
         }
@@ -343,6 +351,7 @@ internal class FrameInterpolationFeatureInstaller(
                 decoder.crypto, holder, bridgeHost, requestedTargetFps = verificationTarget(),
                 attach = { surface -> runCatching { codec.setOutputSurface(surface) }.isSuccess }) ?: continue
             bridges[codec] = bridge
+            configured[codec] = decoder
             log("bridge.late", "attached")
         }
     }
@@ -417,6 +426,22 @@ internal class FrameInterpolationFeatureInstaller(
                 offloaded = FrameMediaPolicy.Evidence.NO, tunneled = FrameMediaPolicy.Evidence.NO)
         override fun log(event: String, detail: String) = this@FrameInterpolationFeatureInstaller.log(event, detail)
         override fun context(): android.content.Context? = ReflectAccess.currentApplication()
+        override fun maxFps(): Int = maxFps
+        override fun displayLimitHz(): Float? = displayLimit
+        override fun onDisplayLimited(codec: MediaCodec, hz: Float) {
+            displayLimit = minOf(displayLimit ?: hz, hz)
+            val decoder = configured[codec] ?: return
+            val holder = engine ?: return
+            bridges.remove(codec)
+            // 解码器此时已回到显示 Surface（原生播放）；在独立线程按新上限重新接管，不占用呈现或解码线程。
+            Thread({
+                if (configured[codec] !== decoder) return@Thread
+                val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, decoder.format, decoder.display,
+                    decoder.crypto, holder, this, attach = { surface -> runCatching { codec.setOutputSurface(surface) }.isSuccess })
+                if (bridge != null) bridges[codec] = bridge
+                log("bridge.retarget", "limit=%.0fHz attached=${bridge != null}".format(hz))
+            }, "innocent-frame-retarget").start()
+        }
     }
 
     private fun log(event: String, detail: String) {

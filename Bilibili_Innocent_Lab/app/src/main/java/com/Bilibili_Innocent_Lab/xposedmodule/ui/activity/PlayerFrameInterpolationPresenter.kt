@@ -7,6 +7,7 @@ import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameRateTarget
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.frame.FrameModelDownloader
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
@@ -56,6 +57,38 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 runCatching { prefs().edit { putBoolean(key, checked) } }.onFailure {
                     Log.e("BilibiliInnocentLab", "write frame interpolation prefs failed", it)
                 }
+            }
+        }
+        val maxFpsKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS
+        var maxFps = uiSettings.int(maxFpsKey).takeIf { it in FrameRateTarget.CEILINGS } ?: 60
+        var maxFpsSummary: NativeTextView? = null
+        fun refreshMaxFps() { maxFpsSummary?.text = getString(R.string.player_frame_max_fps_current, maxFps) }
+        LinearLayout(
+            lparams = LayoutParams(widthMatchParent = true) { topMargin = 8.dp },
+            init = {
+                orientation = NativeLinearLayout.VERTICAL
+                background = selfRippleBackground(10f)
+                updatePadding(horizontal = 0.dp, vertical = 9.dp)
+                isClickable = true
+                isFocusable = true
+                bindSettingDestination(this, maxFpsKey)
+                setOnClickListener { anchor ->
+                    showFrameInterpolationMaxFpsDialog(maxFps, anchor) { value -> maxFps = value; refreshMaxFps() }
+                }
+            }
+        ) {
+            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                text = stringResource(R.string.player_frame_max_fps)
+                textColor = colorResource(R.color.colorTextGray)
+                textSize = 15f
+            }
+            TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 5.dp }) {
+                alpha = 0.6f
+                textColor = colorResource(R.color.colorTextDark)
+                textSize = 12f
+                setLineSpacing(6f, 1f)
+                maxFpsSummary = this
+                refreshMaxFps()
             }
         }
         var summary: NativeTextView? = null

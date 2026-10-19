@@ -312,6 +312,9 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(23, listOf(
         ReleaseHighlight("player-frame-interpolation", HighlightKind.NEW, R.string.highlights_player_frame_interpolation,
             HighlightDestination("player.frame_interpolation.enabled"))
+    )), ReleaseHighlightsBatch(24, listOf(
+        ReleaseHighlight("player-frame-max-fps", HighlightKind.NEW, R.string.highlights_player_frame_max_fps,
+            HighlightDestination("player.frame_interpolation.max_fps"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

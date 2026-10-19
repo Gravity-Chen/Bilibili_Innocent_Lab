@@ -942,6 +942,10 @@
     <string name="player_frame_interpolation_title">视频插帧</string>
     <string name="player_frame_interpolation">视频插帧（实验）</string>
     <string name="player_frame_interpolation_tip">用 GPU 生成中间帧，把 30 fps 视频补到 60 fps、25 fps 补到 50 fps，支持最高 4K 的视频。超过屏幕分辨率的视频先缩到屏幕能显示的尺寸再处理；首次运行时的本机测速决定可持续的最高尺寸。HDR、受保护内容和不支持的帧率按原样播放，机身过热或跟不上时自动回到普通播放。高分辨率会多一点延迟（音画仍同步），耗电也更多。重启哔哩哔哩后生效。</string>
+    <string name="player_frame_max_fps">补帧帧率上限</string>
+    <string name="player_frame_max_fps_value">%1$d fps</string>
+    <string name="player_frame_max_fps_current">最高 %1$d fps。实际目标跟随系统真实输出的刷新率与本机可持续的性能：上限设 185 而系统只给 120 Hz 时，只补到 120。</string>
+    <string name="highlights_player_frame_max_fps">视频插帧可超过 60 fps：设置帧率上限，模块按系统实际提供的刷新率补帧。</string>
     <string name="player_frame_model">插帧模型</string>
     <string name="player_frame_model_checking">正在检查…</string>
     <string name="player_frame_model_ready">RIFE v4.6 已下载并校验</string>

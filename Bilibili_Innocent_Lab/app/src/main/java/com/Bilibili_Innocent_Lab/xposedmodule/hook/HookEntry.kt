@@ -19,6 +19,7 @@ import com.highcapable.kavaref.extension.isSubclassOf
 import io.github.libxposed.api.XposedModule
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameRateTarget
 import io.github.libxposed.api.XposedModuleInterface
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
@@ -3449,7 +3450,9 @@ class HookEntry : XposedModule() {
                             FrameInterpolationEntryGate.entryOpen(),
                         verificationAllowed = com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG,
                         moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull(),
-                        remoteFile = { name -> runCatching { openRemoteFile(name) }.getOrNull() }
+                        remoteFile = { name -> runCatching { openRemoteFile(name) }.getOrNull() },
+                        maxFps = prefs.getInt(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS, 60)
+                            .takeIf { it in FrameRateTarget.CEILINGS } ?: 60
                     )
                 )
             )

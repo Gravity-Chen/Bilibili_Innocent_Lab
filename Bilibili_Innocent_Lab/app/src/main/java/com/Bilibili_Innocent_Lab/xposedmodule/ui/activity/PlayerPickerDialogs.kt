@@ -13,6 +13,7 @@ import android.view.ViewGroup
 import androidx.core.content.edit
 import androidx.core.view.setPadding
 import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameRateTarget
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.DanmakuPurifyPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig
@@ -238,6 +239,20 @@ internal fun MainActivity.showPlayerDecodeModeDialog(anchor: View? = null) {
         }
         playerDecodeMode = next
         updatePlayerCodecSummaries()
+        true
+    }
+}
+
+/** 补帧帧率上限：只是上限，实际目标还受系统实际刷新与本机能力约束。 */
+internal fun MainActivity.showFrameInterpolationMaxFpsDialog(current: Int, anchor: View?, onSaved: (Int) -> Unit) {
+    val options = FrameRateTarget.CEILINGS.map { it to getString(R.string.player_frame_max_fps_value, it) }
+    showPlayerChoiceDialog(getString(R.string.player_frame_max_fps), current, options, anchor) { value ->
+        if (!savePlayerIntPreference(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS, value,
+                "write frame interpolation max fps failed")) {
+            toast(getString(R.string.player_codec_setting_save_failed))
+            return@showPlayerChoiceDialog false
+        }
+        onSaved(value)
         true
     }
 }
