@@ -25,6 +25,12 @@ internal class FrameGlPresenter(
     private val lock = Object()
     private val commands = ArrayDeque<() -> Unit>()
     private val pending = java.util.PriorityQueue<Scheduled>(compareBy { it.dueNs })
+    /**
+     * 呈现时间戳提前半个目标周期：槽位网格锚在 vsync 时刻上，若时间戳正落在刷新边沿，几毫秒抖动就决定赶上本次还是
+     * 下一次刷新，两帧挤进同一刷新、下一刷新没有新帧（宿主真机 SurfaceFlinger timestats：每秒约 3 次 33 ms 间隔）。
+     * 放在刷新间隔中间后，SurfaceFlinger 总在目标刷新显示，与提交抖动无关（Android Frame Pacing 的做法）。
+     */
+    private val timestampLeadNs = 1_000_000_000L / targetFps.coerceAtLeast(1) / 2
     @Volatile private var running = true
     private val thread = Thread({ loop() }, "innocent-frame-present").apply {
         priority = Thread.MAX_PRIORITY
@@ -123,18 +129,18 @@ internal class FrameGlPresenter(
         }
     }
 
-    private fun waitNs(item: Scheduled) = item.dueNs - PRESENT_LEAD_NS - System.nanoTime()
+    private fun waitNs(item: Scheduled) = item.dueNs - timestampLeadNs - PRESENT_LEAD_NS - System.nanoTime()
 
     /** 已错过下一个槽位的帧不再画（画了只会挤掉后一帧）；其余按时画并回报。 */
     private fun deliver(item: Scheduled) {
         val started = System.nanoTime()
         val next = synchronized(lock) { pending.peek() }
-        if (next != null && next.dueNs - PRESENT_LEAD_NS <= started) {
+        if (next != null && next.dueNs - timestampLeadNs - PRESENT_LEAD_NS <= started) {
             runCatching { item.done(FrameInterpolationSession.Outcome.Dropped(started)) }
             return
         }
         val outcome = runCatching {
-            if ((!stageUploads || staged !== item) && !upload(item.buffer, item.format)) false else draw(item.dueNs)
+            if ((!stageUploads || staged !== item) && !upload(item.buffer, item.format)) false else draw(item.dueNs - timestampLeadNs)
         }.getOrDefault(false)
         staged = null
         val submitted = System.nanoTime()
