@@ -15,6 +15,17 @@ class FrameSourceCadenceTest {
         for (fps in listOf(30.0, 29.97, 20.0, 15.0, 60.0)) assertEquals("$fps", Verdict.SUITABLE, verdictFor(fps))
     }
 
+    @Test fun `playback requires at least one synthetic frame per source frame`() {
+        fun verdict(fps: Double, target: Int) = FrameSourceCadence(target, interpolationRequired = true).also { c ->
+            for (i in 0 until 20) c.add((i * 1_000_000.0 / fps).toLong())
+        }.verdict()
+        assertEquals(Verdict.UNSUITABLE, verdict(60.0, 60))
+        assertEquals(Verdict.UNSUITABLE, verdict(59.94, 60))
+        assertEquals(Verdict.UNSUITABLE, verdict(50.0, 50))
+        assertEquals(Verdict.SUITABLE, verdict(30.0, 60))
+        assertEquals(Verdict.SUITABLE, verdict(25.0, 50))
+    }
+
     @Test fun `24 and 25 fps cannot be phase aligned to 60 and are unsuitable`() {
         assertEquals(Verdict.UNSUITABLE, verdictFor(24.0))
         assertEquals(Verdict.UNSUITABLE, verdictFor(25.0))

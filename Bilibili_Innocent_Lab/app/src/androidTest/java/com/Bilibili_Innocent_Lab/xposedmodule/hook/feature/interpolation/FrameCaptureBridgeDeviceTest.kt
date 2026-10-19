@@ -369,9 +369,11 @@ class FrameCaptureBridgeDeviceTest {
         assertTrue(afterSeek.presented > 0 && afterSeek.interpolated > 0)
         assertTrue("steady fps $fps", fps in expectedFps * 0.9..expectedFps * 1.1)
         assertTrue("arrival hitches $hitches of ${intervals.size}", hitches * 50 <= intervals.size)
-        // 720p 以上的处理尺寸使用 150 ms 深流水线。
-        val baseDelayUs = if (width.toLong() * height > 1280L * 720L) 150_000L else 100_000L
-        assertTrue("delay $delays", delays.isNotEmpty() && delays.all { it in baseDelayUs..(baseDelayUs + 1_000L + 1_000_000L / sourceFps) })
+        // 720p 以上的处理尺寸使用 150 ms 深流水线；相位锁定（FrameTimeline 上限 100 ms）并入音频补偿。
+        val deep = width.toLong() * height > 1280L * 720L
+        val baseDelayUs = if (deep) 150_000L else 100_000L
+        val phaseUs = if (deep) 100_000L else 1_000L + 1_000_000L / sourceFps
+        assertTrue("delay $delays", delays.isNotEmpty() && delays.all { it in baseDelayUs..(baseDelayUs + phaseUs) })
         assertEquals(FrameInterpolationSession.Phase.CLOSED, closed.phase)
         assertEquals("ledger after close ${closed.ledger}", 0, closed.ledger.live)
     }

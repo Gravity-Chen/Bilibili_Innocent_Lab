@@ -61,7 +61,9 @@ internal class FrameCaptureBridge private constructor(
         /** 时间线窗口 4 + 推理输出 1 + Presenter 临近交付前持有的约 3 帧 + 余量；RGB8 每帧 720p 2.7 MB、1440p 11 MB。 */
         val maxBuffers: Int = 12,
         val frameWindow: Int = 4,
-        val stageUploads: Boolean = true
+        val stageUploads: Boolean = true,
+        /** 正式播放：源帧率已达目标时回原生（验证构建的显式档位可做纯复制测试）。 */
+        val interpolationRequired: Boolean = true
     )
 
     private val presenter = FrameGlPresenter(display, config.targetFps, config.stageUploads) { onNativeRestored(it) }.apply {
@@ -86,7 +88,7 @@ internal class FrameCaptureBridge private constructor(
     private var lastReportNs = 0L
     private var audioDelayUs = 0L
     private var power: FramePowerAdvisor? = null
-    private val cadence = FrameSourceCadence(config.targetFps)
+    private val cadence = FrameSourceCadence(config.targetFps, interpolationRequired = config.interpolationRequired)
     private val native = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     /** 交给宿主 configure 的替换 Surface（捕获 SurfaceTexture）。 */
@@ -267,6 +269,8 @@ internal class FrameCaptureBridge private constructor(
         private const val THERMAL_LIMIT = 0.85f
         private const val DEEP_DELAY_NS = 150_000_000L
         private const val DEEP_LEAD_NS = 100_000_000L
+        /** 账本 16 个缓冲：窗口 + 推理输出 + 呈现器持有约 3 帧。 */
+        private const val MAX_FRAME_WINDOW = 11
         private const val TUNNELED = "tunneled-playback"
         /** MediaFormat.KEY_HDR10_PLUS_INFO（API 29），以字面量引用以兼容更低的 minSdk。 */
         private const val KEY_HDR10_PLUS_INFO = "hdr10-plus-info"
@@ -294,19 +298,32 @@ internal class FrameCaptureBridge private constructor(
             val tunneled = runCatching { format.getFeatureEnabled(TUNNELED) }.getOrDefault(false) ||
                 runCatching { format.containsKey(MediaFormat.KEY_AUDIO_SESSION_ID) }.getOrDefault(false)
             // 25 fps 源按 2 倍插到 50 fps（30/29.97 → 60）；目标随后由实测节奏复核，不符即回原生。
-            val target = targetFpsFor(sourceFpsHint(format), requestedTargetFps)
-            host.log("bridge.target", "${target}fps hint=${sourceFpsHint(format)}")
+            val hint = sourceFpsHint(format)
+            val target = targetFpsFor(hint, requestedTargetFps)
+            host.log("bridge.target", "${target}fps hint=$hint")
+            // 源已达目标帧率（如 60 fps 视频）：没有可补的帧，不接管，避免 4K 捕获与呈现的空耗。
+            if (requestedTargetFps == null && hint != null && hint >= target * 0.98f) {
+                host.log("bridge.skip", "rate:$hint")
+                return null
+            }
             val bridge = runCatching {
                 // 60 fps 源的四帧窗口只覆盖 50 ms，无法保留 100 ms 延迟管线起步所需的原帧。
                 // 120 验证档扩为八源帧与十六个 RGB 缓冲，仍由账本硬上限约束。
                 // 720p 以上：推理占槽位比例更高，抖动更易错过槽位。加深流水线（延迟 150 ms、提前 100 ms、六源帧窗口），
                 // 让 worker 跑得更靠前以吸收抖动；音频按同一延迟补偿。720p 保持已在宿主验证的 100 ms。
                 val deep = processing.pixels > 1280L * 720L
+                val delayNs = if (deep) DEEP_DELAY_NS else config.presentationDelayNs
+                // 源帧窗口须覆盖整个呈现延迟再加两帧余量：150 ms 在 60 fps 源上需要 11 帧（宿主真机：6 帧窗口时
+                // 时间线等不到后一帧、画面停住）。
+                val sourceFps = (hint ?: 30f).coerceIn(10f, 120f)
+                val window = maxOf(if (target >= 120) 8 else config.frameWindow,
+                    kotlin.math.ceil(delayNs / 1e9 * sourceFps).toInt() + 2).coerceAtMost(MAX_FRAME_WINDOW)
                 val selected = config.copy(targetFps = target,
-                    presentationDelayNs = if (deep) DEEP_DELAY_NS else config.presentationDelayNs,
+                    presentationDelayNs = delayNs,
                     maxLeadNs = if (deep) DEEP_LEAD_NS else config.maxLeadNs,
-                    frameWindow = if (target >= 120) 8 else if (deep) 6 else config.frameWindow,
-                    maxBuffers = if (target >= 120 || deep) 16 else config.maxBuffers)
+                    frameWindow = window,
+                    maxBuffers = if (target >= 120 || deep || window > config.frameWindow) 16 else config.maxBuffers,
+                    interpolationRequired = config.interpolationRequired && requestedTargetFps == null)
                 FrameCaptureBridge(selected, codec, display, processing.width, processing.height, width, height,
                     values(format), name.endsWith(".secure"), tunneled, engine, host)
             }.getOrNull() ?: return null

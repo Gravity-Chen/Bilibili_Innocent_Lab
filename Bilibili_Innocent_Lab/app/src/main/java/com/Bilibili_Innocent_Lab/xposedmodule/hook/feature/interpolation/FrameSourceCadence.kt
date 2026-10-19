@@ -5,7 +5,12 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
  * 60 Hz 目标只在 60 是源帧率整数倍（±2%，含 29.97）时才能让原帧落在槽位上；24/25 fps 等需要每秒
  * 35–48 次推理，真机宿主内做不到（约 22 ms/次），应保持原生播放，避免插帧引入不均匀节奏。
  */
-internal class FrameSourceCadence(private val targetFps: Int = 60, private val minSamples: Int = 12) {
+internal class FrameSourceCadence(
+    private val targetFps: Int = 60,
+    private val minSamples: Int = 12,
+    /** 正式播放为 true：源已达目标帧率（倍率 1）时没有可补的帧，接管只多出捕获与呈现开销，判为不适合。 */
+    private val interpolationRequired: Boolean = false
+) {
     enum class Verdict { PENDING, SUITABLE, UNSUITABLE }
 
     private val intervals = ArrayList<Long>(WINDOW)
@@ -36,7 +41,8 @@ internal class FrameSourceCadence(private val targetFps: Int = 60, private val m
         val fps = sourceFps() ?: return Verdict.PENDING
         val ratio = targetFps / fps
         val nearest = kotlin.math.round(ratio)
-        return if (nearest >= 1.0 && kotlin.math.abs(ratio - nearest) / nearest <= TOLERANCE) Verdict.SUITABLE
+        val minimum = if (interpolationRequired) 2.0 else 1.0
+        return if (nearest >= minimum && kotlin.math.abs(ratio - nearest) / nearest <= TOLERANCE) Verdict.SUITABLE
             else Verdict.UNSUITABLE
     }
 
