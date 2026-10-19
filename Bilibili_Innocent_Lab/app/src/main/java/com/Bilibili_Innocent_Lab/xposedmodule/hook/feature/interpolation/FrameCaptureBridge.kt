@@ -308,7 +308,7 @@ internal class FrameCaptureBridge private constructor(
             host.log("bridge.stats", "phase=${snapshot.phase} state=${snapshot.recovery.state} presented=${snapshot.presented} " +
                 "interpolated=${snapshot.interpolated} late=${snapshot.late} missed=${snapshot.missedCommit} " +
                 "inferUs=${snapshot.averageInferenceUs} leadUs=${snapshot.averageLeadUs} delayUs=${session.effectiveDelayUs()} " +
-                "planned=${snapshot.planned} dedup=${snapshot.deduplicated} source=${cadence.describe()} audioDelayUs=$audioDelayUs " +
+                "planned=${snapshot.planned} dedup=${snapshot.deduplicated} ledger=${snapshot.ledger} source=${cadence.describe()} audioDelayUs=$audioDelayUs " +
                 "staticSkips=${engine.staticSkips.get()} cutSkips=${engine.sceneCutSkips.get()} " +
                 "transitionSkips=${engine.transitionSkips.get()} tilePatched=${engine.tilePatchedFrames.get()} " +
                 "unreliable=${engine.lastUnreliablePermille} flow=1/${engine.flowScaleFor(width.toLong() * height)} " +
@@ -349,10 +349,10 @@ internal class FrameCaptureBridge private constructor(
         /** getThermalHeadroom 的 1.0 为严重降频；留出余量提前退出。 */
         private const val THERMAL_LIMIT = 0.85f
         /**
-         * 呈现延迟 200 ms：宿主真机约每分钟一次解码迟到约 100 ms（之后一帧紧随到达），150 ms 时该处补帧来不及推理、
-         * 越过 3 个槽位（SurfaceFlinger 上 134 ms 停顿）；200 ms 让这类迟到仍能按时补帧。音频按同一延迟补偿。
+         * 呈现延迟 150 ms。曾试 200 ms 以吸收宿主约每分钟一次、约 100 ms 的解码迟到，但宿主真机越过槽位反而从每分钟
+         * 约 3 个增至约 73 个、出现大量 200 ms 停顿（各级持有的帧更多、缓冲紧张），故保持 150 ms。
          */
-        private const val DEEP_DELAY_NS = 200_000_000L
+        private const val DEEP_DELAY_NS = 150_000_000L
         private const val DEEP_LEAD_NS = 100_000_000L
         private const val SOURCE_GAP_PTS_US = 50_000L
         private const val SOURCE_GAP_ARRIVAL_NS = 70_000_000L
@@ -398,7 +398,7 @@ internal class FrameCaptureBridge private constructor(
             val bridge = runCatching {
                 // 60 fps 源的四帧窗口只覆盖 50 ms，无法保留 100 ms 延迟管线起步所需的原帧。
                 // 120 验证档扩为八源帧与十六个 RGB 缓冲，仍由账本硬上限约束。
-                // 深流水线（延迟 200 ms、提前 100 ms）：让 worker 跑得更靠前以吸收抖动；音频按同一延迟补偿。
+                // 深流水线（延迟 150 ms、提前 100 ms）：让 worker 跑得更靠前以吸收抖动；音频按同一延迟补偿。
                 // 起初只用于 720p 以上；宿主真机 720p 在去重（补帧比例升到约 56%）与录屏等 GPU 负载下推理约 24 ms，
                 // 100 ms/60 ms 的余量不足、出现 skippedLead，故所有尺寸都用深流水线（显式验证档位除外）。
                 val deep = requestedTargetFps == null || processing.pixels > 1280L * 720L
