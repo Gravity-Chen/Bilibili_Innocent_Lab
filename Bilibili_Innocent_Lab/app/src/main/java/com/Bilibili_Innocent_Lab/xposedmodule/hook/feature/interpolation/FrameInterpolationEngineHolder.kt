@@ -226,9 +226,9 @@ internal class FrameInterpolationEngineHolder(
         const val CUT_PERMILLE = 100
         const val CUT_HISTOGRAM_PERMILLE = 250
         private const val DUMP_SAMPLES = 12
-        /** 约 4 s 的 30→60 补帧；平均超过约 80% 槽位即降档。 */
-        const val TIER_WINDOW = 120
-        const val TIER_DOWNGRADE_MS = 27.0
+        const val LOAD_WINDOW_NS = 4_000_000_000L
+        /** 推理占用上限：其余留给捕获、呈现与宿主 UI（与 FrameRateTarget 的预算一致）。 */
+        const val LOAD_LIMIT = 0.8
         const val CAPABILITY_RETRY_NS = 20_000_000_000L
         const val CAPABILITY_RETRIES = 3
         /**
@@ -246,24 +246,33 @@ internal class FrameInterpolationEngineHolder(
         const val CAPABILITY_ID_BASE = 1L shl 60
     }
 
-    private var tierSamples = 0
-    private var tierTotalUs = 0L
+    private var loadWindowStartNs = 0L
+    private var loadWindowUs = 0L
 
     /**
-     * 运行期降档：能力在进程启动时测得，播放中宿主 UI、弹幕与温度会让同一推理变慢（宿主真机 1080p 1/4 档从 25 ms
-     * 涨到约 30 ms，接近 33 ms 槽位）。1080p 档连续 [TIER_WINDOW] 次平均超过 [TIER_DOWNGRADE_MS] 时退到下一档，
-     * 下一次补帧即生效；本进程内不再升回，避免来回切换。
+     * 运行期降级：能力在进程启动时测得，播放中宿主 UI、弹幕、温度以及源重复帧去重（补帧比例上升）都会让 GPU 更忙
+     * （宿主真机 1440p 处理约 24 ms × 35 次/秒）。按约 4 s 窗口统计推理占用（推理耗时 / 墙钟时间），超过
+     * [LOAD_LIMIT] 时：1080p 档退到下一光流档，下一次补帧即生效；1080p 以上档标记为不可用，由捕获桥按 1080p
+     * 处理尺寸重建。本进程内不再升回，避免来回切换。
      */
-    private fun observeTier(pixels: Long, nativeUs: Long) {
-        if (pixels <= 1280L * 720L || pixels > FrameProcessingSize.STANDARD_FLOW_PIXELS) return
-        val next = STANDARD_TIERS.getOrNull(STANDARD_TIERS.indexOf(standardFlowScale) + 1) ?: return
-        tierTotalUs += nativeUs
-        if (++tierSamples < TIER_WINDOW) return
-        val averageMs = tierTotalUs / tierSamples / 1000.0
-        tierSamples = 0; tierTotalUs = 0L
-        if (averageMs <= TIER_DOWNGRADE_MS) return
-        log("engine.tier", "1/$standardFlowScale->1/$next avg=%.1fms".format(averageMs))
-        standardFlowScale = next
+    private fun observeLoad(pixels: Long, nativeUs: Long) {
+        val now = System.nanoTime()
+        if (loadWindowStartNs == 0L || now - loadWindowStartNs > 2 * LOAD_WINDOW_NS) { loadWindowStartNs = now; loadWindowUs = 0L; return }
+        loadWindowUs += nativeUs
+        val elapsedUs = (now - loadWindowStartNs) / 1_000L
+        if (elapsedUs * 1_000L < LOAD_WINDOW_NS) return
+        val load = loadWindowUs.toDouble() / elapsedUs
+        loadWindowStartNs = now; loadWindowUs = 0L
+        if (load <= LOAD_LIMIT) return
+        if (pixels > FrameProcessingSize.STANDARD_FLOW_PIXELS) {
+            if (capability.high == 0L) return
+            log("engine.overload", "high class off load=%.2f".format(load))
+            capability = capability.copy(high = 0L)
+        } else if (pixels > 1280L * 720L) {
+            val next = STANDARD_TIERS.getOrNull(STANDARD_TIERS.indexOf(standardFlowScale) + 1) ?: return
+            log("engine.tier", "1/$standardFlowScale->1/$next load=%.2f".format(load))
+            standardFlowScale = next
+        }
     }
 
     private var dumpCounter = 0
@@ -333,7 +342,7 @@ internal class FrameInterpolationEngineHolder(
                 flowScale = flowScaleFor(format.width.toLong() * format.height))
             lastNativeUs = (System.nanoTime() - nativeStarted) / 1_000L
             if (result != FrameInterpolationBackend.Status.OK) return result
-            observeTier(format.width.toLong() * format.height, lastNativeUs)
+            observeLoad(format.width.toLong() * format.height, lastNativeUs)
             // 转场保护：大面积两侧 warp 互相矛盾说明光流整体失效（切镜、闪白、超出光流范围的运动），
             // 此时任何合成都会拉扯变形；改为最近的原帧（与切镜处理一致），逐像素回退只用于局部失效。
             val unreliable = engine.unreliablePermille()

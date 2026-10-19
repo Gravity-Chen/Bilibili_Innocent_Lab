@@ -53,6 +53,8 @@ internal class FrameCaptureBridge private constructor(
          * 在呈现线程调用。
          */
         fun onDisplayLimited(codec: MediaCodec, hz: Float) = Unit
+        /** 引擎过载、本实例的处理尺寸已不可用：已切回原生并拆除，宿主应按当前能力重新接管。在呈现线程调用。 */
+        fun onRebuild(codec: MediaCodec) = Unit
     }
 
     /**
@@ -92,8 +94,10 @@ internal class FrameCaptureBridge private constructor(
         maxClockUncertaintyUs = 8_000L, frameWindow = config.frameWindow)
     private val session = FrameInterpolationSession(config.targetFps, ledger, engine.synthesizer(), engine.worker(),
         presenter, System::nanoTime, recovery, timeline = timeline,
+        // 只认近乎完全相同的画面：宿主真机慢速摇镜被宽松的「基本静止」判为重复后连丢两帧，100 ms 间隔里每个槽位
+        // 都要推理，负载翻倍并跳槽（录屏中慢镜段每半秒只有 18–23 帧）。
         duplicate = { previous, current, format ->
-            FrameInterpolationNative.analyzeScene(previous, current, format.width, format.height, format.stride) == 1 })
+            FrameInterpolationNative.isDuplicate(previous, current, format.width, format.height, format.stride) == 1 })
     // 捕获线程写、驱动线程读：admitted、lastArrivalNs、discontinuity；后者两线程都会递增。
     @Volatile private var admitted = false
     private val discontinuityCount = java.util.concurrent.atomic.AtomicLong()
@@ -115,6 +119,7 @@ internal class FrameCaptureBridge private constructor(
     /** 实测 vsync（帧率上限自适应）：显式验证档位不测。 */
     private val vsync = FrameVsyncMeter()
     @Volatile private var limitedHz: Float? = null
+    @Volatile private var rebuild = false
     private val closed = AtomicBoolean(false)
     /** 交给宿主 configure 的替换 Surface（捕获 SurfaceTexture）。 */
     var captureSurface: Surface? = null
@@ -240,6 +245,12 @@ internal class FrameCaptureBridge private constructor(
                 return
             }
         }
+        // 引擎过载把 1080p 以上档标记为不可用：按 1080p 处理尺寸重建（一次短暂的原生交接）。
+        if (!rebuild && width.toLong() * height > FrameProcessingSize.STANDARD_FLOW_PIXELS && engine.capability.high == 0L) {
+            rebuild = true
+            returnToNative("overload:${width}x$height")
+            return
+        }
         // 暂停时没有新帧：停止推进时钟，时间线随后因时钟过期而停止规划，屏幕保留最后一帧。
         if (!admitted || lastArrivalNs == Long.MIN_VALUE || now - lastArrivalNs > STALL_NS) return
         // 时钟快照取在 vsync 时刻：时间线以首个快照为锚，槽位网格因此与显示 vsync 对齐，
@@ -300,6 +311,7 @@ internal class FrameCaptureBridge private constructor(
         // 系统实际刷新低于目标：解码器已回到显示 Surface，交给宿主按实测上限重新接管。
         val limit = limitedHz
         if (switched && limit != null) host.onDisplayLimited(codec, limit)
+        else if (switched && rebuild) host.onRebuild(codec)
     }
 
     companion object {

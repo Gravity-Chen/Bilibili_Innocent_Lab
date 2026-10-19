@@ -214,6 +214,40 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameIn
     return result;
 }
 
+// Source-duplicate test for frame de-duplication: 1 when the mean sampled difference is at most 0.3, at most
+// 0.5% of samples exceed 4 (compression noise) and none exceeds 16 (re-encoded copies of the same drawing);
+// 0 otherwise, -1 for an invalid layout.
+// Much stricter than analyzeScene's "effectively static": slow pans must not be dropped as duplicates.
+extern "C" JNIEXPORT jint JNICALL
+Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameInterpolationNative_isDuplicate(
+    JNIEnv* env, jobject, jobject left, jobject right, jint width, jint height, jint stride) {
+    void *l = nullptr, *r = nullptr;
+    std::size_t lSize = 0, rSize = 0;
+    if (width <= 0 || height <= 0 || static_cast<std::uint64_t>(width) * height > kMaxFramePixels ||
+        static_cast<std::int64_t>(stride) < static_cast<std::int64_t>(width) * 3 ||
+        !direct(env, left, &l, &lSize) || !direct(env, right, &r, &rSize)) return -1;
+    const auto required = static_cast<std::uint64_t>(height - 1) * stride + static_cast<std::uint64_t>(width) * 3;
+    if (required > lSize || required > rSize) return -1;
+    const auto* a = static_cast<const std::uint8_t*>(l);
+    const auto* b = static_cast<const std::uint8_t*>(r);
+    const int stepX = std::max(1, width / 320), stepY = std::max(1, height / 180);
+    std::uint64_t sum = 0, count = 0, noisy = 0;
+    for (int y = 0; y < height; y += stepY) {
+        const auto* ra = a + static_cast<std::size_t>(y) * stride;
+        const auto* rb = b + static_cast<std::size_t>(y) * stride;
+        for (int x = 0; x < width * 3; x += stepX * 3) {
+            for (int c = 0; c < 3; ++c) {
+                const int d = std::abs(static_cast<int>(ra[x + c]) - rb[x + c]);
+                if (d > 16) return 0;
+                if (d > 4) ++noisy;
+                sum += d;
+                ++count;
+            }
+        }
+    }
+    return count > 0 && sum * 10 <= count * 3 && noisy * 200 <= count ? 1 : 0;
+}
+
 // 0: motion, 1: effectively static, 2: hard cut, -1: invalid layout. No allocation or pixel copies.
 extern "C" JNIEXPORT jint JNICALL
 Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameInterpolationNative_analyzeScene(

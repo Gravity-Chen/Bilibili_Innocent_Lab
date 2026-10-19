@@ -187,6 +187,8 @@ internal object FrameInterpolationNative {
     external fun close(handle: Long)
     external fun unreliablePermille(handle: Long): Int
     external fun patchedTiles(handle: Long): Int
+    /** 源重复帧（同一画面重新编码）：1 是，0 否，-1 布局无效；比 analyzeScene 的「基本静止」严格得多。 */
+    external fun isDuplicate(left: ByteBuffer, right: ByteBuffer, width: Int, height: Int, stride: Int): Int
     external fun histogramPermille(handle: Long): Int
     external fun setMotionGuard(handle: Long, enabled: Boolean)
     external fun configure(handle: Long, flags: Int): Int

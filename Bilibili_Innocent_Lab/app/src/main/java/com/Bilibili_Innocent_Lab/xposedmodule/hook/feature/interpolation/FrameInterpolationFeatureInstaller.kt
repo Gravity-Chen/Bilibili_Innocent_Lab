@@ -433,16 +433,21 @@ internal class FrameInterpolationFeatureInstaller(
         override fun displayLimitHz(): Float? = displayLimit
         override fun onDisplayLimited(codec: MediaCodec, hz: Float) {
             displayLimit = minOf(displayLimit ?: hz, hz)
+            reattach(codec, "limit=%.0fHz".format(hz))
+        }
+        override fun onRebuild(codec: MediaCodec) = reattach(codec, "overload")
+
+        /** 解码器此时已回到显示 Surface（原生播放）；在独立线程按当前上限与能力重新接管，不占用呈现或解码线程。 */
+        private fun reattach(codec: MediaCodec, reason: String) {
             val decoder = configured[codec] ?: return
             val holder = engine ?: return
             bridges.remove(codec)
-            // 解码器此时已回到显示 Surface（原生播放）；在独立线程按新上限重新接管，不占用呈现或解码线程。
             Thread({
                 if (configured[codec] !== decoder) return@Thread
                 val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, decoder.format, decoder.display,
                     decoder.crypto, holder, this, attach = { surface -> runCatching { codec.setOutputSurface(surface) }.isSuccess })
                 if (bridge != null) bridges[codec] = bridge
-                log("bridge.retarget", "limit=%.0fHz attached=${bridge != null}".format(hz))
+                log("bridge.retarget", "$reason attached=${bridge != null}")
             }, "innocent-frame-retarget").start()
         }
     }
