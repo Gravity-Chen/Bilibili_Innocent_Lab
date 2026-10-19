@@ -430,6 +430,13 @@ internal class FrameInterpolationFeatureInstaller(
         override fun log(event: String, detail: String) = this@FrameInterpolationFeatureInstaller.log(event, detail)
         override fun context(): android.content.Context? = ReflectAccess.currentApplication()
         override fun maxFps(): Int = maxFps
+        override fun diagnostics(): Boolean = verificationAllowed && runCatching {
+            File(ReflectAccess.currentApplication()?.getExternalFilesDir(null), "$VERIFY_DIR/measure-gpu").isFile
+        }.getOrDefault(false)
+        override fun presentLeadOverrideNs(): Long? = if (!verificationAllowed) null else runCatching {
+            File(ReflectAccess.currentApplication()?.getExternalFilesDir(null), "$VERIFY_DIR/present-lead-us")
+                .takeIf { it.isFile }?.readText()?.trim()?.toLong()?.coerceIn(0L, 40_000L)?.times(1_000L)
+        }.getOrNull()
         override fun displayLimitHz(): Float? = displayLimit
         override fun onDisplayLimited(codec: MediaCodec, hz: Float) {
             displayLimit = minOf(displayLimit ?: hz, hz)

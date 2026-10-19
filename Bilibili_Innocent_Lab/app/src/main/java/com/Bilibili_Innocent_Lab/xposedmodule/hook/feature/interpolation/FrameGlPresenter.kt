@@ -103,6 +103,12 @@ internal class FrameGlPresenter(
                         continue
                     }
                     if (stageUploads && staged !== next) break
+                    if (lastVsyncNs != 0L) {
+                        // vsync 跟随：等到 onVsync 唤醒（或最多一个周期后复查）。
+                        if (releasable(next, System.nanoTime())) break
+                        lock.wait(periodNs / 1_000_000L + 1)
+                        continue
+                    }
                     // Object.wait 只有毫秒级唤醒；最后 SPIN_THRESHOLD_NS 改为出锁 parkNanos 精确等待。
                     val wait = waitNs(next) - SPIN_THRESHOLD_NS
                     if (wait <= 0L) break
@@ -122,20 +128,23 @@ internal class FrameGlPresenter(
                 } else staged = target
                 continue
             }
-            val wait = waitNs(target)
-            if (wait > 0L) java.util.concurrent.locks.LockSupport.parkNanos(wait)
+            if (lastVsyncNs == 0L) {
+                val wait = waitNs(target)
+                if (wait > 0L) java.util.concurrent.locks.LockSupport.parkNanos(wait)
+            } else if (!releasable(target, System.nanoTime())) continue
             val item = synchronized(lock) { if (pending.peek() === target) pending.poll() else null } ?: continue
             deliver(item)
         }
     }
 
-    private fun waitNs(item: Scheduled) = item.dueNs - timestampLeadNs - PRESENT_LEAD_NS - System.nanoTime()
+    private fun waitNs(item: Scheduled) = item.dueNs - timestampLeadNs - presentLeadNs - System.nanoTime()
 
     /** 已错过下一个槽位的帧不再画（画了只会挤掉后一帧）；其余按时画并回报。 */
     private fun deliver(item: Scheduled) {
         val started = System.nanoTime()
         val next = synchronized(lock) { pending.peek() }
-        if (next != null && next.dueNs - timestampLeadNs - PRESENT_LEAD_NS <= started) {
+        // 同一刷新已有更新的一帧可交付：本帧作废，保证每个刷新最多提交一帧。
+        if (next != null && (if (lastVsyncNs != 0L) releasable(next, started) else next.dueNs - timestampLeadNs - presentLeadNs <= started)) {
             runCatching { item.done(FrameInterpolationSession.Outcome.Dropped(started)) }
             return
         }
@@ -211,8 +220,75 @@ internal class FrameGlPresenter(
         FrameGl.bindQuad(rgbProgram, FrameGl.FLIPPED_QUAD)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         if (GLES20.glGetError() != GLES20.GL_NO_ERROR) return false
-        EGLExt.eglPresentationTimeANDROID(egl!!.display, window, dueNs)
-        return EGL14.eglSwapBuffers(egl!!.display, window)
+        if (!EGLExt.eglPresentationTimeANDROID(egl!!.display, window, dueNs)) timestampRejected++
+        val swapStarted = System.nanoTime()
+        val swapped = EGL14.eglSwapBuffers(egl!!.display, window)
+        recordTiming(dueNs, swapStarted)
+        // 诊断：本帧绘制在 GPU 上完成所需时间（含排在推理计算之后的等待）。仅统计，不影响交付。
+        if (measureGpu) {
+            val waitStart = System.nanoTime()
+            GLES20.glFinish()
+            val gpuMs = (System.nanoTime() - waitStart) / 1_000_000.0
+            val bucket = when { gpuMs < 2 -> 0; gpuMs < 5 -> 1; gpuMs < 10 -> 2; gpuMs < 15 -> 3; else -> 4 }
+            synchronized(timestampGaps) { gpuDone[bucket]++ }
+        }
+        return swapped
+    }
+
+    // 诊断：请求的呈现时间戳间隔（应为整周期）与提交时刻相对时间戳的偏差，按统计窗口汇总。
+    private var lastTimestampNs = 0L
+    @Volatile private var timestampRejected = 0L
+    private val gpuDone = IntArray(5)
+    /** 诊断开关：交付后等待 GPU 完成以统计耗时。 */
+    @Volatile var measureGpu = false
+    /** 提交相对请求呈现时刻的提前量；默认 [PRESENT_LEAD_NS]，debug 验证构建可在线调整以测定 SurfaceFlinger 取帧相位。 */
+    @Volatile var presentLeadNs = PRESENT_LEAD_NS
+
+    /**
+     * 跟随真实 vsync 交付：驱动线程每个 vsync 调 [onVsync]，呈现线程在该 vsync 之后提交「下一刷新」到期的那一帧。
+     * 宿主真机全屏 SurfaceView 图层上 SurfaceFlinger 不理会呈现时间戳、缓冲就绪即上屏，按固定时间网格 parkNanos 定时
+     * 提交（开环）时，提交相位与 SurfaceFlinger 取帧时刻的相对漂移与抖动让部分刷新拿到两帧、下一刷新没有新帧（timestats
+     * 每秒约 2 次 33 ms 间隔，而本端时间戳与提交都准时）。跟随 vsync 后每个刷新最多提交一帧、相位固定。
+     */
+    @Volatile private var lastVsyncNs = 0L
+    private val periodNs = 1_000_000_000L / targetFps.coerceAtLeast(1)
+
+    fun onVsync(vsyncNs: Long) = synchronized(lock) {
+        if (vsyncNs > lastVsyncNs) { lastVsyncNs = vsyncNs; lock.notifyAll() }
+    }
+
+    /** 已收到 vsync 时，帧在「上一 vsync 起算的下一刷新」到期即可提交；否则沿用时间网格。 */
+    private fun releasable(item: Scheduled, nowNs: Long): Boolean {
+        val vsync = lastVsyncNs
+        return if (vsync != 0L && nowNs - vsync < 4 * periodNs) item.dueNs <= vsync + periodNs + periodNs / 2
+            else waitNs(item) <= 0L
+    }
+    private val timestampGaps = IntArray(8)
+    private val submitSlack = IntArray(6)
+
+    private fun recordTiming(timestampNs: Long, submittedNs: Long) {
+        val period = 1_000_000_000L / targetFps.coerceAtLeast(1)
+        if (lastTimestampNs != 0L) {
+            // 以周期为单位：0 重复/倒退，1 正常，2 跳过一个槽位，… ；非整周期（偏差 > 2 ms）计入 7。
+            val gap = timestampNs - lastTimestampNs
+            val periods = Math.round(gap.toDouble() / period).toInt()
+            val bucket = if (kotlin.math.abs(gap - periods * period) > 2_000_000L) 7 else periods.coerceIn(0, 6)
+            synchronized(timestampGaps) { timestampGaps[bucket]++ }
+        }
+        lastTimestampNs = timestampNs
+        // 提交时刻相对时间戳：<-8、-8..-4、-4..0、0..4、4..8、>8 ms（正值表示提交晚于请求的呈现时刻）。
+        val slackMs = (submittedNs - timestampNs) / 1_000_000.0
+        val bucket = when { slackMs < -8 -> 0; slackMs < -4 -> 1; slackMs < 0 -> 2; slackMs < 4 -> 3; slackMs < 8 -> 4; else -> 5 }
+        synchronized(timestampGaps) { submitSlack[bucket]++ }
+    }
+
+    /** 自上次调用以来的时间戳间隔与提交偏差分布（诊断日志用），并清零。 */
+    fun timingSummary(): String = synchronized(timestampGaps) {
+        ("tsRejected=$timestampRejected gaps[dup,1,2,3,4,5,6+,off]=${timestampGaps.joinToString(",")} " +
+            "submit[<-8,-8,-4,0,4,>8]=${submitSlack.joinToString(",")} " +
+            "gpu[<2,2-5,5-10,10-15,>15ms]=${gpuDone.joinToString(",")}").also {
+            timestampGaps.fill(0); submitSlack.fill(0); gpuDone.fill(0)
+        }
     }
 
 
@@ -231,7 +307,12 @@ internal class FrameGlPresenter(
     }
 
     private companion object {
-        const val PRESENT_LEAD_NS = 4_000_000L
+        /**
+         * 提交比请求的呈现时刻早 20 ms（超过一个 60 Hz 周期）。宿主真机：只早 4 ms 时，缓冲常在 SurfaceFlinger 为目标刷新
+         * 取帧之后才由 GPU 画完，平时只是顺延一刷新，偶尔两帧同时就绪、前一帧被静默替换（timestats 0 丢弃却少约 3% 的帧，
+         * 每秒约 2 次空刷新）。呈现时间戳保证不会提前显示，早提交只让缓冲按时就绪。
+         */
+        const val PRESENT_LEAD_NS = 20_000_000L
         const val SPIN_THRESHOLD_NS = 2_000_000L
         const val VERTEX = "attribute vec2 aPosition; attribute vec2 aCoordinate; varying vec2 vCoordinate;" +
             "void main() { vCoordinate = aCoordinate; gl_Position = vec4(aPosition, 0.0, 1.0); }"

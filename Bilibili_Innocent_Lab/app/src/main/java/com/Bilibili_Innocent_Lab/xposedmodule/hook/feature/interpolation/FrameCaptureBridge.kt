@@ -55,6 +55,10 @@ internal class FrameCaptureBridge private constructor(
         fun onDisplayLimited(codec: MediaCodec, hz: Float) = Unit
         /** 引擎过载、本实例的处理尺寸已不可用：已切回原生并拆除，宿主应按当前能力重新接管。在呈现线程调用。 */
         fun onRebuild(codec: MediaCodec) = Unit
+        /** 仅 debug 验证构建：开启额外的逐帧诊断（GPU 完成耗时）。 */
+        fun diagnostics(): Boolean = false
+        /** 仅 debug 验证构建：在线调整提交提前量（测定取帧相位）；null 用默认。 */
+        fun presentLeadOverrideNs(): Long? = null
     }
 
     /**
@@ -81,6 +85,7 @@ internal class FrameCaptureBridge private constructor(
 
     private val presenter = FrameGlPresenter(display, config.targetFps, config.stageUploads) { onNativeRestored(it) }.apply {
         onSubmitted = host::onFrameSubmitted
+        measureGpu = host.diagnostics()
     }
     private val capture = FrameGlCapture(width, height, sourceWidth, sourceHeight)
     private val clock = FrameHostClock()
@@ -236,6 +241,7 @@ internal class FrameCaptureBridge private constructor(
 
     private fun drive(vsyncNs: Long) {
         val now = System.nanoTime()
+        presenter.onVsync(vsyncNs)
         if (config.measureVsync && limitedHz == null) vsync.add(vsyncNs)?.let { measured ->
             val hz = FrameRateTarget.snap(measured, displayModes(host.context()))
             host.log("bridge.vsync", "%.1fHz target=${config.targetFps}".format(hz))
@@ -279,6 +285,7 @@ internal class FrameCaptureBridge private constructor(
         }
         if (now - lastReportNs >= REPORT_INTERVAL_NS) {
             lastReportNs = now
+            host.presentLeadOverrideNs()?.let { if (it != presenter.presentLeadNs) { presenter.presentLeadNs = it; host.log("bridge.lead", "${it / 1000}us") } }
             val snapshot = session.snapshot()
             host.log("bridge.stats", "phase=${snapshot.phase} state=${snapshot.recovery.state} presented=${snapshot.presented} " +
                 "interpolated=${snapshot.interpolated} late=${snapshot.late} missed=${snapshot.missedCommit} " +
@@ -288,7 +295,8 @@ internal class FrameCaptureBridge private constructor(
                 "transitionSkips=${engine.transitionSkips.get()} tilePatched=${engine.tilePatchedFrames.get()} " +
                 "unreliable=${engine.lastUnreliablePermille} flow=1/${engine.flowScaleFor(width.toLong() * height)} " +
                 "capability=${engine.capability.standard}/${engine.capability.high} " +
-                "guardUs=${engine.lastGuardUs} nativeUs=${engine.lastNativeUs} thermal=${power?.lastHeadroom} batteryC=${power?.lastBatteryC}")
+                "guardUs=${engine.lastGuardUs} nativeUs=${engine.lastNativeUs} thermal=${power?.lastHeadroom} batteryC=${power?.lastBatteryC} " +
+                presenter.timingSummary())
         }
     }
 
