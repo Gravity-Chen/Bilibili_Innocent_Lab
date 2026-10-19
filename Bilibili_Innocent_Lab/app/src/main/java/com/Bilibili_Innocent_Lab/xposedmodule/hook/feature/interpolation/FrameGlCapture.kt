@@ -46,6 +46,10 @@ internal class FrameGlCapture(
     private var surfaceTexture: SurfaceTexture? = null
     private var surface: Surface? = null
     private val transform = FloatArray(16)
+    private val maxLatchNs = java.util.concurrent.atomic.AtomicLong()
+
+    /** 自上次读取以来的最长纹理锁存耗时；不包含后续 RGB 读回。 */
+    fun takeMaxLatchNs(): Long = maxLatchNs.getAndSet(0L)
 
     /** 同步建立；失败返回 null，外层应保持原生呈现。 */
     fun start(listener: FrameListener, timeoutMs: Long = 1_000L): Surface? {
@@ -94,8 +98,12 @@ internal class FrameGlCapture(
 
     private fun onFrameAvailable(texture: SurfaceTexture, listener: FrameListener) {
         if (surfaceTexture !== texture) return
-        val arrival = System.nanoTime()
+        val latchStarted = System.nanoTime()
         runCatching { texture.updateTexImage() }.onFailure { return }
+        // updateTexImage 可能阻塞并锁存比回调通知更新的帧。必须把时间记在锁存之后，否则旧回调时间配上新 PTS，
+        // 会伪造提前到达的时钟样本，放大误差并使整条呈现时间线重启。
+        val arrival = System.nanoTime()
+        maxLatchNs.accumulateAndGet(arrival - latchStarted) { previous, next -> maxOf(previous, next) }
         texture.getTransformMatrix(transform)
         listener.onFrame(texture.timestamp, arrival) { buffer, format -> read(buffer, format) }
     }

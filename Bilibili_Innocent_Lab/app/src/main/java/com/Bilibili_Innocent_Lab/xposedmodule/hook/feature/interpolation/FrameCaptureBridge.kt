@@ -15,8 +15,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 真机（高通）：解码器无视 CPU 读用途、给 ImageReader 分配 UBWC 压缩布局而无法锁定平面，
  * 因此捕获只走 GPU：驱动负责解压与 YUV→RGB，模块只做 RGBA 读回。
  *
- * 线程：捕获回调与 Choreographer 驱动在捕获线程串行执行，呈现在呈现线程；宿主 MediaCodec 线程只调用
- * [onFlush]/[close]，二者都投递到捕获线程。
+ * 线程：捕获、Choreographer 驱动、呈现分别使用独立线程；宿主 MediaCodec 线程只调用
+ * [onFlush]/[close]，二者的会话清理投递到捕获线程。
  */
 internal class FrameCaptureBridge private constructor(
     private val config: Config,
@@ -169,7 +169,8 @@ internal class FrameCaptureBridge private constructor(
             cadence.reset()
             discontinuityCount.incrementAndGet()
             lastArrivalNs = Long.MIN_VALUE
-            if (admitted && !native.get()) beginEpoch()
+            previousPtsUs = Long.MIN_VALUE
+            if (admitted && !native.get()) beginEpoch("flush")
         }
     }
 
@@ -193,7 +194,7 @@ internal class FrameCaptureBridge private constructor(
         val pts = timestampNs / 1_000L
         if (clock.feed(pts, arrivalNs, host.playbackSpeed()) == FrameHostClock.Update.DISCONTINUITY) {
             discontinuityCount.incrementAndGet()
-            beginEpoch()
+            beginEpoch("source-discontinuity")
         }
         // 源间隔诊断：PTS 跳变（帧在宿主或解码器侧被丢弃）与到达间隔过长（PTS 连续但解码/释放迟到）分开记录，
         // 附上一帧捕获耗时与当前音频补偿，用于区分宿主丢帧、解码器缺输出缓冲与本端捕获阻塞。
@@ -244,20 +245,28 @@ internal class FrameCaptureBridge private constructor(
             return false
         }
         admitted = true
-        beginEpoch()
+        beginEpoch("admit")
         return true
     }
 
     private fun epoch() = FrameTimeline.Epoch(System.identityHashCode(codec).toLong(), epochCount,
         System.identityHashCode(display).toLong(), (sourceWidth.toLong() shl 32) or sourceHeight.toLong(), discontinuity)
 
-    private fun beginEpoch() {
+    private fun beginEpoch(reason: String) {
         epochCount++
+        host.log("bridge.epoch", "$epochCount reason=$reason discontinuity=$discontinuity")
         if (!session.begin(epoch(), width, height)) host.log("bridge.begin", session.snapshot().recovery.state.name)
     }
 
+    private var lastDriveNs = 0L
+    private var maxDriveGapNs = 0L
+    private var maxVsyncLagNs = 0L
+
     private fun drive(vsyncNs: Long) {
         val now = System.nanoTime()
+        if (lastDriveNs != 0L) maxDriveGapNs = maxOf(maxDriveGapNs, now - lastDriveNs)
+        lastDriveNs = now
+        maxVsyncLagNs = maxOf(maxVsyncLagNs, now - vsyncNs)
         presenter.onVsync(vsyncNs)
         if (config.measureVsync && limitedHz == null) vsync.add(vsyncNs)?.let { measured ->
             val hz = FrameRateTarget.snap(measured, displayModes(host.context()))
@@ -281,10 +290,12 @@ internal class FrameCaptureBridge private constructor(
         clock.snapshot(minOf(vsyncNs, now), discontinuity)?.let { snapshot ->
             val state = session.updateClock(snapshot)
             if (state == FrameTimeline.ClockState.RESTART_REQUIRED || state == FrameTimeline.ClockState.NO_CLOCK) {
+                host.log("bridge.clock-restart", "$state uncertaintyUs=${snapshot.uncertaintyUs} " +
+                    "mediaUs=${snapshot.mediaUs} arrivalAgeMs=${(now - lastArrivalNs) / 1_000_000}")
                 discontinuityCount.incrementAndGet()
                 clock.reset()
                 // epoch 与账本格式只在捕获线程上重建（与填充同线程，见 FrameInterpolationSession.capture）。
-                capture.handler.post { if (!closed.get() && !native.get()) beginEpoch() }
+                capture.handler.post { if (!closed.get() && !native.get()) beginEpoch("clock:$state") }
                 return
             }
         }
@@ -314,8 +325,11 @@ internal class FrameCaptureBridge private constructor(
                 "unreliable=${engine.lastUnreliablePermille} flow=1/${engine.flowScaleFor(width.toLong() * height)} " +
                 "capability=${engine.capability.standard}/${engine.capability.high} " +
                 "guardUs=${engine.lastGuardUs} nativeUs=${engine.lastNativeUs} thermal=${power?.lastHeadroom} batteryC=${power?.lastBatteryC} " +
-                "captureMaxMs=%.1f ".format(maxCaptureNs / 1e6) + presenter.timingSummary())
+                "captureMaxMs=%.1f latchMaxMs=%.1f driveGapMaxMs=%.1f vsyncLagMaxMs=%.1f ".format(
+                    maxCaptureNs / 1e6, capture.takeMaxLatchNs() / 1e6, maxDriveGapNs / 1e6, maxVsyncLagNs / 1e6) + presenter.timingSummary())
             maxCaptureNs = 0L
+            maxDriveGapNs = 0L
+            maxVsyncLagNs = 0L
         }
     }
 
@@ -350,7 +364,7 @@ internal class FrameCaptureBridge private constructor(
         private const val THERMAL_LIMIT = 0.85f
         /**
          * 呈现延迟 150 ms。曾试 200 ms 以吸收宿主约每分钟一次、约 100 ms 的解码迟到，但宿主真机越过槽位反而从每分钟
-         * 约 3 个增至约 73 个、出现大量 200 ms 停顿（各级持有的帧更多、缓冲紧张），故保持 150 ms。
+         * 约 3 个增至约 73 个、出现大量 200 ms 停顿，故保持 150 ms。原因须结合时钟换代与账本耗尽计数判断。
          */
         private const val DEEP_DELAY_NS = 150_000_000L
         private const val DEEP_LEAD_NS = 100_000_000L

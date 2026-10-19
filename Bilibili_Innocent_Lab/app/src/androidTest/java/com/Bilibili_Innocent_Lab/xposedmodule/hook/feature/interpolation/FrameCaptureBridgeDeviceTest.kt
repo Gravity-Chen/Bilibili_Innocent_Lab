@@ -269,6 +269,7 @@ class FrameCaptureBridgeDeviceTest {
             activity?.outputSurface ?: display!!.surface, null, engine, host,
             requestedTargetFps = expectedFps.takeIf { diagnostic })
         assertNotNull("bridge not created: $logs", bridge)
+        sendStatus("processing", logs.first { it.startsWith("bridge.size ") }.removePrefix("bridge.size "))
         decoder.configure(format, bridge!!.captureSurface, null, 0)
         decoder.start()
 
