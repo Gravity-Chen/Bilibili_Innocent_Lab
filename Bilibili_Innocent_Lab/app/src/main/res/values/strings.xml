@@ -941,7 +941,7 @@
     <string name="player_capabilities_tip">Open the selected client controls where supported. Playback still depends on the device and server; paid access and media sources are unchanged. Restart Bilibili to apply.</string>
     <string name="player_frame_interpolation_title">Frame interpolation</string>
     <string name="player_frame_interpolation">Video frame interpolation (beta)</string>
-    <string name="player_frame_interpolation_tip">Generates in-between frames on the GPU, turning 30 fps videos into 60 fps and 25 fps into 50 fps. The highest resolution is set by a speed test on this phone the first time it runs (currently up to 720p); higher resolutions, HDR, protected content and unsupported frame rates play normally, and it steps back whenever the phone is hot or cannot keep up. Uses more battery. Restart Bilibili to apply.</string>
+    <string name="player_frame_interpolation_tip">Generates in-between frames on the GPU, turning 30 fps videos into 60 fps and 25 fps into 50 fps, for sources up to 4K. Larger videos are scaled to your screen\'s resolution first, so 4K is processed at the size the screen can show; a speed test on first run sets the highest size this phone can sustain. HDR, protected content and unsupported frame rates play normally, and it steps back whenever the phone is hot or cannot keep up. Higher resolutions add a little delay (audio stays in sync) and use more battery. Restart Bilibili to apply.</string>
     <string name="player_frame_model">Interpolation model</string>
     <string name="player_frame_model_checking">Checking…</string>
     <string name="player_frame_model_ready">RIFE v4.6 downloaded and verified</string>

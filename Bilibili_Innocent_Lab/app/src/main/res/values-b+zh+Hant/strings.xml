@@ -941,7 +941,7 @@
     <string name="player_capabilities_tip">開啟後，嘗試開放所選播放功能；仍受裝置和伺服器限制，不改付費權限或影片來源。重新啟動 Bilibili 後生效。</string>
     <string name="player_frame_interpolation_title">影片插幀</string>
     <string name="player_frame_interpolation">影片插幀（實驗）</string>
-    <string name="player_frame_interpolation_tip">用 GPU 產生中間幀，把 30 fps 影片補到 60 fps、25 fps 補到 50 fps。可插幀的最高解析度由首次執行時的本機測速決定（目前最高 720p）；更高解析度、HDR、受保護內容和不支援的幀率按原樣播放，機身過熱或跟不上時自動回到一般播放。會增加耗電。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="player_frame_interpolation_tip">用 GPU 產生中間幀，把 30 fps 影片補到 60 fps、25 fps 補到 50 fps，支援最高 4K 的影片。超過螢幕解析度的影片先縮到螢幕能顯示的尺寸再處理；首次執行時的本機測速決定可持續的最高尺寸。HDR、受保護內容和不支援的幀率按原樣播放，機身過熱或跟不上時自動回到一般播放。高解析度會多一點延遲（音畫仍同步），耗電也更多。重新啟動嗶哩嗶哩後生效。</string>
     <string name="player_frame_model">插幀模型</string>
     <string name="player_frame_model_checking">正在檢查…</string>
     <string name="player_frame_model_ready">RIFE v4.6 已下載並驗證</string>

@@ -22,8 +22,12 @@ internal class FrameCaptureBridge private constructor(
     private val config: Config,
     private val codec: MediaCodec,
     private val display: Surface,
+    /** 处理尺寸（[FrameProcessingSize]）：捕获缩放后的尺寸，推理、账本与呈现都用它。 */
     private val width: Int,
     private val height: Int,
+    /** 解码输出尺寸（可达 4K）：只用于媒体准入与 epoch。 */
+    private val sourceWidth: Int,
+    private val sourceHeight: Int,
     private val source: FrameHostMediaSignals.Values,
     private val secureDecoder: Boolean,
     private val tunneled: Boolean,
@@ -52,8 +56,9 @@ internal class FrameCaptureBridge private constructor(
         val presentationDelayNs: Long = 100_000_000L,
         val maxLeadNs: Long = 60_000_000L,
         val minLeadNs: Long = 32_000_000L,
-        val maxPixels: Long = 1280L * 720L,
-        /** 时间线窗口 4 + 推理输出 1 + Presenter 临近交付前持有的约 3 帧 + 余量；720p RGB8 每帧 2.7 MB。 */
+        /** 接管的解码输出上限（4K）；处理尺寸另由能力与屏幕决定，见 [FrameProcessingSize]。 */
+        val maxSourcePixels: Long = 4096L * 2160L,
+        /** 时间线窗口 4 + 推理输出 1 + Presenter 临近交付前持有的约 3 帧 + 余量；RGB8 每帧 720p 2.7 MB、1440p 11 MB。 */
         val maxBuffers: Int = 12,
         val frameWindow: Int = 4,
         val stageUploads: Boolean = true
@@ -62,7 +67,7 @@ internal class FrameCaptureBridge private constructor(
     private val presenter = FrameGlPresenter(display, config.targetFps, config.stageUploads) { onNativeRestored(it) }.apply {
         onSubmitted = host::onFrameSubmitted
     }
-    private val capture = FrameGlCapture(width, height)
+    private val capture = FrameGlCapture(width, height, sourceWidth, sourceHeight)
     private val clock = FrameHostClock()
     private val ledger = FrameBufferLedger(config.maxBuffers)
     private val gate = FrameMediaGate()
@@ -175,7 +180,7 @@ internal class FrameCaptureBridge private constructor(
             FrameMediaPolicy.Capture.VERIFIED_SDR_RGB8 else FrameMediaPolicy.Capture.OTHER
         fun evidence(value: Boolean) = if (value) FrameMediaPolicy.Evidence.YES else FrameMediaPolicy.Evidence.NO
         val lease = gate.begin(epoch()).lease
-        val resolution = gate.resolve(lease, FrameMediaPolicy.Snapshot(width, height,
+        val resolution = gate.resolve(lease, FrameMediaPolicy.Snapshot(sourceWidth, sourceHeight,
             FrameHostMediaSignals.signal(source.fillFrom(decoded)), decodedSignal, capture,
             FrameMediaPolicy.Evidence.NO, evidence(secureDecoder), evidence(tunneled), host.audio()))
         host.log("bridge.admit", resolution.decision.reason.name)
@@ -189,7 +194,7 @@ internal class FrameCaptureBridge private constructor(
     }
 
     private fun epoch() = FrameTimeline.Epoch(System.identityHashCode(codec).toLong(), epochCount,
-        System.identityHashCode(display).toLong(), (width.toLong() shl 32) or height.toLong(), discontinuity)
+        System.identityHashCode(display).toLong(), (sourceWidth.toLong() shl 32) or sourceHeight.toLong(), discontinuity)
 
     private fun beginEpoch() {
         epochCount++
@@ -260,6 +265,8 @@ internal class FrameCaptureBridge private constructor(
         private const val AUDIO_HYSTERESIS_US = 20_000L
         /** getThermalHeadroom 的 1.0 为严重降频；留出余量提前退出。 */
         private const val THERMAL_LIMIT = 0.85f
+        private const val DEEP_DELAY_NS = 150_000_000L
+        private const val DEEP_LEAD_NS = 100_000_000L
         private const val TUNNELED = "tunneled-playback"
         /** MediaFormat.KEY_HDR10_PLUS_INFO（API 29），以字面量引用以兼容更低的 minSdk。 */
         private const val KEY_HDR10_PLUS_INFO = "hdr10-plus-info"
@@ -274,12 +281,15 @@ internal class FrameCaptureBridge private constructor(
             if (!engine.ready()) { host.log("bridge.skip", "engine:${engine.state}"); return null }
             val width = runCatching { format.getInteger(MediaFormat.KEY_WIDTH) }.getOrNull() ?: return null
             val height = runCatching { format.getInteger(MediaFormat.KEY_HEIGHT) }.getOrNull() ?: return null
-            // 运行时能力门：超过本机实测可持续尺寸的流保持原生播放。
-            val budget = minOf(config.maxPixels, engine.maxPixels.takeIf { it > 0L } ?: config.maxPixels)
-            if (width <= 0 || height <= 0 || width.toLong() * height > budget || crypto != null) {
+            if (width <= 0 || height <= 0 || width.toLong() * height > config.maxSourcePixels || crypto != null) {
                 host.log("bridge.skip", "format:${width}x$height:crypto=${crypto != null}")
                 return null
             }
+            // 处理尺寸：不超过屏幕与本机实测能力；4K 源在捕获时一次缩到此尺寸。
+            val (displayLong, displayShort) = displaySize(host.context())
+            val processing = FrameProcessingSize.choose(width, height, engine.capability, displayLong, displayShort)
+                ?: run { host.log("bridge.skip", "capability:${width}x$height"); return null }
+            host.log("bridge.size", "${width}x$height->${processing.width}x${processing.height} display=${displayLong}x$displayShort")
             val name = runCatching { codec.name }.getOrDefault("")
             val tunneled = runCatching { format.getFeatureEnabled(TUNNELED) }.getOrDefault(false) ||
                 runCatching { format.containsKey(MediaFormat.KEY_AUDIO_SESSION_ID) }.getOrDefault(false)
@@ -289,15 +299,29 @@ internal class FrameCaptureBridge private constructor(
             val bridge = runCatching {
                 // 60 fps 源的四帧窗口只覆盖 50 ms，无法保留 100 ms 延迟管线起步所需的原帧。
                 // 120 验证档扩为八源帧与十六个 RGB 缓冲，仍由账本硬上限约束。
+                // 720p 以上：推理占槽位比例更高，抖动更易错过槽位。加深流水线（延迟 150 ms、提前 100 ms、六源帧窗口），
+                // 让 worker 跑得更靠前以吸收抖动；音频按同一延迟补偿。720p 保持已在宿主验证的 100 ms。
+                val deep = processing.pixels > 1280L * 720L
                 val selected = config.copy(targetFps = target,
-                    frameWindow = if (target >= 120) 8 else config.frameWindow,
-                    maxBuffers = if (target >= 120) 16 else config.maxBuffers)
-                FrameCaptureBridge(selected, codec, display, width, height, values(format), name.endsWith(".secure"),
-                    tunneled, engine, host)
+                    presentationDelayNs = if (deep) DEEP_DELAY_NS else config.presentationDelayNs,
+                    maxLeadNs = if (deep) DEEP_LEAD_NS else config.maxLeadNs,
+                    frameWindow = if (target >= 120) 8 else if (deep) 6 else config.frameWindow,
+                    maxBuffers = if (target >= 120 || deep) 16 else config.maxBuffers)
+                FrameCaptureBridge(selected, codec, display, processing.width, processing.height, width, height,
+                    values(format), name.endsWith(".secure"), tunneled, engine, host)
             }.getOrNull() ?: return null
             if (!bridge.start(attach)) { bridge.close(); host.log("bridge.skip", "presenter"); return null }
             return bridge
         }
+
+        /** 面板物理分辨率（长边, 短边）；取不到时为 (0, 0)，处理尺寸只受能力约束。 */
+        private fun displaySize(context: android.content.Context?): Pair<Int, Int> = runCatching {
+            val manager = context!!.getSystemService(android.hardware.display.DisplayManager::class.java)
+            val modes = manager.getDisplay(android.view.Display.DEFAULT_DISPLAY).supportedModes
+            val width = modes.maxOf { maxOf(it.physicalWidth, it.physicalHeight) }
+            val height = modes.maxOf { minOf(it.physicalWidth, it.physicalHeight) }
+            width to height
+        }.getOrDefault(0 to 0)
 
         /** ijk 在 configure 格式里给出 operating-rate（真机：29.97 fps 源为 29、30 fps 源为 30），也可能给 frame-rate。 */
         private fun sourceFpsHint(format: MediaFormat): Float? {

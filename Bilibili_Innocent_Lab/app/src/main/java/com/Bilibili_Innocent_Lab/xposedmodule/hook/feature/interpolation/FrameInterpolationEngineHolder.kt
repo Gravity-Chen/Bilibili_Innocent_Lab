@@ -19,19 +19,23 @@ internal class FrameInterpolationEngineHolder(
     private val modelSource: () -> File?,
     private val log: (String, String) -> Unit,
     private val protectStaticDetails: Boolean = true,
-    private val workObserver: ((WorkSample) -> Unit)? = null
+    private val workObserver: ((WorkSample) -> Unit)? = null,
+    /** 能力测量尺寸；默认到 1440p（手机面板），面板达 4K 时由调用方加入 3840×2160。 */
+    private val capabilitySizes: List<Pair<Int, Int>> = DEFAULT_CAPABILITY_SIZES
 ) {
     constructor(moduleApk: File, hostCodeCache: File, modelDirectory: File, log: (String, String) -> Unit,
                 protectStaticDetails: Boolean = true, workObserver: ((WorkSample) -> Unit)? = null) :
         this(moduleApk, hostCodeCache, { modelDirectory }, log, protectStaticDetails, workObserver)
 
     /**
-     * 本机实测可持续插帧的最大像素数（运行时能力门）：预热后在常见尺寸上各计时 3 次，取中位数不超过
-     * [CAPABILITY_LIMIT_MS] 的最大尺寸。未实测的 GPU（Mali、Immortalis、Xclipse 等）由此自适应，
-     * 达不到的尺寸由捕获桥拒绝并保持原生播放。0 表示尚未测定。
+     * 本机实测可持续插帧的像素上限（运行时能力门），按光流档分开：预热后在 [capabilitySizes] 上按宿主稳态
+     * （按帧 ID 复用已上传的前一帧）各计时 3 次，取中位数不超过 [CAPABILITY_LIMIT_MS] 的最大尺寸。
+     * 未实测的 GPU（Mali、Immortalis、Xclipse 等）由此自适应，处理尺寸由 [FrameProcessingSize.choose] 据此选择。
      */
-    @Volatile var maxPixels: Long = 0L
+    @Volatile var capability = FrameProcessingSize.Capability(0L, 0L)
         private set
+    /** 两档中较大的可持续像素数；0 表示尚未测定。 */
+    val maxPixels: Long get() = maxOf(capability.standard, capability.high)
 
     /** 引擎就绪后在推理 worker 上调用一次：用于迟接管冷启动时已开始原生播放的解码器。 */
     @Volatile var onReady: (() -> Unit)? = null
@@ -66,20 +70,26 @@ internal class FrameInterpolationEngineHolder(
         val native = runCatching { FrameInterpolationNative.prepare(moduleApk, hostCodeCache) }
             .getOrDefault(FrameNativeLoader.Status.FAILED)
         if (native != FrameNativeLoader.Status.READY) { fail("native:$native"); return }
-        // ≤720p 档位：fp16、四分之一分辨率光流、GPU RGB8 转换（真机 720p 中位 16.5 ms）。
+        // fp16、GPU RGB8 转换、自适应光流（≤1080p 用 1/4，以上用 1/8，光流输入约 480×270）。
+        // 2026-10-19 真机（Adreno 840，宿主稳态）：720p 11 ms、1080p 21 ms、1440p 16 ms、4K 32 ms。
         val modelDirectory = runCatching { modelSource() }.getOrNull() ?: run { fail("model:unavailable"); return }
+        val largest = capabilitySizes.maxOf { (width, height) -> width.toLong() * height }
         val opened = FrameInterpolationBackend.openResearchModel(modelDirectory, FrameInterpolationBackend.Backend.VULKAN,
-            1, fp16 = true, flowScale = 4, gpuIo = true, protectStaticDetails = protectStaticDetails)
+            1, fp16 = true, flowScale = 4, gpuIo = true, protectStaticDetails = protectStaticDetails,
+            maxPixels = maxOf(FrameInterpolationBackend.MAX_PIXELS, largest), adaptiveFlow = true)
         val engine = opened.engine
         if (opened.status != FrameInterpolationBackend.Status.OK || engine == null) { fail("model:${opened.status}"); return }
         backend = engine
-        // 真机：首次推理某分辨率时分配显存与编译着色器，远超槽位预算；先在常见 ≤720p 尺寸上各跑一次。
-        for ((width, height) in WARM_SIZES) warm(engine, width, height)
-        maxPixels = WARM_SIZES.filter { (width, height) -> medianMs(engine, width, height) <= CAPABILITY_LIMIT_MS }
-            .maxOfOrNull { (width, height) -> width.toLong() * height } ?: 0L
+        // 真机：首次推理某分辨率时分配显存与编译着色器，远超槽位预算；先在各尺寸上各跑一次。
+        for ((width, height) in WARM_SIZES + capabilitySizes) warm(engine, width, height)
+        val passing = capabilitySizes.filter { (width, height) -> medianMs(engine, width, height) <= CAPABILITY_LIMIT_MS }
+            .map { (width, height) -> width.toLong() * height }
+        capability = FrameProcessingSize.Capability(
+            standard = passing.filter { it <= FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L,
+            high = passing.filter { it > FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L)
         if (maxPixels == 0L) { fail("capability"); return }
         state = State.READY
-        log("engine.ready", "${modelDirectory.name} maxPixels=$maxPixels")
+        log("engine.ready", "${modelDirectory.name} standard=${capability.standard} high=${capability.high}")
         runCatching { onReady?.invoke() }.onFailure { log("engine.onReady", it.javaClass.simpleName) }
     }
 
@@ -103,12 +113,16 @@ internal class FrameInterpolationEngineHolder(
 
     private fun medianMs(engine: FrameInterpolationBackend, width: Int, height: Int): Double {
         val bytes = width * height * 3
-        val left = ByteBuffer.allocateDirect(bytes)
-        val right = ByteBuffer.allocateDirect(bytes)
+        val frames = List(4) { ByteBuffer.allocateDirect(bytes) }
         val out = ByteBuffer.allocateDirect(bytes)
-        val times = List(3) {
+        // 宿主稳态：每次插帧只有后一帧是新上传的，前一帧按 ID 命中显存缓存。ID 取在账本永远达不到的区间。
+        val base = CAPABILITY_ID_BASE + width.toLong() * 65_536L + height
+        fun step(i: Int) = engine.process(frames[i % 4], frames[(i + 1) % 4], out, width, height, 0.5f,
+            leftId = base + i * 0x1_0000_0000L, rightId = base + (i + 1) * 0x1_0000_0000L)
+        step(0)
+        val times = List(3) { index ->
             val started = System.nanoTime()
-            engine.process(left, right, out, width, height, 0.5f)
+            step(index + 1)
             (System.nanoTime() - started) / 1e6
         }.sorted()
         log("engine.capability", "${width}x$height median=%.1fms".format(times[1]))
@@ -121,9 +135,15 @@ internal class FrameInterpolationEngineHolder(
     }
 
     private companion object {
-        val WARM_SIZES = listOf(1280 to 720, 854 to 480, 640 to 360)
-        /** 独立计时中位数上限：宿主内同一推理约慢一倍（与宿主 UI 合成共用 GPU），20 ms 仍可支撑 30→60。 */
-        const val CAPABILITY_LIMIT_MS = 20.0
+        val WARM_SIZES = listOf(854 to 480, 640 to 360)
+        val DEFAULT_CAPABILITY_SIZES = listOf(1280 to 720, 1920 to 1080, 2560 to 1440)
+        /**
+         * 独立计时中位数上限。30→60 每 33.3 ms 需一次补帧；留约 9 ms 给同时进行的捕获、呈现与宿主 UI 合成。
+         * 呈现延迟已放宽（用户接受更多延迟），单次偶发超时由时间线丢槽与恢复策略吸收，持续超时回原生。
+         */
+        const val CAPABILITY_LIMIT_MS = 24.0
+        /** 能力测量用的帧 ID 区间；账本 ID 从 0 递增，不可能到达。 */
+        const val CAPABILITY_ID_BASE = 1L shl 60
     }
 
     fun worker(): FrameInterpolationSession.Worker =

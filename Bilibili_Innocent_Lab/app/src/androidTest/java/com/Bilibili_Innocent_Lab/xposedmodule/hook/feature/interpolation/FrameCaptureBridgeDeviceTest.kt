@@ -56,33 +56,60 @@ class FrameCaptureBridgeDeviceTest {
 
     @Test fun realDecoder25FpsIsInterpolatedTo50() = run(sourceFps = 25, expectedFps = 50)
 
-    /** 超过正式捕获预算时必须在连接任何生产者前拒绝；4K 研究推理不能顺带放开播放入口。 */
-    @Test fun oversizedCaptureIsRejectedBeforeConnectingSurface() {
+    /** 1080p、1440p 与 4K 源：真实解码 → 捕获时缩到处理尺寸 → 插帧 → 呈现，稳态 60 fps 且无回退。 */
+    @Test fun realDecoder1080pIsInterpolatedTo60() { width = 1920; height = 1080; run(sourceFps = 30, expectedFps = 60) }
+
+    @Test fun realDecoder1440pIsInterpolatedTo60() { width = 2560; height = 1440; run(sourceFps = 30, expectedFps = 60) }
+
+    @Test fun realDecoder4kIsDownscaledAndInterpolatedTo60() { width = 3840; height = 2160; run(sourceFps = 30, expectedFps = 60) }
+
+    /**
+     * 大于 720p 的源不再被拒绝：处理尺寸不超过面板、不超过本机实测能力，保持宽高比；超过 4K 的源仍在连接
+     * 任何生产者前拒绝。
+     */
+    @Test fun largeSourcesChooseProcessingSizeWithinDisplayAndCapability() {
         val model = File(context.filesDir, "rife-v4.6")
         assumeTrue("model not pushed", File(model, "flownet.bin").isFile)
         val engine = engine(log = { event, detail -> Log.i(TAG, "$event $detail") })
         engine.warmUp()
-        val deadline = System.nanoTime() + 15_000_000_000L
+        val deadline = System.nanoTime() + 30_000_000_000L
         while (!engine.ready() && engine.state != FrameInterpolationEngineHolder.State.FAILED && System.nanoTime() < deadline) Thread.sleep(50)
         assertTrue("engine not ready", engine.ready())
+        val panel = context.getSystemService(android.hardware.display.DisplayManager::class.java)
+            .getDisplay(android.view.Display.DEFAULT_DISPLAY).supportedModes
+        val panelLong = panel.maxOf { maxOf(it.physicalWidth, it.physicalHeight) }
+        val panelShort = panel.maxOf { minOf(it.physicalWidth, it.physicalHeight) }
         val decoder = MediaCodec.createDecoderByType("video/avc")
         val display = ImageReader.newInstance(16, 16, PixelFormat.RGBA_8888, 2)
         try {
-            for ((w, h) in listOf(1920 to 1080, 2560 to 1440, 3840 to 2160)) {
+            for ((w, h) in listOf(1920 to 1080, 2560 to 1440, 3840 to 2160, 1080 to 1920, 4096 to 2304)) {
                 val events = ArrayList<String>()
                 val host = object : FrameCaptureBridge.Host {
-                    override fun setAudioDelayUs(delayUs: Long) = fail("rejected capture must not change audio")
+                    override fun setAudioDelayUs(delayUs: Long) = Unit
                     override fun playbackSpeed() = 1.0
                     override fun audio() = FrameMediaPolicy.Audio()
                     override fun log(event: String, detail: String) { events += "$event $detail" }
+                    override fun context(): android.content.Context = this@FrameCaptureBridgeDeviceTest.context
                 }
                 val format = MediaFormat.createVideoFormat("video/avc", w, h).apply { setInteger(MediaFormat.KEY_FRAME_RATE, 30) }
-                assertNull(FrameCaptureBridge.create(FrameCaptureBridge.Config(), decoder, format,
-                    display.surface, null, engine, host, requestedTargetFps = 120))
-                assertTrue("must reject size before presenter/target selection: $events", events.single().startsWith("bridge.skip format:${w}x$h"))
+                val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), decoder, format, display.surface, null, engine, host)
+                if (w.toLong() * h > 4096L * 2160L) {
+                    assertNull(bridge)
+                    assertTrue("oversized source must be rejected first: $events", events.single().startsWith("bridge.skip format:${w}x$h"))
+                    continue
+                }
+                assertNotNull("bridge not created for ${w}x$h: $events", bridge)
+                bridge!!.close()
+                val size = events.single { it.startsWith("bridge.size ") }.substringAfter("->").substringBefore(' ').split('x')
+                val (pw, ph) = size[0].toInt() to size[1].toInt()
+                assertTrue("never upscales ${w}x$h -> ${pw}x$ph", pw <= w && ph <= h)
+                assertTrue("aspect ${w}x$h -> ${pw}x$ph", kotlin.math.abs(pw.toDouble() / ph - w.toDouble() / h) < 0.01)
+                assertTrue("within panel ${panelLong}x$panelShort", maxOf(pw, ph) <= panelLong && minOf(pw, ph) <= panelShort)
+                assertTrue("within capability ${engine.capability}", pw.toLong() * ph <= engine.maxPixels)
                 InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply {
-                    putString("captureAdmission", JSONObject().put("width", w).put("height", h)
-                        .put("admitted", false).put("reason", "capture pixel budget").toString())
+                    putString("processingSize", JSONObject().put("source", "${w}x$h").put("processing", "${pw}x$ph")
+                        .put("panel", "${panelLong}x$panelShort").put("standard", engine.capability.standard)
+                        .put("high", engine.capability.high).toString())
                 })
             }
         } finally { decoder.release(); display.close() }
@@ -111,9 +138,10 @@ class FrameCaptureBridgeDeviceTest {
             logs += "$e $d"; Log.i(TAG, "$e $d")
         }, observer = if (diagnostic) ({ sample -> work += sample }) else null)
         engine.warmUp()
-        val deadline = System.nanoTime() + 15_000_000_000L
+        val deadline = System.nanoTime() + 30_000_000_000L
         while (!engine.ready() && engine.state != FrameInterpolationEngineHolder.State.FAILED && System.nanoTime() < deadline) Thread.sleep(50)
         assertTrue("engine ${engine.state} $logs", engine.ready())
+        sendStatus("engine", "capability=${engine.capability}")
 
         val args = InstrumentationRegistry.getArguments()
         val motion = if (args.getString("highMotion") == "true") "-pan" else ""
@@ -335,12 +363,15 @@ class FrameCaptureBridgeDeviceTest {
         }
 
         assertTrue(logs.toString(), logs.any { it.startsWith("bridge.admit READY") })
+        assertTrue(logs.toString(), logs.any { it.startsWith("bridge.size ${width}x$height->") })
         assertTrue(logs.toString(), logs.any { it.startsWith("bridge.target ${expectedFps}fps") })
         assertFalse("fell back to native: ${logs.filter { it.startsWith("bridge.") }}", native)
         assertTrue(afterSeek.presented > 0 && afterSeek.interpolated > 0)
         assertTrue("steady fps $fps", fps in expectedFps * 0.9..expectedFps * 1.1)
         assertTrue("arrival hitches $hitches of ${intervals.size}", hitches * 50 <= intervals.size)
-        assertTrue("delay $delays", delays.isNotEmpty() && delays.all { it in 100_000L..(101_000L + 1_000_000L / sourceFps) })
+        // 720p 以上的处理尺寸使用 150 ms 深流水线。
+        val baseDelayUs = if (width.toLong() * height > 1280L * 720L) 150_000L else 100_000L
+        assertTrue("delay $delays", delays.isNotEmpty() && delays.all { it in baseDelayUs..(baseDelayUs + 1_000L + 1_000_000L / sourceFps) })
         assertEquals(FrameInterpolationSession.Phase.CLOSED, closed.phase)
         assertEquals("ledger after close ${closed.ledger}", 0, closed.ledger.live)
     }
@@ -470,6 +501,9 @@ class FrameCaptureBridgeDeviceTest {
         for (plane in listOf(u, v)) for (line in 0 until height / 2) for (x in 0 until width / 2)
             plane.buffer.put(line * plane.rowStride + x * plane.pixelStride, 128.toByte())
     }
+
+    private fun sendStatus(key: String, value: String) =
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply { putString(key, value) })
 
     private companion object {
         const val TAG = "FrameE2E"

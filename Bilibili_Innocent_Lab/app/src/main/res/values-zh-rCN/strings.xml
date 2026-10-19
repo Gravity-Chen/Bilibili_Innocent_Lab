@@ -941,7 +941,7 @@
     <string name="player_capabilities_tip">开启后，尝试开放所选播放功能；仍受设备和服务端限制，不改付费权限或视频来源。重启哔哩哔哩后生效。</string>
     <string name="player_frame_interpolation_title">视频插帧</string>
     <string name="player_frame_interpolation">视频插帧（实验）</string>
-    <string name="player_frame_interpolation_tip">用 GPU 生成中间帧，把 30 fps 视频补到 60 fps、25 fps 补到 50 fps。可插帧的最高分辨率由首次运行时的本机测速决定（目前最高 720p）；更高分辨率、HDR、受保护内容和不支持的帧率按原样播放，机身过热或跟不上时自动回到普通播放。会增加耗电。重启哔哩哔哩后生效。</string>
+    <string name="player_frame_interpolation_tip">用 GPU 生成中间帧，把 30 fps 视频补到 60 fps、25 fps 补到 50 fps，支持最高 4K 的视频。超过屏幕分辨率的视频先缩到屏幕能显示的尺寸再处理；首次运行时的本机测速决定可持续的最高尺寸。HDR、受保护内容和不支持的帧率按原样播放，机身过热或跟不上时自动回到普通播放。高分辨率会多一点延迟（音画仍同步），耗电也更多。重启哔哩哔哩后生效。</string>
     <string name="player_frame_model">插帧模型</string>
     <string name="player_frame_model_checking">正在检查…</string>
     <string name="player_frame_model_ready">RIFE v4.6 已下载并校验</string>

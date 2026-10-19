@@ -387,8 +387,16 @@ internal class FrameInterpolationFeatureInstaller(
                         else -> { log("model.unavailable", result.toString()); null }
                     }
                 }
+                // 能力测量到面板分辨率为止：面板达 4K 才测 3840×2160（4K 测量本身约占 500 MB 显存池）。
+                val panelLong = runCatching {
+                    host.getSystemService(android.hardware.display.DisplayManager::class.java)
+                        .getDisplay(android.view.Display.DEFAULT_DISPLAY).supportedModes
+                        .maxOf { maxOf(it.physicalWidth, it.physicalHeight) }
+                }.getOrDefault(0)
+                val sizes = listOf(1280 to 720, 1920 to 1080, 2560 to 1440) +
+                    (if (panelLong >= 3840) listOf(3840 to 2160) else emptyList())
                 engine = FrameInterpolationEngineHolder(apk, host.codeCacheDir, modelSource,
-                    log = { event, detail -> log(event, detail) })
+                    log = { event, detail -> log(event, detail) }, capabilitySizes = sizes)
                     .also { it.onReady = ::attachPending; it.warmUp() }
             }
             log("activate", "enabled=$enabled verifying=$verifying decided=$decided")

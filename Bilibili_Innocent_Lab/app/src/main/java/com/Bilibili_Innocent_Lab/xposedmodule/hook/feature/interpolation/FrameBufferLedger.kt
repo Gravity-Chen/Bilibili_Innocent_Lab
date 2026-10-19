@@ -124,6 +124,6 @@ internal class FrameBufferLedger(
         private val nextFrameId = AtomicLong(1L)
         private const val MAX_BUFFERS = 16
         private const val MAX_PRESENTER_HOLDS = 8
-        private const val MAX_PIXELS = 1920L * 1080L
+        private const val MAX_PIXELS = 4096L * 2160L
     }
 }

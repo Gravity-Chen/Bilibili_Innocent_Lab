@@ -19,8 +19,17 @@ import java.util.concurrent.TimeUnit
  *
  * 与呈现分线程、分上下文：读回会在 GPU 忙于推理时阻塞；同线程时这些阻塞推迟或挤压 vsync 交付，
  * 宿主 TextureView 上表现为顿挫（宿主内真机 A/B 证实）。捕获与会话驱动留在本线程，呈现线程只管画。
+ *
+ * width/height 为处理尺寸，可小于解码输出（sourceWidth/sourceHeight，可达 4K）：缩小在这一次绘制中完成，
+ * 缩小 1.5 倍以上时每个输出像素取 4 个双线性样本（覆盖约 4× 源像素）以免锯齿闪烁；读回与后续处理只按处理尺寸。
  */
-internal class FrameGlCapture(private val width: Int, private val height: Int) {
+internal class FrameGlCapture(
+    private val width: Int,
+    private val height: Int,
+    private val sourceWidth: Int = width,
+    private val sourceHeight: Int = height
+) {
+    private val downscale = sourceWidth >= width * 3 / 2 || sourceHeight >= height * 3 / 2
     /** 在捕获线程回调：timestampNs 为解码帧时间戳（PTS），read 把该帧读成 RGB8 写入给定缓冲。 */
     fun interface FrameListener {
         fun onFrame(timestampNs: Long, arrivalNs: Long, read: (ByteBuffer, FrameBufferLedger.Format) -> Boolean)
@@ -63,7 +72,7 @@ internal class FrameGlCapture(private val width: Int, private val height: Int) {
             intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE), 0)
         if (pbuffer == EGL14.EGL_NO_SURFACE || !EGL14.eglMakeCurrent(created.display, pbuffer, pbuffer, created.context))
             return null
-        program = FrameGl.program(OES_VERTEX, OES_FRAGMENT) ?: return null
+        program = FrameGl.program(OES_VERTEX, if (downscale) OES_DOWNSCALE_FRAGMENT else OES_FRAGMENT) ?: return null
         GLES20.glPixelStorei(GLES20.GL_PACK_ALIGNMENT, 1)
         oesTexture = FrameGl.texture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES)
         val target = FrameGl.texture(GLES20.GL_TEXTURE_2D)
@@ -77,7 +86,7 @@ internal class FrameGlCapture(private val width: Int, private val height: Int) {
         val complete = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) == GLES20.GL_FRAMEBUFFER_COMPLETE
         if (!complete || GLES20.glGetError() != GLES20.GL_NO_ERROR) return null
         readback = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
-        val texture = SurfaceTexture(oesTexture).apply { setDefaultBufferSize(width, height) }
+        val texture = SurfaceTexture(oesTexture).apply { setDefaultBufferSize(sourceWidth, sourceHeight) }
         texture.setOnFrameAvailableListener({ onFrameAvailable(it, listener) }, handler)
         surfaceTexture = texture
         return Surface(texture).also { surface = it }
@@ -101,6 +110,8 @@ internal class FrameGlCapture(private val width: Int, private val height: Int) {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexture)
         GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uTransform"), 1, false, transform, 0)
+        // 四个样本位于输出像素中心 ±1/4 像素：双线性各覆盖 2×2 源像素，合起来约为输出像素的覆盖范围。
+        if (downscale) GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uOffset"), 0.25f / width, 0.25f / height)
         FrameGl.bindQuad(program, FrameGl.FLIPPED_QUAD)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         pixels.clear()
@@ -126,11 +137,22 @@ internal class FrameGlCapture(private val width: Int, private val height: Int) {
     }
 
     private companion object {
+        // 坐标用 highp：mediump 的归一化坐标在 4K 源上只精确到约 2 个纹素。
         const val OES_VERTEX = "attribute vec2 aPosition; attribute vec2 aCoordinate; uniform mat4 uTransform;" +
-            "varying vec2 vCoordinate; void main() { vCoordinate = (uTransform * vec4(aCoordinate, 0.0, 1.0)).xy;" +
+            "varying highp vec2 vCoordinate; varying highp vec2 vBase;" +
+            " void main() { vBase = aCoordinate; vCoordinate = (uTransform * vec4(aCoordinate, 0.0, 1.0)).xy;" +
             " gl_Position = vec4(aPosition, 0.0, 1.0); }"
         const val OES_FRAGMENT = "#extension GL_OES_EGL_image_external : require\n" +
-            "precision mediump float; varying vec2 vCoordinate; uniform samplerExternalOES uTexture;" +
+            "precision mediump float; varying highp vec2 vCoordinate; varying highp vec2 vBase;" +
+            " uniform samplerExternalOES uTexture;" +
             "void main() { gl_FragColor = texture2D(uTexture, vCoordinate); }"
+        const val OES_DOWNSCALE_FRAGMENT = "#extension GL_OES_EGL_image_external : require\n" +
+            "precision mediump float; varying highp vec2 vCoordinate; varying highp vec2 vBase;" +
+            " uniform samplerExternalOES uTexture; uniform highp mat4 uTransform; uniform highp vec2 uOffset;" +
+            " highp vec2 at(highp vec2 c) { return (uTransform * vec4(c, 0.0, 1.0)).xy; }" +
+            " void main() { gl_FragColor = 0.25 * (texture2D(uTexture, at(vBase + vec2(-uOffset.x, -uOffset.y)))" +
+            " + texture2D(uTexture, at(vBase + vec2(uOffset.x, -uOffset.y)))" +
+            " + texture2D(uTexture, at(vBase + vec2(-uOffset.x, uOffset.y)))" +
+            " + texture2D(uTexture, at(vBase + uOffset))); }"
     }
 }
