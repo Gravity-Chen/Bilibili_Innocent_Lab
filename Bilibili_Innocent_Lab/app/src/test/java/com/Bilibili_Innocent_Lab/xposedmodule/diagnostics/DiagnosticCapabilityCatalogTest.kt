@@ -19,7 +19,7 @@ class DiagnosticCapabilityCatalogTest {
         val capability = DiagnosticCapabilityCatalog.byId.getValue("player_speed_menu_percents")
         assertEquals("player_speed", capability.parentId)
         assertEquals(setOf("player.speed_menu.percents"), capability.settingIds)
-        assertEquals(26, capability.introducedCatalogVersion)
+        assertEquals(27, capability.introducedCatalogVersion)
         assertEquals(2, DiagnosticCapabilityCatalog.runtimeSupport(capability.id))
         val descriptor = DiagnosticFeatureRegistry.descriptorOrNull(capability.id)!!
         assertEquals(DiagnosticFeatureCategory.PLAYER_AND_DETAIL, descriptor.category)

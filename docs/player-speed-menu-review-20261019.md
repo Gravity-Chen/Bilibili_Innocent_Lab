@@ -1,6 +1,6 @@
 # 播放器倍速菜单：实现与复核记录
 
-工作分支：`feat/player-speed-menu`。接续已有未提交实现；主工作区的插帧分支保持原状。
+工作分支：`feat/player-speed-menu`。接续已有未提交实现；主工作区的插帧分支保持原状。最终合入 `origin/main` 的已提交插帧功能，并保留其设置目录 v58、诊断目录 v26 及亮点批次 23。
 
 ## 配置与互斥 review
 
@@ -8,7 +8,7 @@
 - UI 接受逗号、空格等分隔符；持久化协议只保存百分比整数串，拒绝混用倍率、小数百分比、空分段、越界及过长配置。
 - 默认播放倍速与菜单配置互斥。二级弹窗确认后先进入编辑，保存时用同一个偏好 Editor 更新两项；取消编辑保留原设置。
 - 运行时遇到导入等途径产生的冲突配置，默认播放倍速优先，菜单配置不安装。长按倍速和禁用长按的现有逻辑保持独立。
-- 已补齐设置目录 v58、诊断目录 v26、备份预览、三种语言及版本亮点导航。
+- 已补齐设置目录 v59、诊断目录 v27、备份预览、三种语言及版本亮点导航（批次 24）。
 
 ## 宿主 Hook review
 
@@ -39,9 +39,26 @@
 - 六版本语义条件矩阵初轮发现旧版使用 `List.clear()`，据此补全查询并重新核验。最终矩阵：`9cdcb07f38ad4fa6b25a4079e81f291f`。
 - 云端静态结果不代表 LSPosed 播放器端到端验收。
 
+| 宿主 | 唯一 Adapter 填充入口 | 选项工厂 |
+| --- | --- | --- |
+| 8.84.0 | `speed.g.K0(float)` | 旧版实例 FloatArray |
+| 8.90.2 | `speed.g.J0(float)` | 旧版实例 FloatArray |
+| 8.98.0 | `speed.f.N(float)` | 旧版实例 FloatArray |
+| 9.5.0 | `speed.f.d0(float, List)` | `utils.B.a(MediaResource, Integer, boolean, int)` |
+| 9.10.0 | `speed.f.j0(float, List)` | `utils.B.a(MediaResource, Integer, boolean, int)` |
+| 9.15.0 | `speed.f.l0(float, List)` | `utils.C.a(MediaResource, Integer, boolean, int)` |
+
+表中短包名分别位于 `com.bilibili.playerbizcommonv2` 下，只用于记录样本证据；运行时不按这些方法名安装。
+
 ## 验证范围
 
 本地门禁：完整 JVM/源码契约测试、完整 Debug Lint、正常包名 Debug APK、instrumentation APK 编译及 Release R8 混淆检查。
+
+合入主线后的全量测试：3,709 项，0 失败，0 错误，1 跳过。运行命令：
+
+```sh
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:minifyReleaseWithR8 --continue --console=plain
+```
 
 行为测试覆盖全范围精度回环、损坏配置、互斥与长按独立性、真实 Hook DSL 参数替换、异常恢复、相邻档位、2 倍速别名、工厂注册顺序、作用域嵌套与清理、DexKit 重命名候选、歧义/超限/不可用结果以及缓存宿主/reset 隔离。
 

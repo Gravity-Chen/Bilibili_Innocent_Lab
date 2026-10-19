@@ -205,6 +205,8 @@ internal object FeaturePreferences {
     const val HOME_COMPONENT_HIDDEN_SELECTORS = "home_component_hidden_selectors"
     const val PLAYER_DEFAULT_QUALITY_QN = "player_default_quality_qn"
     const val PLAYER_CODEC_PREFERENCE = "player_codec_preference"
+    /** 主播放器插帧（≤720p）；仅当 FrameInterpolationEntryGate 放行时才生效与显示。 */
+    const val PLAYER_FRAME_INTERPOLATION = "player_frame_interpolation"
     const val PLAYER_DECODE_MODE = "player_decode_mode"
     const val PLAYER_BUFFER_MODE = "player_buffer_mode"
     const val PLAYER_BUFFER_SECONDS = "player_buffer_seconds"

@@ -70,8 +70,17 @@ public:
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
+    // 在 load 前调用；fp16 由 ncnn 再按设备能力裁剪。flowScale 为 1/2/4（光流估计分辨率的倒数），
+    // flowScale > 1 与 gpuIo（RGB8 转换在 GPU 完成）仅支持 Vulkan。调用即撤销已加载模型。
+    // rawGpuInput 是显式研究选项；本机有较高 CPU/PSS 代价，不默认启用。
+    Status configure(bool fp16, int flowScale, bool gpuIo, bool protectStaticDetails = false, bool fusedWarp = false,
+                     bool rawGpuInput = false) noexcept;
     Status load(ModelView model) noexcept;
-    Status processRgb8(ImageView left, ImageView right, float timestep, MutableImageView output) noexcept;
+    // 最近一次成功插帧的阶段耗时（纳秒）：0 预处理，1 推理（含上传/下载），2 后处理。
+    void timings(std::int64_t out[3]) const noexcept;
+    // leftId/rightId ≥ 0 时按帧 ID 复用显存张量（仅 gpuIo 路径）；同一 ID 的内容必须不变，-1 表示不缓存。
+    Status processRgb8(ImageView left, ImageView right, float timestep, MutableImageView output,
+                       std::int64_t leftId = -1, std::int64_t rightId = -1) noexcept;
     Backend backend() const noexcept;
     bool ready() const noexcept;
 

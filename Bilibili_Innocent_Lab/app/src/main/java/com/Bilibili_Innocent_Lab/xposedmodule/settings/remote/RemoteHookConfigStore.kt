@@ -342,6 +342,9 @@ internal object RemoteHookConfigStore {
         else action()
     }
 
+    /** 在已绑定的框架服务上执行一次性操作（如写入远程文件）；未绑定或失败时返回 null。 */
+    fun <T> withService(action: (XposedService) -> T): T? = service?.let { runCatching { action(it) }.getOrNull() }
+
     fun status(): ModernFrameworkStatus = frameworkStatus
 
     fun diagnostics(): RemoteHookConfigDiagnostics = publishDiagnostics.copy(

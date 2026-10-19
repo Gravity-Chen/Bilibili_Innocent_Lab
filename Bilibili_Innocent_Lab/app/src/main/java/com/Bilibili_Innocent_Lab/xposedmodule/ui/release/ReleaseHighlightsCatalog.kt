@@ -310,6 +310,9 @@ internal object ReleaseHighlightsCatalog {
         ReleaseHighlight("recommend-publish-time", HighlightKind.NEW, R.string.highlights_recommend_publish_time,
             HighlightDestination(SettingsCatalog.ID_RECOMMEND_VIDEO_PUBLISH_TIME_RULE))
     )), ReleaseHighlightsBatch(23, listOf(
+        ReleaseHighlight("player-frame-interpolation", HighlightKind.NEW, R.string.highlights_player_frame_interpolation,
+            HighlightDestination("player.frame_interpolation.enabled"))
+    )), ReleaseHighlightsBatch(24, listOf(
         ReleaseHighlight("player-speed-menu", HighlightKind.NEW, R.string.highlights_player_speed_menu,
             HighlightDestination(SettingsCatalog.ID_PLAYER_SPEED_MENU))
     )))

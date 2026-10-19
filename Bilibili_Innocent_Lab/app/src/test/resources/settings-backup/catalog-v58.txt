@@ -164,12 +164,12 @@ player.decode.mode
 player.default_quality.qn
 player.default_speed.percent
 player.end_page_recommend.hidden
+player.frame_interpolation.enabled
 player.interactive_overlays.hidden
 player.long_press.disabled
 player.long_press_speed.percent
 player.popup_promotion.hidden
 player.portrait_control.hidden
-player.speed_menu.percents
 player.sponsorblock.automatic
 player.sponsorblock.enabled
 player.status_bar.transparent

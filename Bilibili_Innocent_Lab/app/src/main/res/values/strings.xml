@@ -939,6 +939,17 @@
     <string name="player_unlock_small_window">Unlock mini player</string>
     <string name="player_unlock_cast">Unlock casting</string>
     <string name="player_capabilities_tip">Open the selected client controls where supported. Playback still depends on the device and server; paid access and media sources are unchanged. Restart Bilibili to apply.</string>
+    <string name="player_frame_interpolation_title">Frame interpolation</string>
+    <string name="player_frame_interpolation">Video frame interpolation (beta)</string>
+    <string name="player_frame_interpolation_tip">Generates in-between frames on the GPU, turning 30 fps videos into 60 fps and 25 fps into 50 fps. The highest resolution is set by a speed test on this phone the first time it runs (currently up to 720p); higher resolutions, HDR, protected content and unsupported frame rates play normally, and it steps back whenever the phone is hot or cannot keep up. Uses more battery. Restart Bilibili to apply.</string>
+    <string name="player_frame_model">Interpolation model</string>
+    <string name="player_frame_model_checking">Checking…</string>
+    <string name="player_frame_model_ready">RIFE v4.6 downloaded and verified</string>
+    <string name="player_frame_model_missing">Not downloaded. Tap to download RIFE v4.6 (about 10 MB) from nihui/rife-ncnn-vulkan on GitHub.</string>
+    <string name="player_frame_model_framework_unavailable">The LSPosed service is unavailable. Enable the module in LSPosed first.</string>
+    <string name="player_frame_model_downloading">Downloading %1$s… %2$d%%</string>
+    <string name="player_frame_model_publishing">Verifying…</string>
+    <string name="player_frame_model_failed">Download failed (%1$s). Tap to retry.</string>
     <string name="player_speed_title">Playback speed</string>
     <string name="player_disable_long_press">Disable long-press acceleration</string>
     <string name="player_long_press_speed">Custom long-press speed</string>
@@ -1031,6 +1042,7 @@
     <string name="highlights_recommendation_auto_confirm">Tags and uploaders picked in the Bilibili feedback panel can now go into the blocklist on their own, without confirming each one in Manage recommendation blocks.</string>
     <string name="highlights_recommend_play_count">Filter Home and related-video recommendations by play count. Unknown, unreadable, or live cards are kept.</string>
     <string name="highlights_recommend_publish_time">Filter Home and related-video recommendations by publish time: before or after a date, inside or outside a range, or relative to now such as the last two days. Cards without readable time are kept.</string>
+    <string name="highlights_player_frame_interpolation">Frame interpolation: plays 30 fps videos at 60 fps and 25 fps at 50 fps, up to the highest resolution this phone can sustain. Download the model in settings first.</string>
     <string name="highlights_glow_engine_title">Glow visuals</string>
     <string name="highlights_panel_viewport_rebound">Embedded pages and scroll areas now follow panel corners. Fast scrolling at either edge uses the remaining fling speed for rebound, and dialog rebound avoids redrawing the page behind it.</string>
     <string name="highlights_glow_engine">Soft Frost and Advanced material now share one visual engine. Floating bars show the content beneath in real time and adapt their tint so text stays legible; the status bar is see-through as well, and the engine stays idle when nothing moves.</string>

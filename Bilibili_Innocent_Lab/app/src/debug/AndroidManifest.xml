@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity android:name=".hook.feature.interpolation.FrameRateValidationActivity"
+            android:exported="false" android:excludeFromRecents="true"
+            android:screenOrientation="landscape" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+    </application>
+</manifest>
