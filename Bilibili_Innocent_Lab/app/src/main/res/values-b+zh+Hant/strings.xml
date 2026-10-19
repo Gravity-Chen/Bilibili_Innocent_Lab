@@ -941,7 +941,7 @@
     <string name="player_capabilities_tip">開啟後，嘗試開放所選播放功能；仍受裝置和伺服器限制，不改付費權限或影片來源。重新啟動 Bilibili 後生效。</string>
     <string name="player_frame_interpolation_title">影片插幀</string>
     <string name="player_frame_interpolation">影片插幀（實驗）</string>
-    <string name="player_frame_interpolation_tip">用 GPU 產生中間幀，把 720p 以下的 SDR 影片從 30 fps 補到 60 fps、或從 25 fps 補到 50 fps。HDR、受保護內容、不支援的幀率或機身過熱時不啟用；跟不上時自動回到一般播放。會增加耗電。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="player_frame_interpolation_tip">用 GPU 產生中間幀，把 30 fps 影片補到 60 fps、25 fps 補到 50 fps。可插幀的最高解析度由首次執行時的本機測速決定（目前最高 720p）；更高解析度、HDR、受保護內容和不支援的幀率按原樣播放，機身過熱或跟不上時自動回到一般播放。會增加耗電。重新啟動嗶哩嗶哩後生效。</string>
     <string name="player_frame_model">插幀模型</string>
     <string name="player_frame_model_checking">正在檢查…</string>
     <string name="player_frame_model_ready">RIFE v4.6 已下載並驗證</string>
@@ -1028,7 +1028,7 @@
     <string name="highlights_recommendation_auto_confirm">在嗶哩嗶哩回饋面板裡點過的標籤和 UP 主可以自動進入封鎖名單，不必再去「管理推薦封鎖」逐條確認。</string>
     <string name="highlights_recommend_play_count">依播放次數過濾首頁推薦及影片詳細頁下方推薦。讀不到播放次數、直播或解析失敗的卡片一律保留。</string>
     <string name="highlights_recommend_publish_time">依發布時間篩選首頁與詳細頁推薦：早於或晚於某個日期、只看或排除某段時間，也可以相對現在，例如最近兩天。讀不到時間的卡片一律保留。</string>
-    <string name="highlights_player_frame_interpolation">影片插幀：720p 以下的 SDR 影片補到 60 或 50 fps，需先在設定中下載模型。</string>
+    <string name="highlights_player_frame_interpolation">影片插幀：把 30 fps 影片補到 60 fps、25 fps 補到 50 fps，解析度依本機效能自動決定。需先在設定中下載模型。</string>
     <string name="highlights_glow_engine_title">凝光視效</string>
     <string name="highlights_panel_viewport_rebound">內嵌頁面和捲動區域的邊角跟隨面板圓角；快速滑動至頂端或底端時，按剩餘速度銜接回彈，彈窗回彈避免重繪背後頁面。</string>
     <string name="highlights_glow_engine">柔光與進階材質共用一套視覺引擎：懸浮列即時透出下方內容，隨明暗自動調節濃淡，文字始終清晰；狀態列同樣通透，畫面靜止時引擎不再額外耗電。</string>

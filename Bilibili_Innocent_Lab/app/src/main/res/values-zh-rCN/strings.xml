@@ -941,7 +941,7 @@
     <string name="player_capabilities_tip">开启后，尝试开放所选播放功能；仍受设备和服务端限制，不改付费权限或视频来源。重启哔哩哔哩后生效。</string>
     <string name="player_frame_interpolation_title">视频插帧</string>
     <string name="player_frame_interpolation">视频插帧（实验）</string>
-    <string name="player_frame_interpolation_tip">用 GPU 生成中间帧，把 720p 及以下的 SDR 视频从 30 fps 补到 60 fps、或从 25 fps 补到 50 fps。HDR、受保护内容、不支持的帧率或机身过热时不启用；跟不上时自动回到普通播放。会增加耗电。重启哔哩哔哩后生效。</string>
+    <string name="player_frame_interpolation_tip">用 GPU 生成中间帧，把 30 fps 视频补到 60 fps、25 fps 补到 50 fps。可插帧的最高分辨率由首次运行时的本机测速决定（目前最高 720p）；更高分辨率、HDR、受保护内容和不支持的帧率按原样播放，机身过热或跟不上时自动回到普通播放。会增加耗电。重启哔哩哔哩后生效。</string>
     <string name="player_frame_model">插帧模型</string>
     <string name="player_frame_model_checking">正在检查…</string>
     <string name="player_frame_model_ready">RIFE v4.6 已下载并校验</string>
@@ -1028,7 +1028,7 @@
     <string name="highlights_recommendation_auto_confirm">在哔哩哔哩反馈面板里点过的标签和 UP 主可以自动进入屏蔽名单，不必再去「管理推荐屏蔽」逐条确认。</string>
     <string name="highlights_recommend_play_count">按播放量过滤首页推荐和视频详情页底部推荐。读不到播放量、直播或解析失败的卡片一律保留。</string>
     <string name="highlights_recommend_publish_time">按发布时间过滤首页与详情页推荐：早于或晚于某个日期、只看或排除某段时间，也可以相对现在，比如最近两天。读不到时间的卡片一律保留。</string>
-    <string name="highlights_player_frame_interpolation">视频插帧：720p 及以下的 SDR 视频补到 60 或 50 fps，需先在设置中下载模型。</string>
+    <string name="highlights_player_frame_interpolation">视频插帧：把 30 fps 视频补到 60 fps、25 fps 补到 50 fps，分辨率按本机性能自动决定。需先在设置中下载模型。</string>
     <string name="highlights_glow_engine_title">凝光视效</string>
     <string name="highlights_panel_viewport_rebound">内嵌页面和滚动区域的边角跟随面板圆角；快速滑动到顶端或底端时，按剩余速度衔接回弹，弹窗回弹避免重绘背后页面。</string>
     <string name="highlights_glow_engine">柔光与高级材质共用一套视觉引擎：悬浮栏实时透出下方内容，随明暗自动调节浓淡，文字始终清晰；状态栏同样通透，画面静止时引擎不再额外耗电。</string>

@@ -46,6 +46,7 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             }
         ) {
             bindFavoriteSwitch(this, key)
+            bindSettingDestination(this, key)
             text = stringResource(R.string.player_frame_interpolation)
             isAllCaps = false
             textColor = colorResource(R.color.colorTextGray)
