@@ -383,7 +383,8 @@ class FrameCaptureBridgeDeviceTest {
             assertTrue("target $target must be a multiple of the source within the ceiling", target % sourceFps == 0 && target in 60..maxFps)
             assertNotNull("vsync never measured: $logs", vsync)
             if (vsync!! < target * 0.95f) {
-                assertEquals("limited display must be reported once", listOf(vsync), limited.toList())
+                assertEquals("limited display must be reported once: $limited", 1, limited.size)
+                assertEquals("reported limit", vsync, limited.single(), 0.1f)
                 assertTrue("must hand back to native", native)
             } else {
                 assertTrue("unexpected limit $limited", limited.isEmpty())

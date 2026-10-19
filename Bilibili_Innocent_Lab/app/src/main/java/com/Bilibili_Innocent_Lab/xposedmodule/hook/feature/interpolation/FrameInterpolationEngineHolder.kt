@@ -95,8 +95,13 @@ internal class FrameInterpolationEngineHolder(
     @Volatile var lastNativeUs = 0L
         private set
     private val warmed = java.util.Collections.synchronizedSet(HashSet<Pair<Int, Int>>())
+    // 推理 worker 的 CPU 部分（命令录制、6 MB 输入输出拷贝、场景判定、分块回填）在宿主播放进程里与宿主线程竞争；
+    // 以显示优先级运行，减少调度延迟。
     private val executor = ThreadPoolExecutor(1, 1, 30L, TimeUnit.SECONDS, ArrayBlockingQueue(2)) { task ->
-        Thread(task, "innocent-frame-infer").apply { isDaemon = true }
+        Thread({
+            runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY) }
+            task.run()
+        }, "innocent-frame-infer").apply { isDaemon = true }
     }.apply { allowCoreThreadTimeOut(false) }
 
     fun ready(): Boolean = state == State.READY

@@ -92,12 +92,21 @@ internal class FrameCaptureBridge private constructor(
         maxClockUncertaintyUs = 8_000L, frameWindow = config.frameWindow)
     private val session = FrameInterpolationSession(config.targetFps, ledger, engine.synthesizer(), engine.worker(),
         presenter, System::nanoTime, recovery, timeline = timeline)
-    private var admitted = false
-    private var discontinuity = 0L
+    // 捕获线程写、驱动线程读：admitted、lastArrivalNs、discontinuity；后者两线程都会递增。
+    @Volatile private var admitted = false
+    private val discontinuityCount = java.util.concurrent.atomic.AtomicLong()
+    private val discontinuity: Long get() = discontinuityCount.get()
     private var epochCount = 0L
-    private var lastArrivalNs = Long.MIN_VALUE
-    private var lastReportNs = 0L
-    private var audioDelayUs = 0L
+    @Volatile private var lastArrivalNs = Long.MIN_VALUE
+    @Volatile private var lastReportNs = 0L
+    @Volatile private var audioDelayUs = 0L
+    /**
+     * 规划/时钟驱动线程：与捕获分开。捕获线程会在 glReadPixels 上等 GPU 让出（推理约 20–30 ms），若驱动也在这里，
+     * 规划就会晚于槽位时刻、越过槽位（宿主真机 skippedBehind 持续增长、每 5 s 少呈现约 30 帧）。
+     */
+    private val driveThread = android.os.HandlerThread("innocent-frame-drive", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
+        .apply { start() }
+    private val driveHandler = android.os.Handler(driveThread.looper)
     private var power: FramePowerAdvisor? = null
     private val cadence = FrameSourceCadence(config.targetFps, interpolationRequired = config.interpolationRequired)
     private val native = AtomicBoolean(false)
@@ -133,7 +142,7 @@ internal class FrameCaptureBridge private constructor(
             if (attach != null) runCatching { codec.setOutputSurface(display) }
             return false
         }
-        capture.handler.post { Choreographer.getInstance().postFrameCallback(frameCallback) }
+        driveHandler.post { Choreographer.getInstance().postFrameCallback(frameCallback) }
         host.log("bridge.start", "${width}x$height")
         return true
     }
@@ -146,7 +155,7 @@ internal class FrameCaptureBridge private constructor(
         capture.handler.post {
             clock.reset()
             cadence.reset()
-            discontinuity++
+            discontinuityCount.incrementAndGet()
             lastArrivalNs = Long.MIN_VALUE
             if (admitted && !native.get()) beginEpoch()
         }
@@ -162,6 +171,7 @@ internal class FrameCaptureBridge private constructor(
         }
         presenter.close()
         capture.close()
+        driveThread.quitSafely()
         power?.close()
     }
 
@@ -170,7 +180,7 @@ internal class FrameCaptureBridge private constructor(
         if (!admitted && !admit()) return
         val pts = timestampNs / 1_000L
         if (clock.feed(pts, arrivalNs, host.playbackSpeed()) == FrameHostClock.Update.DISCONTINUITY) {
-            discontinuity++
+            discontinuityCount.incrementAndGet()
             beginEpoch()
         }
         lastArrivalNs = arrivalNs
@@ -235,9 +245,10 @@ internal class FrameCaptureBridge private constructor(
         clock.snapshot(minOf(vsyncNs, now), discontinuity)?.let { snapshot ->
             val state = session.updateClock(snapshot)
             if (state == FrameTimeline.ClockState.RESTART_REQUIRED || state == FrameTimeline.ClockState.NO_CLOCK) {
-                discontinuity++
+                discontinuityCount.incrementAndGet()
                 clock.reset()
-                beginEpoch()
+                // epoch 与账本格式只在捕获线程上重建（与填充同线程，见 FrameInterpolationSession.capture）。
+                capture.handler.post { if (!closed.get() && !native.get()) beginEpoch() }
                 return
             }
         }
