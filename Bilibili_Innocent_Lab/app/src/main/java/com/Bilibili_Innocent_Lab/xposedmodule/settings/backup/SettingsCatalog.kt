@@ -34,9 +34,10 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 57
+    const val CATALOG_VERSION = 58
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
+    const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
     const val ID_FREE_COPY_COMMENT = "free_copy.comment.enabled"
     const val ID_FREE_COPY_DESCRIPTION = "free_copy.description.enabled"
     const val ID_RECOMMEND_VIDEO_MIN_DURATION =
@@ -842,6 +843,9 @@ internal object SettingsCatalog {
         integer(ID_PLAYER_DEFAULT_SPEED, FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT,
             R.string.player_default_speed, default = PlayerSpeedConfig.FOLLOW_HOST,
             allowed = PlayerSpeedConfig.supportedPercents, introducedCatalogVersion = 13),
+        text(ID_PLAYER_SPEED_MENU, FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS,
+            R.string.player_speed_menu, default = "",
+            maxStringLength = PlayerSpeedConfig.MAX_MENU_SPEC_LENGTH, introducedCatalogVersion = 58),
         bool("player.sponsorblock.enabled", FeaturePreferences.SPONSORBLOCK_ENABLED,
             R.string.sponsorblock_enabled, introducedCatalogVersion = 44),
         bool("player.sponsorblock.automatic", FeaturePreferences.SPONSORBLOCK_AUTOMATIC,
@@ -1013,7 +1017,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 236) { "Expected 236 catalog settings, found ${specs.size}" }
+        check(specs.size == 237) { "Expected 237 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

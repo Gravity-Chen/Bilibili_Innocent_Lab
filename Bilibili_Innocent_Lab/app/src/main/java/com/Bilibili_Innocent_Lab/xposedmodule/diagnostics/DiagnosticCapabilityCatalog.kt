@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 25
+    const val VERSION = 26
     val definitions = listOf(
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
@@ -159,6 +159,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("player_long_press_disabled", "player_speed", R.string.player_disable_long_press, setOf("player.long_press.disabled")),
         DiagnosticCapabilityDefinition("player_long_press_speed_percent", "player_speed", R.string.player_long_press_speed, setOf("player.long_press_speed.percent")),
         DiagnosticCapabilityDefinition("player_default_speed_percent", "player_speed", R.string.player_default_speed, setOf("player.default_speed.percent")),
+        DiagnosticCapabilityDefinition("player_speed_menu_percents", "player_speed", R.string.player_speed_menu, setOf("player.speed_menu.percents"), introducedCatalogVersion = 26),
         DiagnosticCapabilityDefinition("comments_search_links_removed", "comment_purify", R.string.remove_comment_search_links, setOf("comments.search_links.removed")),
         DiagnosticCapabilityDefinition("comments_empty_guide_removed", "comment_purify", R.string.remove_comment_empty_guide, setOf("comments.empty_guide.removed")),
         DiagnosticCapabilityDefinition("comments_vote_widgets_removed", "comment_purify", R.string.remove_comment_vote_widgets, setOf("comments.vote_widgets.removed")),
@@ -287,6 +288,7 @@ internal object DiagnosticCapabilityCatalog {
         "player_long_press_disabled",
         "player_long_press_speed_percent",
         "player_default_speed_percent",
+        "player_speed_menu_percents",
         "player_capability_background",
         "player_capability_small_window",
         "player_capability_cast",
