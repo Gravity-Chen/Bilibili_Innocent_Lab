@@ -3620,7 +3620,9 @@ class HookEntry : XposedModule() {
                     PlayerSpeedFeatureInstaller(
                         disableLongPress = prefs.getBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false),
                         longPressPercent = prefs.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0),
-                        defaultPercent = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0)
+                        defaultPercent = prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0),
+                        speedMenuSpec = prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "").orEmpty(),
+                        cachedMenuPoints = hostAdaptResult?.playerSpeedMenu
                     ),
                     sponsorInstaller,
                     SystemMediaNotificationFeatureInstaller(
@@ -4850,7 +4852,11 @@ class HookEntry : XposedModule() {
                             !prefs.getBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, false),
                         followFeedStyleEnabled = prefs.getBoolean(FeaturePreferences.HOST_VIDEO_CARDS, false),
                         playerQualityEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerQualityConfig.normalize(
-                            prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, 0)) != 0
+                            prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_QUALITY_QN, 0)) != 0,
+                        playerSpeedMenuEnabled = com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedConfig.effectiveMenuPercents(
+                            prefs.getInt(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT, 0),
+                            prefs.getString(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS, "")
+                        ).isNotEmpty()
                     )
                 }.onFailure { throwable ->
                     logError(

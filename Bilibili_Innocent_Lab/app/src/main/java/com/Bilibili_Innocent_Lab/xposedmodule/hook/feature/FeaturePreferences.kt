@@ -222,6 +222,7 @@ internal object FeaturePreferences {
     const val PLAYER_DISABLE_LONG_PRESS = "player_disable_long_press"
     const val PLAYER_LONG_PRESS_SPEED_PERCENT = "player_long_press_speed_percent"
     const val PLAYER_DEFAULT_SPEED_PERCENT = "player_default_speed_percent"
+    const val PLAYER_SPEED_MENU_PERCENTS = "player_speed_menu_percents"
     const val SPONSORBLOCK_ENABLED = "sponsorblock_enabled"
     const val SPONSORBLOCK_AUTOMATIC = "sponsorblock_automatic"
     const val BLOCK_TEENAGERS_MODE_PROMPT = "block_teenagers_mode_prompt"

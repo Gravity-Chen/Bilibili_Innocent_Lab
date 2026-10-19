@@ -402,6 +402,7 @@ class MainActivity : SkinnedActivity() {
     internal var playerDisableLongPress = false
     internal var playerLongPressSpeedPercent = 0
     internal var playerDefaultSpeedPercent = 0
+    internal var playerSpeedMenuPercents: List<Int> = emptyList()
     internal var blockTeenagersModePrompt = false
     internal var removeCommentSearchLinks = false
     internal var removeCommentEmptyGuide = false
@@ -493,6 +494,7 @@ class MainActivity : SkinnedActivity() {
     internal var playerBufferSummaryView: NativeTextView? = null
     internal var playerLongPressSpeedSummary: NativeTextView? = null
     internal var playerDefaultSpeedSummary: NativeTextView? = null
+    internal var playerSpeedMenuSummary: NativeTextView? = null
     internal var homeTabRulesSummaryView: NativeTextView? = null
     internal var homeRecommendTitleSummaryView: NativeTextView? = null
     internal var homeRecommendBlockedTidsSummaryView: NativeTextView? = null
@@ -1948,11 +1950,18 @@ class MainActivity : SkinnedActivity() {
         getString(R.string.player_speed_multiplier, PlayerSpeedConfig.formatMultiplier(percent))
     }
 
+    private fun playerSpeedMenuLabel(percents: List<Int>): String = if (percents.isEmpty()) {
+        getString(R.string.player_speed_follow_host)
+    } else {
+        PlayerSpeedConfig.formatMenuSummary(percents)
+    }
+
     internal fun updatePlayerSpeedSummaries() {
         playerLongPressSpeedSummary?.text = if (playerDisableLongPress) {
             getString(R.string.player_long_press_speed_paused, playerSpeedLabel(playerLongPressSpeedPercent))
         } else playerSpeedLabel(playerLongPressSpeedPercent)
         playerDefaultSpeedSummary?.text = playerSpeedLabel(playerDefaultSpeedPercent)
+        playerSpeedMenuSummary?.text = playerSpeedMenuLabel(playerSpeedMenuPercents)
     }
 
     /** 手动入口只展示已保存规则；宿主点选统一在管理面板确认。 */
@@ -4222,6 +4231,7 @@ class MainActivity : SkinnedActivity() {
         playerBufferSummaryView = null
         playerLongPressSpeedSummary = null
         playerDefaultSpeedSummary = null
+        playerSpeedMenuSummary = null
         homeTabRulesSummaryView = null
         homeRecommendTitleSummaryView = null
         homeRecommendBlockedTidsSummaryView = null
@@ -4439,6 +4449,10 @@ class MainActivity : SkinnedActivity() {
         )
         playerDefaultSpeedPercent = PlayerSpeedConfig.normalize(
             uiSettings.int(FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT)
+        )
+        playerSpeedMenuPercents = PlayerSpeedConfig.effectiveMenuPercents(
+            playerDefaultSpeedPercent,
+            uiSettings.string(FeaturePreferences.PLAYER_SPEED_MENU_PERCENTS)
         )
         removeCommentSearchLinks = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS)
         removeCommentEmptyGuide = uiSettings.bool(FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE)
