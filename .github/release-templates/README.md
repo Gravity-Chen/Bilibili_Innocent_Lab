@@ -1,5 +1,26 @@
 # Release 文案规范
 
+## Canary Telegram 投递回执与重试
+
+完整回执只在 APK 和全部公告均获 Telegram 确认后保存。`receipt_schema=2` 的 `delivered_at`
+来自最后一条已确认消息的 `Message.date`，同时绑定投递 run/attempt、源码提交、构建链接、
+标签、源 artifact 摘要和 APK SHA-256；checkpoint 不再等待 Jobs API 同步发送步骤元数据。
+同路径的完整匹配回执可直接复用；已有回执不完整或身份不符时拒绝再次发送。
+
+旧回执没有 Telegram 时间时，仅从相同 run/attempt 的唯一成功发送步骤恢复 `completed_at`，
+按 2、4、8、16 秒间隔有界重读元数据；不能使用当前时间、job 更新时间或其他步骤的日志代替。
+同一次投递重复记录时复用完整身份一致的 deployment，status 写入失败后也不重复创建；
+相同 run/attempt/频道出现冲突回执时停止处理。
+
+历史 checkpoint 保存失败时，可只读恢复 `canary-telegram-notes-<run>-<attempt>` 中的完整回执。
+恢复会验证工作流/仓库/main、artifact 归属、ZIP 摘要/大小/白名单以及原 Canary 构建身份。
+旧回执还要求原产物创建/更新时间早于发送，且不会补造发送时未记录的 artifact 摘要。
+回执缺失、过期或结果不明且没有合格旧版证据时，自动重试失败封闭，需人工核查。
+artifact 的保留期仍由工作流的 `retention-days` 决定，历史线上 checkpoint 补录需要另行授权。
+
+手动工作流的同一 run 重试会跳过已完整投递的先前 attempt，结果不确定或先前 job 不可见时停止。
+新建的独立手动运行仍保留明确重发的原有语义；定时发布仍按每日规则和已发布构建去重。
+
 从 `v1.0.5` 之后，GitHub Release 统一使用本目录中的固定模板：
 
 - Stable 正式版：`stable.md`
