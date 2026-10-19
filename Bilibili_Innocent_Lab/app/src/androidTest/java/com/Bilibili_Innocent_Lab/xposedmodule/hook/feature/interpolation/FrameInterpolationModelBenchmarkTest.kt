@@ -1,0 +1,474 @@
+package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
+
+import android.util.Log
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.packing.FrameNativeLoader
+import java.io.File
+import java.nio.ByteBuffer
+import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.json.JSONObject
+import android.os.Build
+import android.os.Debug
+import android.os.PowerManager
+
+/**
+ * 真实 RIFE v4.6 推理时延基准，用于 INFERENCE_WITHIN_BUDGET 条件。模型不随包、不入库：
+ * 只有经 run-as 手动放入目标包私有 files/rife-v4.6/ 时运行，否则跳过。
+ */
+@RunWith(AndroidJUnit4::class)
+class FrameInterpolationModelBenchmarkTest {
+    private val context = InstrumentationRegistry.getInstrumentation().targetContext
+    private val modelDir: File? get() = context.filesDir.resolve("rife-v4.6")
+
+    private fun open(backend: FrameInterpolationBackend.Backend, threads: Int,
+                     fp16: Boolean = false, flowScale: Int = 1, gpuIo: Boolean = false,
+                     protectStaticDetails: Boolean = false, maxPixels: Long = 1920L * 1080L,
+                     fusedWarp: Boolean = gpuIo && flowScale > 1, rawGpuInput: Boolean = false): FrameInterpolationBackend {
+        val dir = modelDir
+        assumeTrue("model not pushed", dir != null && File(dir, "flownet.bin").isFile)
+        assertEquals(FrameNativeLoader.Status.READY,
+            FrameInterpolationNative.prepare(File(context.applicationInfo.sourceDir), context.codeCacheDir))
+        val opened = FrameInterpolationBackend.openResearchModel(dir!!, backend, threads, fp16, flowScale, gpuIo,
+            protectStaticDetails, maxPixels, fusedWarp, rawGpuInput)
+        assertEquals("open $backend", FrameInterpolationBackend.Status.OK, opened.status)
+        return opened.engine!!
+    }
+
+    /** 斜向渐变 + 方块，右帧整体平移 shift 像素，给光流真实运动。 */
+    private fun frame(width: Int, height: Int, shift: Int): ByteBuffer {
+        val buffer = ByteBuffer.allocateDirect(width * height * 3)
+        for (y in 0 until height) for (x in 0 until width) {
+            val sx = x - shift
+            val box = (sx / 64 + y / 64) % 2 == 0
+            buffer.put(((sx * 255 / width) and 0xff).toByte())
+            buffer.put(((y * 255 / height) and 0xff).toByte())
+            buffer.put((if (box) 220 else 30).toByte())
+        }
+        buffer.flip()
+        return buffer
+    }
+
+    private class Measured(val times: List<Double>, val stagesMs: List<Double>, val output: ByteArray)
+
+    private fun measure(engine: FrameInterpolationBackend, width: Int, height: Int, runs: Int): Measured {
+        val left = frame(width, height, 0)
+        val right = frame(width, height, 16)
+        val out = ByteBuffer.allocateDirect(width * height * 3)
+        val stages = DoubleArray(3)
+        repeat(2) { assertEquals(FrameInterpolationBackend.Status.OK, engine.process(left, right, out, width, height, 0.5f)) }
+        val times = List(runs) {
+            val began = System.nanoTime()
+            val status = engine.process(left, right, out, width, height, 0.5f)
+            val ms = (System.nanoTime() - began) / 1e6
+            assertEquals(FrameInterpolationBackend.Status.OK, status)
+            engine.stageNanos().forEachIndexed { i, ns -> stages[i] += ns / 1e6 / runs }
+            ms
+        }.sorted()
+        // 中间帧应介于两输入之间：不能等于任一输入。
+        assertFalse(out == left)
+        assertFalse(out == right)
+        return Measured(times, stages.toList(), ByteArray(out.capacity()).also { out.duplicate().get(it) })
+    }
+
+    private fun psnr(reference: ByteArray, candidate: ByteArray): Double {
+        var sum = 0.0
+        for (i in reference.indices) { val d = (reference[i].toInt() and 0xff) - (candidate[i].toInt() and 0xff); sum += d * d }
+        val mse = sum / reference.size
+        return if (mse == 0.0) Double.POSITIVE_INFINITY else 10 * kotlin.math.log10(255.0 * 255.0 / mse)
+    }
+
+    private fun report(label: String, measured: Measured, reference: Measured? = null) {
+        val stages = measured.stagesMs.joinToString("/") { "%.1f".format(it) }
+        val quality = reference?.let { " psnr-vs-fp32-full=%.1fdB".format(psnr(it.output, measured.output)) } ?: ""
+        report("$label stages(prep/infer/post)=${stages}ms$quality", measured.times)
+    }
+
+    private fun report(label: String, times: List<Double>) {
+        val median = times[times.size / 2]
+        val p90 = times[(times.size * 9 / 10).coerceAtMost(times.size - 1)]
+        val fits = listOf(30, 60, 90, 120).filter { p90 <= 1000.0 / it }
+        val line = "$label median=%.1fms p90=%.1fms min=%.1fms within-period-at=%s".format(median, p90, times.first(), fits)
+        Log.i(TAG, line)
+        InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply { putString("bench", line) })
+    }
+
+    private data class Variant(val fp16: Boolean, val flowScale: Int, val gpuIo: Boolean) {
+        override fun toString() =
+            "${if (fp16) "fp16" else "fp32"} flow-1/$flowScale ${if (gpuIo) "gpu-io" else "cpu-io"}"
+    }
+
+    /** 精度 × 光流分辨率 × RGB8 转换位置；质量以同分辨率 fp32 全分辨率 CPU 转换输出为参照。 */
+    @Test fun vulkanInferenceLatencyAcrossResolutions() {
+        val sizes = listOf(640 to 360, 960 to 540, 1280 to 720, 1920 to 1080)
+        val reference = HashMap<Int, Measured>()
+        val variants = listOf(Variant(false, 1, false), Variant(true, 1, true), Variant(true, 2, false),
+            Variant(true, 2, true), Variant(true, 4, false), Variant(true, 4, true))
+        for (variant in variants) {
+            val engine = open(FrameInterpolationBackend.Backend.VULKAN, 1, variant.fp16, variant.flowScale, variant.gpuIo)
+            try {
+                for ((w, h) in sizes) {
+                    val measured = measure(engine, w, h, if (w >= 1280) 8 else 12)
+                    val label = "VULKAN $variant ${w}x$h"
+                    if (variant == variants.first()) { reference[w] = measured; report(label, measured) }
+                    else report(label, measured, reference[w])
+                }
+            } finally { engine.close() }
+        }
+    }
+
+    /** 30→60 的持续负载：每 33.3 ms 一次 1080p 插帧共 60 s，按 10 s 窗口报告时延与温控状态。 */
+    @Test fun sustained1080pAtThirtyInterpolationsPerSecond() {
+        val engine = open(FrameInterpolationBackend.Backend.VULKAN, 1, fp16 = true, flowScale = 4, gpuIo = true)
+        val power = context.getSystemService(android.os.PowerManager::class.java)
+        try {
+            val (w, h) = 1920 to 1080
+            val left = frame(w, h, 0)
+            val right = frame(w, h, 16)
+            val out = ByteBuffer.allocateDirect(w * h * 3)
+            repeat(3) { engine.process(left, right, out, w, h, 0.5f) }
+            val periodNs = 1_000_000_000L / 30
+            val start = System.nanoTime()
+            var missed = 0
+            for (window in 0 until 6) {
+                val times = ArrayList<Double>()
+                for (i in 0 until 300) {
+                    val due = start + (window * 300L + i) * periodNs
+                    while (System.nanoTime() < due) Thread.sleep(0, 200_000)
+                    val began = System.nanoTime()
+                    assertEquals(FrameInterpolationBackend.Status.OK, engine.process(left, right, out, w, h, 0.5f))
+                    val ms = (System.nanoTime() - began) / 1e6
+                    if (ms > periodNs / 1e6) missed++
+                    times += ms
+                }
+                times.sort()
+                report("SUSTAINED 1080p fp16 flow-1/4 gpu-io t=${(window + 1) * 10}s thermal=${power.currentThermalStatus}", times)
+            }
+            report("SUSTAINED 1080p summary missed-30fps-slots=$missed/1800", listOf(missed.toDouble()))
+        } finally { engine.close() }
+    }
+
+    /** 滑动帧序列 (i, i+1)：按帧 ID 复用显存张量应与不缓存时逐字节一致，并减少每次插帧的耗时。 */
+    @Test fun frameCacheIsIdenticalAndFaster() {
+        val engine = open(FrameInterpolationBackend.Backend.VULKAN, 1, fp16 = true, flowScale = 4, gpuIo = true)
+        try {
+            val (w, h) = 1280 to 720
+            val frames = List(12) { frame(w, h, it * 16) }
+            val cachedOut = ByteBuffer.allocateDirect(w * h * 3)
+            val plainOut = ByteBuffer.allocateDirect(w * h * 3)
+            repeat(2) { engine.process(frames[0], frames[1], plainOut, w, h, 0.5f) }
+            val plain = ArrayList<Double>()
+            val cached = ArrayList<Double>()
+            for (round in 0 until 3) for (i in 0 until frames.size - 1) {
+                var began = System.nanoTime()
+                assertEquals(FrameInterpolationBackend.Status.OK, engine.process(frames[i], frames[i + 1], plainOut, w, h, 0.5f))
+                plain += (System.nanoTime() - began) / 1e6
+                val base = round * 100L
+                began = System.nanoTime()
+                assertEquals(FrameInterpolationBackend.Status.OK, engine.process(frames[i], frames[i + 1], cachedOut, w, h, 0.5f,
+                    leftId = base + i, rightId = base + i + 1))
+                if (i > 0) cached += (System.nanoTime() - began) / 1e6
+                assertTrue("cached output differs at $round/$i", plainOut == cachedOut)
+            }
+            plain.sort(); cached.sort()
+            report("CACHE 720p fp16 flow-1/4 gpu-io uncached", plain)
+            report("CACHE 720p fp16 flow-1/4 gpu-io cached", cached)
+        } finally { engine.close() }
+    }
+
+    @Test fun cpuInferenceLatencyAtLowResolution() {
+        val engine = open(FrameInterpolationBackend.Backend.CPU_RESEARCH, 4)
+        try {
+            for ((w, h) in listOf(640 to 360, 960 to 540)) report("CPU4 ${w}x$h", measure(engine, w, h, 4))
+        } finally { engine.close() }
+    }
+
+    /** RGB24 loads cross uint and row boundaries; a cached image must also retain its source stride. */
+    @Test fun fusedRgbCachePreservesPaddedRows() {
+        val w=641; val h=361; val row=w*3
+        val left=frame(w,h,0); val right=frame(w,h,8)
+        val phases=listOf(.25f,.5f,.75f)
+        val legacy=open(FrameInterpolationBackend.Backend.VULKAN,1,true,4,true,true,fusedWarp=false)
+        val references=try {
+            phases.associateWith { alpha ->
+                val out=ByteBuffer.allocateDirect(row*h)
+                assertEquals(FrameInterpolationBackend.Status.OK,legacy.process(left,right,out,w,h,alpha))
+                ByteArray(row*h).also { out.duplicate().get(it) }
+            }
+        } finally { legacy.close() }
+        fun padded(input:ByteBuffer,stride:Int):ByteBuffer = ByteBuffer.allocateDirect(stride*h).also { output ->
+            for(y in 0 until h) for(x in 0 until stride)
+                output.put(y*stride+x,if(x<row) input.get(y*row+x) else 0x5a.toByte())
+        }
+        for(rawGpuInput in listOf(false,true)) {
+            val engine=open(FrameInterpolationBackend.Backend.VULKAN,1,true,4,true,true,rawGpuInput=rawGpuInput)
+            try {
+                for((lp,rp) in listOf(0 to 0,5 to 9,11 to 1)) for(alpha in phases) {
+                    val output=padded(left,row+7)
+                    assertEquals(FrameInterpolationBackend.Status.OK,engine.process(padded(left,row+lp),padded(right,row+rp),
+                        output,w,h,alpha,row+lp,row+rp,row+7,leftId=71,rightId=72))
+                    val actual=ByteArray(row*h)
+                    var maximum=0
+                    for(y in 0 until h) {
+                        for(x in 0 until row) {
+                            val index=y*row+x
+                            actual[index]=output.get(y*(row+7)+x)
+                            maximum=maxOf(maximum,kotlin.math.abs((actual[index].toInt() and 255)-
+                                (references.getValue(alpha)[index].toInt() and 255)))
+                        }
+                        for(x in row until row+7) assertEquals(0x5a.toByte(),output.get(y*(row+7)+x))
+                    }
+                    assertTrue("RGB24 stride $lp/$rp alpha=$alpha max=$maximum",maximum<=1)
+                    assertTrue(psnr(references.getValue(alpha),actual)>=60.0)
+                }
+            } finally { engine.close() }
+        }
+    }
+
+    /** Diagnostic, outside performance windows: distinguish Java input retention from GPU pool high water. */
+    @Test fun modelMemoryRetentionAcrossResolutions() {
+        val rawGpuInput=InstrumentationRegistry.getArguments().getString("rawGpuInput") == "true"
+        fun reportMemory(stage:String,w:Int,h:Int) {
+            val memory=Debug.MemoryInfo()
+            Debug.getMemoryInfo(memory)
+            val record=JSONObject().put("stage",stage).put("width",w).put("height",h)
+                .put("pssKb",memory.totalPss).put("dalvikPssKb",memory.dalvikPss)
+                .put("nativePssKb",memory.nativePss).put("otherPssKb",memory.otherPss)
+                .put("nativeAllocatedKb",Debug.getNativeHeapAllocatedSize()/1024)
+                .put("memoryStats",JSONObject(memory.memoryStats)).put("rawGpuInput",rawGpuInput)
+            InstrumentationRegistry.getInstrumentation().sendStatus(0,android.os.Bundle().apply {
+                putString("modelMemory",record.toString())
+            })
+        }
+        fun exercise(w:Int,h:Int) {
+            val engine=open(FrameInterpolationBackend.Backend.VULKAN,1,true,4,true,true,
+                maxPixels=maxOf(1920L*1080,w.toLong()*h),rawGpuInput=rawGpuInput)
+            try {
+                val left=frame(w,h,0);val right=frame(w,h,16)
+                val output=ByteBuffer.allocateDirect(w*h*3)
+                repeat(5) { assertEquals(FrameInterpolationBackend.Status.OK,
+                    engine.process(left,right,output,w,h,.5f,leftId=10,rightId=11)) }
+                reportMemory("active",w,h)
+            } finally { engine.close() }
+        }
+        for((w,h) in listOf(640 to 360,1280 to 720,1920 to 1080,3840 to 2160,640 to 360)) {
+            reportMemory("before",w,h)
+            exercise(w,h)
+            // Deliberate diagnostic GC only. Normal benchmark and playback never force GC.
+            repeat(2) { System.gc();System.runFinalization();Thread.sleep(200) }
+            reportMemory("closedAfterGc",w,h)
+        }
+    }
+
+    /** 白色细笔画在移动背景前保持原像素；字幕更换时不得把旧字贴回。 */
+    @Test fun stationaryCaptionsArePreservedWithoutLockingChangedText() {
+        val (w, h) = 320 to 180
+        fun caption(shift: Int, textShift: Int): ByteBuffer = frame(w, h, shift).also { b ->
+            for (y in 120 until 160) for (x in 50 until 270) for (c in 0..2) {
+                val ink = y in 132..145 && (x - textShift) % 12 in 0..2 && x in 70..250
+                b.put((y * w + x) * 3 + c, (if (ink) 255 else 0).toByte())
+            }
+        }
+        val left = caption(0, 0)
+        val right = caption(40, 0)
+        val changed = caption(40, 6)
+        fun run(engine: FrameInterpolationBackend, input: ByteBuffer, alpha: Float): ByteBuffer {
+            val output = ByteBuffer.allocateDirect(w * h * 3)
+            assertEquals(FrameInterpolationBackend.Status.OK, engine.process(left, input, output, w, h, alpha))
+            return output
+        }
+        // 覆盖全部验证档的子帧相位，包含 30→120 的 1/4、3/4 与 15→165 的 1/11…10/11。
+        val phases = listOf(2, 3, 4, 5, 6, 11).flatMap { denominator ->
+            (1 until denominator).map { it.toFloat() / denominator }
+        }.distinct().sorted()
+        // 先保存参考再关闭引擎，避免与进程级播放引擎一起超过两个原生实例的硬上限。
+        val references = open(FrameInterpolationBackend.Backend.VULKAN, 1, true, 4, true, false).let { engine ->
+            try { phases.associateWith { alpha -> run(engine, right, alpha) to run(engine, changed, alpha) } }
+            finally { engine.close() }
+        }
+        val protectedEngine = open(FrameInterpolationBackend.Backend.VULKAN, 1, true, 4, true, true)
+        try {
+            for (alpha in phases) {
+                val (plain, changedPlain) = references.getValue(alpha)
+                val protected = run(protectedEngine, right, alpha)
+                var plainError = 0L
+                var protectedError = 0L
+                for (y in 134..143) for (x in 74..246) if (x % 12 in 0..4 || x % 12 in 10..11) for (c in 0..2) {
+                    val i = (y * w + x) * 3 + c
+                    val expected = left.get(i).toInt() and 255
+                    plainError += kotlin.math.abs((plain.get(i).toInt() and 255) - expected)
+                    protectedError += kotlin.math.abs((protected.get(i).toInt() and 255) - expected)
+                }
+                assertEquals("stationary caption alpha=$alpha", 0L, protectedError)
+                assertTrue("fixture must expose caption distortion alpha=$alpha", plainError > protectedError)
+                val changedProtected = run(protectedEngine, changed, alpha)
+                for (y in 134..143) for (x in 74..246) if (x % 12 in 0..2) for (c in 0..2) {
+                    val i = (y * w + x) * 3 + c
+                    assertEquals("changed text alpha=$alpha $x/$y", changedPlain.get(i), changedProtected.get(i))
+                }
+                val result = JSONObject().put("alpha", alpha.toDouble()).put("width", w).put("height", h)
+                    .put("plainAbsoluteErrorSum", plainError).put("protectedAbsoluteErrorSum", protectedError)
+                    .put("changedTextPreserved", true)
+                Log.i(TAG, "CAPTION $result")
+                InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply {
+                    putString("caption", result.toString())
+                })
+            }
+        } finally { protectedEngine.close() }
+    }
+
+    @Test fun detailProtectionLatencyAt720p() {
+        for (protect in listOf(false, true, true, false)) {
+            val engine = open(FrameInterpolationBackend.Backend.VULKAN, 1, true, 4, true, protect)
+            try { report("DETAIL 720p protect=$protect", measure(engine, 1280, 720, 16)) }
+            finally { engine.close() }
+        }
+    }
+
+    /** Same model/scale/precision, alternating GPU implementations, including RGB packing tails. */
+    @Test fun fusedWarpQualityAndLatency() {
+        val scale = InstrumentationRegistry.getArguments().getString("flowScale", "4").toInt()
+        require(scale == 2 || scale == 4)
+        val rawGpuInput=InstrumentationRegistry.getArguments().getString("rawGpuInput") == "true"
+        val selectedWidth = InstrumentationRegistry.getArguments().getString("fusionWidth")?.toInt()
+        for ((w,h) in listOf(641 to 361, 1280 to 720, 1920 to 1080, 3840 to 2160).filter { selectedWidth == null || it.first == selectedWidth }) {
+            val inputs = listOf(frame(w,h,0), frame(w,h,maxOf(4,w/80)))
+            val references = HashMap<Float,ByteArray>()
+            for (fused in listOf(false,true,false,true)) {
+                val engine = open(FrameInterpolationBackend.Backend.VULKAN,1,true,scale,true,true,
+                    maxPixels=maxOf(1920L*1080,w.toLong()*h),fusedWarp=fused,rawGpuInput=fused && rawGpuInput)
+                try {
+                    val times = ArrayList<Long>()
+                    val out=ByteBuffer.allocateDirect(w*h*3)
+                    var worstMax=0
+                    var worstPsnr=Double.POSITIVE_INFINITY
+                    for (i in 0 until 15) {
+                        val alpha=listOf(.25f,.5f,.75f)[i%3]
+                        val start=System.nanoTime()
+                        assertEquals(FrameInterpolationBackend.Status.OK,engine.process(inputs[0],inputs[1],out,w,h,alpha,
+                            leftId=10,rightId=11))
+                        if(i>=3)times+=System.nanoTime()-start
+                        val bytes=ByteArray(out.capacity()).also{out.duplicate().get(it)}
+                        if(!fused)references[alpha]=bytes
+                        else {
+                            val ref=references.getValue(alpha)
+                            if(i==3 && InstrumentationRegistry.getArguments().getString("dumpFusion") == "true") {
+                                for((name,data) in listOf("reference" to ref,"candidate" to bytes)) {
+                                    val bitmap=android.graphics.Bitmap.createBitmap(w,h,android.graphics.Bitmap.Config.ARGB_8888)
+                                    val pixels=IntArray(w*h) { p -> android.graphics.Color.rgb(data[p*3].toInt() and 255,
+                                        data[p*3+1].toInt() and 255,data[p*3+2].toInt() and 255) }
+                                    bitmap.setPixels(pixels,0,w,0,0,w,h)
+                                    File(context.cacheDir,"fusion-$name.png").outputStream().use {
+                                        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)
+                                    }
+                                    bitmap.recycle()
+                                }
+                            }
+                            var max=0
+                            for(j in bytes.indices)max=maxOf(max,kotlin.math.abs((bytes[j].toInt() and 255)-(ref[j].toInt() and 255)))
+                            worstMax=maxOf(worstMax,max);worstPsnr=minOf(worstPsnr,psnr(ref,bytes))
+                        }
+                    }
+                    times.sort()
+                    val record=JSONObject().put("width",w).put("height",h).put("fused",fused)
+                        .put("flowScale", scale)
+                        .put("rawGpuInput",fused && rawGpuInput)
+                        .put("p50Ms",times[times.size/2]/1e6).put("p90Ms",times[(times.size*9/10).coerceAtMost(times.size-1)]/1e6)
+                        .put("maxByteError",worstMax).put("psnrDb",if(worstPsnr.isFinite())worstPsnr else JSONObject.NULL)
+                        .put("pssKb",Debug.getPss())
+                    InstrumentationRegistry.getInstrumentation().sendStatus(0,android.os.Bundle().apply{putString("fusion",record.toString())})
+                    if(fused)assertTrue("fusion quality $record",worstPsnr>=60.0 && worstMax<=1)
+                } finally{engine.close()}
+            }
+        }
+    }
+
+    /** 全档位 × 分辨率的独立 GPU 预算测量。显式 4K 研究引擎不改变正式捕获、账本或媒体准入上限。 */
+    @Test fun allRatesAndResolutionsIncluding4k() {
+        val sizes = listOf(640 to 360, 854 to 480, 960 to 540, 1280 to 720, 1920 to 1080, 2560 to 1440, 3840 to 2160)
+        val profiles = listOf(15 to 15, 30 to 30, 15 to 45, 25 to 50, 30 to 60, 30 to 120,
+            60 to 120, 24 to 144, 15 to 165, 37 to 185)
+        val power = context.getSystemService(PowerManager::class.java)
+        val args = InstrumentationRegistry.getArguments()
+        val rawGpuInput=args.getString("rawGpuInput") == "true"
+        val requestedWidth = args.getString("matrixWidth")?.toInt()
+        val count = args.getString("samples", "32").toInt().coerceIn(16, 128)
+        val outputFile = context.filesDir.resolve("frame-rate-resolution-matrix.jsonl")
+        var identityBase = 1_000_000L
+        for ((w, h) in sizes.filter { requestedWidth == null || it.first == requestedWidth }) {
+            val engine = open(FrameInterpolationBackend.Backend.VULKAN, 1, true, 4, true, true,
+                maxPixels = maxOf(1920L * 1080L, w.toLong() * h),rawGpuInput=rawGpuInput)
+            try {
+                val inputs = List(3) { frame(w, h, it * maxOf(4, w / 80)) }
+                val output = ByteBuffer.allocateDirect(w * h * 3)
+                if (w.toLong() * h > 1920L * 1080L) {
+                    val production = open(FrameInterpolationBackend.Backend.VULKAN, 1, true, 4, true, true)
+                    try {
+                        assertEquals("default pixel limit must remain closed", FrameInterpolationBackend.Status.INVALID_ARGUMENT,
+                            production.process(inputs[0], inputs[1], output, w, h, .5f))
+                        assertFalse("production ledger must reject oversized frames", FrameBufferLedger(3).configure(w, h))
+                    } finally { production.close() }
+                }
+                repeat(3) { assertEquals(FrameInterpolationBackend.Status.OK, engine.process(inputs[0], inputs[1], output, w, h, .5f)) }
+                for ((source, target) in profiles) {
+                    val samples = ArrayList<Long>()
+                    val cpu = ArrayList<Long>()
+                    val stages = LongArray(3)
+                    var originals = 0
+                    var slot = 0L
+                    var failure: FrameInterpolationBackend.Status? = null
+                    val pssStart = Debug.getPss()
+                    val began = System.nanoTime()
+                    while (samples.size < count) {
+                        val scaled = slot * source
+                        val pair = scaled / target
+                        val phase = scaled % target
+                        slot++
+                        if (phase == 0L && target != source) { originals++; continue }
+                        val alpha = phase.toFloat() / target
+                        val first = inputs[(pair % 3).toInt()]
+                        val second = inputs[((pair + 1) % 3).toInt()]
+                        val cpuStart = Debug.threadCpuTimeNanos()
+                        val start = System.nanoTime()
+                        val status = engine.process(first, second, output, w, h, alpha,
+                            leftId = identityBase + pair, rightId = identityBase + pair + 1)
+                        samples += System.nanoTime() - start
+                        cpu += Debug.threadCpuTimeNanos() - cpuStart
+                        if (status != FrameInterpolationBackend.Status.OK) { failure = status; break }
+                        if (phase != 0L) engine.stageNanos().forEachIndexed { i, value -> stages[i] += value }
+                    }
+                    identityBase += 1_000_000L
+                    samples.sort()
+                    fun q(f: Double) = samples[(kotlin.math.ceil(samples.size * f).toInt() - 1).coerceIn(samples.indices)] / 1e6
+                    val required = target - source
+                    val avgNs = samples.average()
+                    val result = JSONObject().put("width", w).put("height", h).put("sourceFps", source).put("targetFps", target)
+                        .put("stage", if (required == 0) "original frame copy only" else "raw model inference; no capture/presentation")
+                        .put("samples", samples.size).put("originalSlotsSkipped", originals).put("rawGpuInput",rawGpuInput)
+                        .put("p50Ms", q(.5)).put("p90Ms", q(.9)).put("p99Ms", q(.99)).put("maxMs", q(1.0))
+                        .put("cpuMeanMs", cpu.average() / 1e6).put("wallElapsedMs", (System.nanoTime() - began) / 1e6)
+                        .put("requiredInferencesPerSecond", required).put("estimatedWorkerUtilization", avgNs * required / 1e9)
+                        .put("rawP90Fits", failure == null && (required == 0 || q(.9) <= 1000.0 / required))
+                        .put("status", failure?.name ?: "OK").put("pssStartKb", pssStart).put("pssEndKb", Debug.getPss())
+                        .put("nativeHeapKb", Debug.getNativeHeapAllocatedSize() / 1024)
+                        .put("captureSizeAdmitted", w.toLong() * h <= 1280L * 720)
+                        .put("defaultBackendSizeAdmitted", w.toLong() * h <= 1920L * 1080)
+                        .put("averagePrepMs", stages[0].toDouble() / samples.size / 1e6)
+                        .put("averageGpuAndTransfersMs", stages[1].toDouble() / samples.size / 1e6)
+                        .put("averagePostMs", stages[2].toDouble() / samples.size / 1e6)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) result.put("thermalStatus", power.currentThermalStatus)
+                    outputFile.appendText(result.toString() + "\n")
+                    InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply { putString("matrix", result.toString()) })
+                    assertNull("inference failed at ${w}x$h $source->$target", failure)
+                    // 不能把原生推理吞吐的预算通过声称为完整管线达标；正式准入单独保留并记录。
+                }
+            } finally { engine.close() }
+            System.gc()
+        }
+    }
+
+    private companion object { const val TAG = "FrameBench" }
+}
