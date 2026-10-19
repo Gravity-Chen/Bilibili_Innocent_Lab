@@ -106,6 +106,19 @@ internal class FrameInterpolationEngineHolder(
 
     fun ready(): Boolean = state == State.READY
 
+    /** 仅能力测量失败时：到期则在 worker 上重测；返回是否已安排重测（调用方可把解码器挂到迟接管）。 */
+    @Synchronized fun retryIfDue(nowNs: Long = System.nanoTime()): Boolean {
+        val engine = backend ?: return false
+        if (state != State.FAILED || capabilityFailedAtNs == 0L || capabilityRetries >= CAPABILITY_RETRIES ||
+            nowNs - capabilityFailedAtNs < CAPABILITY_RETRY_NS) return false
+        capabilityRetries++
+        state = State.PREPARING
+        val accepted = runCatching { executor.execute { measureCapability(engine) } }.isSuccess
+        if (!accepted) state = State.FAILED
+        else log("engine.retry", "capability #$capabilityRetries")
+        return accepted
+    }
+
     @Synchronized fun warmUp() {
         if (state != State.IDLE) return
         state = State.PREPARING
@@ -129,6 +142,20 @@ internal class FrameInterpolationEngineHolder(
         backend = engine
         // 真机：首次推理某分辨率时分配显存与编译着色器，远超槽位预算；先在各尺寸上各跑一次。
         for ((width, height) in WARM_SIZES + capabilitySizes) warm(engine, width, height)
+        modelName = modelDirectory.name
+        measureCapability(engine)
+    }
+
+    @Volatile private var modelName = ""
+    @Volatile private var capabilityFailedAtNs = 0L
+    private var capabilityRetries = 0
+
+    /**
+     * 能力测量。启动时 GPU 可能被短暂占满（宿主冷启动、另一插帧实例），测得的耗时远高于平时而判为不可用；
+     * 失败后由 [retryIfDue] 在之后的解码器 configure 时重测（间隔 ≥ [CAPABILITY_RETRY_NS]，最多 [CAPABILITY_RETRIES] 次），
+     * 不必重启宿主。
+     */
+    private fun measureCapability(engine: FrameInterpolationBackend) {
         val passing = capabilitySizes.filter { (width, height) ->
             val pixels = width.toLong() * height
             val tiers = if (pixels > 1280L * 720L && pixels <= FrameProcessingSize.STANDARD_FLOW_PIXELS) STANDARD_TIERS
@@ -143,9 +170,9 @@ internal class FrameInterpolationEngineHolder(
         capability = FrameProcessingSize.Capability(
             standard = passing.filter { it <= FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L,
             high = passing.filter { it > FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L)
-        if (maxPixels == 0L) { fail("capability"); return }
+        if (maxPixels == 0L) { capabilityFailedAtNs = System.nanoTime(); fail("capability"); return }
         state = State.READY
-        log("engine.ready", "${modelDirectory.name} standard=${capability.standard} high=${capability.high} tier=1/$standardFlowScale")
+        log("engine.ready", "$modelName standard=${capability.standard} high=${capability.high} tier=1/$standardFlowScale")
         runCatching { onReady?.invoke() }.onFailure { log("engine.onReady", it.javaClass.simpleName) }
     }
 
@@ -202,6 +229,8 @@ internal class FrameInterpolationEngineHolder(
         /** 约 4 s 的 30→60 补帧；平均超过约 80% 槽位即降档。 */
         const val TIER_WINDOW = 120
         const val TIER_DOWNGRADE_MS = 27.0
+        const val CAPABILITY_RETRY_NS = 20_000_000_000L
+        const val CAPABILITY_RETRIES = 3
         /**
          * 1080p 选 1/4 的上限略宽：细线画质收益明显（+4.3 dB），深流水线下真机端到端 1/4（约 25 ms）无迟到；
          * 1/5 实测反而劣于 1/6（与网络内部 2 的幂金字塔对不齐），不作为档位。

@@ -27,7 +27,14 @@ internal class FrameInterpolationSession(
     private val recovery: FramePresentationRecovery = FramePresentationRecovery(),
     private val workerTimeoutNs: Long = 100_000_000L,
     /** 深流水线由外层传入带延迟/提前量的时间线；默认与单周期时间线一致。 */
-    private val timeline: FrameTimeline = FrameTimeline(targetFps)
+    private val timeline: FrameTimeline = FrameTimeline(targetFps),
+    /**
+     * 源重复帧判定（null 关闭去重）。动画常以 24 fps 嵌在 30 fps 流里（每 5 帧重复 1 帧）或「一拍二」（每帧画两次），
+     * 重复帧之间补出的帧仍是同一画面，60 fps 下表现为 50 ms 停顿（宿主真机录屏所见的掉帧感）。重复帧不进时间线，
+     * 其前后槽位改由相邻的真实画面插值；连续最多丢 [maxConsecutiveDuplicates] 帧，真正的静止画面仍按节奏前进。
+     */
+    private val duplicate: ((ByteBuffer, ByteBuffer, FrameBufferLedger.Format) -> Boolean)? = null,
+    private val maxConsecutiveDuplicates: Int = 2
 ) {
     /** 只在 worker 线程调用；返回原生状态，异常按 INFERENCE_FAILED 处理。 */
     interface Synthesizer {
@@ -63,9 +70,15 @@ internal class FrameInterpolationSession(
                         val missedLate: Long = 0L,
                         /** 已完成推理任务的平均规划提前量与平均推理耗时（含排队）。 */
                         val averageLeadUs: Long = 0L, val averageInferenceUs: Long = 0L,
-                        val planned: FrameTimeline.Counters? = null)
+                        val planned: FrameTimeline.Counters? = null,
+                        /** 作为源重复帧未进入时间线的帧数。 */
+                        val deduplicated: Long = 0L)
 
     private companion object { const val MAX_PLANS_PER_TICK = 8 }
+
+    private var lastAcceptedId: Long? = null
+    private var consecutiveDuplicates = 0
+    private var deduplicatedCount = 0L
 
     private class Job(val token: Long, val proposal: FrameTimeline.Proposal, val outputId: Long,
                       val format: FrameBufferLedger.Format)
@@ -106,6 +119,8 @@ internal class FrameInterpolationSession(
         if (!ledger.configure(width, height, stride)) {
             native(); return false
         }
+        lastAcceptedId = null
+        consecutiveDuplicates = 0
         val started = timeline.begin(epoch, targetFps)
         ledger.releaseAll(started.discardedIds, Holder.TIMELINE)
         lease = started.lease
@@ -129,11 +144,24 @@ internal class FrameInterpolationSession(
             if (phase != Phase.ACTIVE) return null
             current to (ledger.acquire() ?: return null)
         }
-        val filled = ledger.buffer(slot.frameId, Holder.CAPTURE)?.let { runCatching { fill(it, slot.format) }.getOrDefault(false) }
+        val buffer = ledger.buffer(slot.frameId, Holder.CAPTURE)
+        val filled = buffer?.let { runCatching { fill(it, slot.format) }.getOrDefault(false) }
+        // 去重比较在锁外：缓冲只由本（捕获）线程取用与复用，前一帧的像素在比较期间不会被改写。
+        val previous = synchronized(this) { lastAcceptedId.takeIf { consecutiveDuplicates < maxConsecutiveDuplicates } }
+        val compare = duplicate
+        val isDuplicate = filled == true && buffer != null && previous != null && compare != null &&
+            ledger.buffer(previous, Holder.TIMELINE)?.let { runCatching { compare(it, buffer, slot.format) }.getOrDefault(false) } == true
         synchronized(this) {
+            if (isDuplicate && lease === current) {
+                consecutiveDuplicates++
+                deduplicatedCount++
+                ledger.release(slot.frameId, Holder.CAPTURE); return null
+            }
             if (filled != true || lease !== current || phase != Phase.ACTIVE || !ledger.retain(slot.frameId, Holder.TIMELINE)) {
                 ledger.release(slot.frameId, Holder.CAPTURE); return null
             }
+            consecutiveDuplicates = 0
+            lastAcceptedId = slot.frameId
             val offered = timeline.offer(current, FrameTimeline.Frame(slot.frameId, ptsUs))
             ledger.releaseAll(offered.discardedIds, Holder.TIMELINE)
             ledger.release(slot.frameId, Holder.CAPTURE)
@@ -221,7 +249,7 @@ internal class FrameInterpolationSession(
         Snapshot(phase, recovery.report(), ledger.stats(), workerBusy, presentedCount, interpolatedCount, lateCount,
             missedCommitCount, failedInferenceCount, rejectedCount, missedLateCount,
             if (jobs == 0L) 0L else leadTotalNs / jobs / 1_000L, if (jobs == 0L) 0L else inferenceTotalNs / jobs / 1_000L,
-            timeline.counters())
+            timeline.counters(), deduplicatedCount)
 
     private fun startJob(proposal: FrameTimeline.Proposal, nowNs: Long) {
         val before = proposal.before.id

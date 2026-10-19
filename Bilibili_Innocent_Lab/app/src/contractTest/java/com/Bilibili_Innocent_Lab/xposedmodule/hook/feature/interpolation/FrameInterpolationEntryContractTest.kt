@@ -31,7 +31,7 @@ class FrameInterpolationEntryContractTest {
         val engine = SourceContract.read("$dir/FrameInterpolationEngineHolder.kt")
         assertTrue(engine.contains("if (native != FrameNativeLoader.Status.READY) { fail(\"native:\$native\"); return }"))
         assertTrue(engine.contains("fail(\"model:unavailable\")"))
-        assertTrue(engine.contains("if (maxPixels == 0L) { fail(\"capability\"); return }"))
+        assertTrue(engine.contains("if (maxPixels == 0L) { capabilityFailedAtNs = System.nanoTime(); fail(\"capability\"); return }"))
         val cache = SourceContract.read("$dir/FrameModelCache.kt")
         assertTrue(cache.contains("FrameModelSpec.matches("))
         val bridge = SourceContract.read("$dir/FrameCaptureBridge.kt")

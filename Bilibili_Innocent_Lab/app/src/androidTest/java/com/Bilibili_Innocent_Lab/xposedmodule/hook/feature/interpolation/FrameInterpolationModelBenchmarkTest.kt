@@ -880,5 +880,54 @@ class FrameInterpolationModelBenchmarkTest {
         } finally { engine.close() }
     }
 
+    /**
+     * 分析屏幕录像（files/replay/rec.mp4，手动放入、不入库）：逐帧解码亮度平面，计算相邻帧的平均差异。
+     * 运动画面中差异接近 0 的帧即重复帧（掉帧感）；输出每帧差异序列供定位。无录像时跳过。
+     */
+    @Test fun analyzeScreenRecording() {
+        val file = context.filesDir.resolve("replay/rec.mp4")
+        assumeTrue("no recording", file.isFile)
+        val extractor = android.media.MediaExtractor().apply { setDataSource(file.path) }
+        val track = (0 until extractor.trackCount).first {
+            extractor.getTrackFormat(it).getString(android.media.MediaFormat.KEY_MIME)!!.startsWith("video/") }
+        extractor.selectTrack(track)
+        val format = extractor.getTrackFormat(track)
+        val decoder = android.media.MediaCodec.createDecoderByType(format.getString(android.media.MediaFormat.KEY_MIME)!!)
+        decoder.configure(format, null, null, 0)
+        decoder.start()
+        val info = android.media.MediaCodec.BufferInfo()
+        var previous: IntArray? = null
+        val diffs = ArrayList<Pair<Long, Double>>()
+        var inputDone = false
+        try {
+            while (true) {
+                if (!inputDone) decoder.dequeueInputBuffer(5_000).takeIf { it >= 0 }?.let { index ->
+                    val size = extractor.readSampleData(decoder.getInputBuffer(index)!!, 0)
+                    if (size < 0) { decoder.queueInputBuffer(index, 0, 0, 0, android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM); inputDone = true }
+                    else { decoder.queueInputBuffer(index, 0, size, extractor.sampleTime, 0); extractor.advance() }
+                }
+                val out = decoder.dequeueOutputBuffer(info, 5_000)
+                if (out < 0) continue
+                if (info.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                val image = decoder.getOutputImage(out)!!
+                val y = image.planes[0]
+                val w = image.width; val h = image.height
+                // 中央 80% 区域、每 4 像素取样，避开状态栏/水印。
+                val samples = IntArray(((h * 8 / 10) / 4) * ((w * 8 / 10) / 4))
+                var k = 0
+                for (row in h / 10 until h * 9 / 10 step 4) for (col in w / 10 until w * 9 / 10 step 4) {
+                    if (k < samples.size) samples[k++] = y.buffer.get(row * y.rowStride + col * y.pixelStride).toInt() and 0xff
+                }
+                image.close()
+                decoder.releaseOutputBuffer(out, false)
+                previous?.let { p -> diffs += info.presentationTimeUs to samples.indices.sumOf { kotlin.math.abs(samples[it] - p[it]) }.toDouble() / samples.size }
+                previous = samples
+            }
+        } finally { decoder.stop(); decoder.release(); extractor.release() }
+        val text = diffs.joinToString("\n") { (t, d) -> "%.3f %.3f".format(t / 1e6, d) }
+        context.filesDir.resolve("replay/rec-diffs.txt").writeText(text)
+        report("RECORDING frames=${diffs.size + 1} repeats(<0.15)=${diffs.count { it.second < 0.15 }}", listOf(0.0))
+    }
+
     private companion object { const val TAG = "FrameBench" }
 }

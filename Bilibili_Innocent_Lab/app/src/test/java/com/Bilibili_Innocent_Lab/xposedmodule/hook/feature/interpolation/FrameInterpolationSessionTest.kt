@@ -69,6 +69,30 @@ class FrameInterpolationSessionTest {
         return Triple(session, ledger, first to second)
     }
 
+    @Test fun `source duplicates are kept out of the timeline at most twice in a row and do not leak buffers`() {
+        val ledger = FrameBufferLedger(8) { ByteBuffer.allocate(it) }
+        // 标记相同即视为重复（模拟一拍二/下拉产生的重复画面）。
+        val session = FrameInterpolationSession(60, ledger, synth, { tasks += it; true }, screen, { now }, recovery,
+            timeline = FrameTimeline(60, maxLeadNs = 1_000_000L),
+            duplicate = { previous, current, _ -> previous.get(0) == current.get(0) })
+        assertTrue(session.begin(epoch(1L), 4, 2))
+        assertEquals(ClockState.READY, session.updateClock(clock()))
+        assertNotNull(session.capture(0L, 1))
+        assertNull("first duplicate dropped", session.capture(33_333L, 1))
+        assertNull("second duplicate dropped", session.capture(66_667L, 1))
+        assertNotNull("a third identical frame is kept so still scenes keep advancing", session.capture(100_000L, 1))
+        assertNotNull("new drawing accepted", session.capture(133_333L, 2))
+        assertNull(session.capture(166_667L, 2))
+        assertEquals(3L, session.snapshot().deduplicated)
+        // 丢弃的重复帧只持有过 CAPTURE，已全部归还：活跃缓冲只剩时间线里的 3 帧。
+        assertEquals(3, ledger.outstanding(Holder.TIMELINE).size)
+        assertTrue(ledger.outstanding(Holder.CAPTURE).isEmpty())
+        // 新 epoch 重置去重状态：首帧不会与上一 epoch 的帧比较。
+        assertTrue(session.begin(epoch(2L), 4, 2))
+        assertEquals(ClockState.READY, session.updateClock(clock()))
+        assertNotNull(session.capture(0L, 2))
+    }
+
     @Test fun `original then interpolated frame are presented and every buffer returns to the pool`() {
         val (session, ledger, ids) = playing()
         session.tick(0L)

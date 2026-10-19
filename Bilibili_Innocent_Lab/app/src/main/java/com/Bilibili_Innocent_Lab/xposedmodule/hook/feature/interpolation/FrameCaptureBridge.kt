@@ -91,7 +91,9 @@ internal class FrameCaptureBridge private constructor(
         maxLeadNs = config.maxLeadNs, minLeadNs = config.minLeadNs, originalToleranceUs = 1_000_000L / config.targetFps / 4, phaseLock = true,
         maxClockUncertaintyUs = 8_000L, frameWindow = config.frameWindow)
     private val session = FrameInterpolationSession(config.targetFps, ledger, engine.synthesizer(), engine.worker(),
-        presenter, System::nanoTime, recovery, timeline = timeline)
+        presenter, System::nanoTime, recovery, timeline = timeline,
+        duplicate = { previous, current, format ->
+            FrameInterpolationNative.analyzeScene(previous, current, format.width, format.height, format.stride) == 1 })
     // 捕获线程写、驱动线程读：admitted、lastArrivalNs、discontinuity；后者两线程都会递增。
     @Volatile private var admitted = false
     private val discontinuityCount = java.util.concurrent.atomic.AtomicLong()
@@ -270,7 +272,7 @@ internal class FrameCaptureBridge private constructor(
             host.log("bridge.stats", "phase=${snapshot.phase} state=${snapshot.recovery.state} presented=${snapshot.presented} " +
                 "interpolated=${snapshot.interpolated} late=${snapshot.late} missed=${snapshot.missedCommit} " +
                 "inferUs=${snapshot.averageInferenceUs} leadUs=${snapshot.averageLeadUs} delayUs=${session.effectiveDelayUs()} " +
-                "planned=${snapshot.planned} source=${cadence.describe()} audioDelayUs=$audioDelayUs " +
+                "planned=${snapshot.planned} dedup=${snapshot.deduplicated} source=${cadence.describe()} audioDelayUs=$audioDelayUs " +
                 "staticSkips=${engine.staticSkips.get()} cutSkips=${engine.sceneCutSkips.get()} " +
                 "transitionSkips=${engine.transitionSkips.get()} tilePatched=${engine.tilePatchedFrames.get()} " +
                 "unreliable=${engine.lastUnreliablePermille} flow=1/${engine.flowScaleFor(width.toLong() * height)} " +

@@ -207,6 +207,8 @@ internal class FrameInterpolationFeatureInstaller(
                     bridges.remove(codec)?.close()
                     if (!holder.ready()) {
                         // 冷启动：模型仍在后台加载。保持原生播放，就绪后迟接管（见 attachPending），不阻塞解码线程。
+                        // 启动时能力测量因 GPU 被短暂占满而失败的，到期在此重测，成功后同样迟接管。
+                        holder.retryIfDue()
                         if (holder.state != FrameInterpolationEngineHolder.State.FAILED)
                             pending[codec] = PendingDecoder(format, display, args[2])
                         return@before

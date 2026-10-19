@@ -39,6 +39,10 @@ class FrameCaptureBridgeDeviceTest {
     private var width = 1280
     private var height = 720
     private var sfPeriodNs = 0L
+    /** 编码时每 5 帧重复 1 帧画面（24 fps 动画嵌在 30 fps 流中的下拉）。 */
+    private var pulldown = false
+    /** 呈现帧的内容指纹（移动亮块所在行的抽样和），用于统计重复帧。 */
+    private val signatures = Collections.synchronizedList(ArrayList<Long>())
     @After fun detachDiagnostics() { logSink = null; workSink = null }
 
     /** The real host has one process-lifetime inference owner. Match that contract across tests. */
@@ -55,6 +59,20 @@ class FrameCaptureBridgeDeviceTest {
     @Test fun realDecoderIsInterpolatedTo60AndTornDownCleanly() = run(sourceFps = 30, expectedFps = 60)
 
     @Test fun realDecoder25FpsIsInterpolatedTo50() = run(sourceFps = 25, expectedFps = 50)
+
+    /**
+     * 源重复帧去重：24 fps 动画以下拉嵌在 30 fps 流中。去重前每 5 个源帧出现一次 3 帧（50 ms）停顿；
+     * 去重后重复画面不进时间线，呈现帧里不应再有连续重复。
+     */
+    @Test fun pulldownDuplicatesDoNotHoldThePicture() {
+        pulldown = true
+        try { run(sourceFps = 30, expectedFps = 60) } finally { pulldown = false }
+        val sig = synchronized(signatures) { signatures.toList() }.drop(120)
+        val repeats = sig.zipWithNext().count { (a, b) -> a == b }
+        val held = sig.windowed(3).count { (a, b, c) -> a == b && b == c }
+        sendStatus("pulldown", "frames=${sig.size} repeats=$repeats threeFrameHolds=$held")
+        assertTrue("no 50 ms holds expected: held=$held of ${sig.size}", held * 100 <= sig.size)
+    }
 
     /** 1080p、1440p 与 4K 源：真实解码 → 捕获时缩到处理尺寸 → 插帧 → 呈现，稳态 60 fps 且无回退。 */
     @Test fun realDecoder1080pIsInterpolatedTo60() {
@@ -155,7 +173,7 @@ class FrameCaptureBridgeDeviceTest {
 
         val args = InstrumentationRegistry.getArguments()
         val motion = if (args.getString("highMotion") == "true") "-pan" else ""
-        val clip = File(context.cacheDir, "frame-e2e-${width}x$height-$sourceFps-${seconds.toInt()}$motion.mp4")
+        val clip = File(context.cacheDir, "frame-e2e-${width}x$height-$sourceFps-${seconds.toInt()}$motion${if (pulldown) "-pulldown" else ""}.mp4")
         val frameCount = sourceFps * maxOf(6, seconds.toInt() + 2)
         val reuse = args.getString("reuseFixture") == "true" && clip.isFile && runCatching {
             val probe = MediaExtractor()
@@ -188,7 +206,16 @@ class FrameCaptureBridgeDeviceTest {
         val displayed = Collections.synchronizedList(ArrayList<Long>())
         val display = if (onScreen) null else ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 4).apply {
             // 以到达时刻计：宿主 TextureView 不理会呈现时间戳，按到达在下一 UI 帧显示；声明的时间戳总是均匀的。
-            setOnImageAvailableListener({ r -> r.acquireNextImage()?.let { displayed += System.nanoTime(); it.close() } },
+            setOnImageAvailableListener({ r -> r.acquireNextImage()?.let { image ->
+                displayed += System.nanoTime()
+                if (pulldown) {
+                    val plane = image.planes[0]
+                    val row = image.height * 1 / 2
+                    var sum = 0L
+                    for (x in 0 until image.width step 4) sum += (plane.buffer.get(row * plane.rowStride + x * plane.pixelStride).toInt() and 0xff) * (x + 1L)
+                    signatures += sum
+                }
+                image.close() } },
                 Handler(displayThread.looper))
         }
         val submitted = Collections.synchronizedList(ArrayList<Long>())
@@ -495,7 +522,8 @@ class FrameCaptureBridgeDeviceTest {
                         if (input == frames) {
                             encoder.queueInputBuffer(index, 0, 0, pts, MediaCodec.BUFFER_FLAG_END_OF_STREAM); inputDone = true
                         } else {
-                            fill(encoder.getInputImage(index)!!, input)
+                            // 下拉：每 5 帧的第 5 帧重复第 4 帧画面（4 张独立画面占 5 个 30 fps 时间位）。
+                            fill(encoder.getInputImage(index)!!, if (pulldown) input - (input + 1) / 5 else input)
                             encoder.queueInputBuffer(index, 0, width * height * 3 / 2, pts, 0)
                             input++
                         }
