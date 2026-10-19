@@ -35,10 +35,17 @@ class FrameRateTargetTest {
     }
 
     @Test fun `inference capacity bounds the number of synthetic frames`() {
-        // 每秒可持续补帧 0.75 × 1000 / ms：15 ms → 50 次/秒，30 fps 源最多补到 60（30 次/秒）而非 90（60 次/秒）。
+        // 每秒可持续补帧 0.8 × 1000 / ms：15 ms → 53 次/秒，30 fps 源最多补到 60（30 次/秒）而非 90（60 次/秒）。
         assertEquals(60, choose(30f, 185, measured = 144f, ms = 15.0))
         assertEquals(120, choose(30f, 185, measured = 144f, ms = 8.0))
         assertNull(choose(30f, 60, ms = 30.0))
+    }
+
+    @Test fun `any tier the engine accepts keeps 30 to 60 interpolating`() {
+        // 引擎档位上限：1080p 1/4 档 26 ms、其余 24 ms；被接受的档位不能再被帧率选择拒绝。
+        for (ms in listOf(FrameInterpolationEngineHolder.FINE_TIER_LIMIT_MS, FrameInterpolationEngineHolder.CAPABILITY_LIMIT_MS))
+            assertEquals("ms=$ms", 60, choose(30f, 60, ms = ms))
+        assertEquals(50, choose(25f, 60, ms = FrameInterpolationEngineHolder.FINE_TIER_LIMIT_MS))
     }
 
     @Test fun `sources already at or near the limit and unsupported rates are not interpolated`() {

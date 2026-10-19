@@ -22,8 +22,12 @@ internal object FrameRateTarget {
         for (source in listOf(24, 25, 30)) for (k in 2..7) (source * k).takeIf { it <= 185 }?.let(::add)
     }
 
-    /** 宿主内持续补帧可用的 GPU 时间比例：其余留给捕获、呈现与宿主 UI。 */
-    private const val BUSY_FRACTION = 0.75
+    /**
+     * 宿主内持续补帧可用的 GPU 时间比例：其余留给捕获、呈现与宿主 UI。须与引擎档位上限一致：1080p 1/4 档
+     * 接受到 26 ms，30→60 每 33.3 ms 一次补帧即占 78%；此前用 0.75 时 25–26 ms 的档位被选中却又被这里拒绝，
+     * 宿主真机 1080p 视频因此整段保持原生 30 fps（bridge.skip rate）。
+     */
+    private const val BUSY_FRACTION = 0.8
 
     /**
      * @param sourceFps 源帧率提示（ijk operating-rate），null 按 30 处理
