@@ -17,6 +17,8 @@ import com.highcapable.kavaref.extension.classOf
 import com.highcapable.kavaref.extension.isStatic
 import com.highcapable.kavaref.extension.isSubclassOf
 import io.github.libxposed.api.XposedModule
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationFeatureInstaller
 import io.github.libxposed.api.XposedModuleInterface
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
@@ -3440,6 +3442,13 @@ class HookEntry : XposedModule() {
                             FeaturePreferences.PLAYER_DECODE_MODE,
                             0
                         )
+                    ),
+                    // 入口门控关闭时发布版不安装任何插帧 Hook；debug 验证构建另见安装器注释。
+                    FrameInterpolationFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION, false) &&
+                            FrameInterpolationEntryGate.entryOpen(),
+                        verificationAllowed = com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.DEBUG,
+                        moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull()
                     )
                 )
             )

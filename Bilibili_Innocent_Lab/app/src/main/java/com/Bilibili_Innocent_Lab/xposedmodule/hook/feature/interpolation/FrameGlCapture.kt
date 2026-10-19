@@ -1,0 +1,136 @@
+package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
+
+import android.graphics.SurfaceTexture
+import android.opengl.EGL14
+import android.opengl.EGLSurface
+import android.opengl.GLES11Ext
+import android.opengl.GLES20
+import android.os.Handler
+import android.os.HandlerThread
+import android.view.Surface
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+/**
+ * 捕获线程：解码器渲染到自有 SurfaceTexture（OES）。驱动处理厂商压缩布局（如高通 UBWC）与流色彩空间的
+ * YUV→RGB 矩阵；帧画进 RGBA 帧缓冲后 glReadPixels 读回并紧凑为 RGB8。
+ *
+ * 与呈现分线程、分上下文：读回会在 GPU 忙于推理时阻塞；同线程时这些阻塞推迟或挤压 vsync 交付，
+ * 宿主 TextureView 上表现为顿挫（宿主内真机 A/B 证实）。捕获与会话驱动留在本线程，呈现线程只管画。
+ */
+internal class FrameGlCapture(private val width: Int, private val height: Int) {
+    /** 在捕获线程回调：timestampNs 为解码帧时间戳（PTS），read 把该帧读成 RGB8 写入给定缓冲。 */
+    fun interface FrameListener {
+        fun onFrame(timestampNs: Long, arrivalNs: Long, read: (ByteBuffer, FrameBufferLedger.Format) -> Boolean)
+    }
+
+    private val thread = HandlerThread("innocent-frame-capture").apply { start() }
+    val handler = Handler(thread.looper)
+    private var egl: FrameGl.Egl? = null
+    private var pbuffer: EGLSurface = EGL14.EGL_NO_SURFACE
+    private var program = 0
+    private var oesTexture = 0
+    private var framebuffer = 0
+    private var readback: ByteBuffer? = null
+    private var surfaceTexture: SurfaceTexture? = null
+    private var surface: Surface? = null
+    private val transform = FloatArray(16)
+
+    /** 同步建立；失败返回 null，外层应保持原生呈现。 */
+    fun start(listener: FrameListener, timeoutMs: Long = 1_000L): Surface? {
+        val latch = CountDownLatch(1)
+        var result: Surface? = null
+        handler.post {
+            result = runCatching { setUp(listener) }.getOrNull()
+            if (result == null) tearDown()
+            latch.countDown()
+        }
+        if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) return null
+        return result
+    }
+
+    fun close() {
+        handler.post { tearDown() }
+        thread.quitSafely()
+    }
+
+    private fun setUp(listener: FrameListener): Surface? {
+        val created = FrameGl.create(EGL14.EGL_PBUFFER_BIT) ?: return null
+        egl = created
+        pbuffer = EGL14.eglCreatePbufferSurface(created.display, created.config,
+            intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE), 0)
+        if (pbuffer == EGL14.EGL_NO_SURFACE || !EGL14.eglMakeCurrent(created.display, pbuffer, pbuffer, created.context))
+            return null
+        program = FrameGl.program(OES_VERTEX, OES_FRAGMENT) ?: return null
+        GLES20.glPixelStorei(GLES20.GL_PACK_ALIGNMENT, 1)
+        oesTexture = FrameGl.texture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES)
+        val target = FrameGl.texture(GLES20.GL_TEXTURE_2D)
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0, GLES20.GL_RGBA,
+            GLES20.GL_UNSIGNED_BYTE, null)
+        val names = IntArray(1)
+        GLES20.glGenFramebuffers(1, names, 0)
+        framebuffer = names[0]
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebuffer)
+        GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, target, 0)
+        val complete = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) == GLES20.GL_FRAMEBUFFER_COMPLETE
+        if (!complete || GLES20.glGetError() != GLES20.GL_NO_ERROR) return null
+        readback = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+        val texture = SurfaceTexture(oesTexture).apply { setDefaultBufferSize(width, height) }
+        texture.setOnFrameAvailableListener({ onFrameAvailable(it, listener) }, handler)
+        surfaceTexture = texture
+        return Surface(texture).also { surface = it }
+    }
+
+    private fun onFrameAvailable(texture: SurfaceTexture, listener: FrameListener) {
+        if (surfaceTexture !== texture) return
+        val arrival = System.nanoTime()
+        runCatching { texture.updateTexImage() }.onFailure { return }
+        texture.getTransformMatrix(transform)
+        listener.onFrame(texture.timestamp, arrival) { buffer, format -> read(buffer, format) }
+    }
+
+    /** 画 OES 帧到 RGBA 帧缓冲（上下翻转，使读回首行为画面顶部），glReadPixels 后紧凑为 RGB8。 */
+    private fun read(buffer: ByteBuffer, format: FrameBufferLedger.Format): Boolean {
+        if (format.width != width || format.height != height) return false
+        val pixels = readback ?: return false
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebuffer)
+        GLES20.glViewport(0, 0, width, height)
+        GLES20.glUseProgram(program)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexture)
+        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uTransform"), 1, false, transform, 0)
+        FrameGl.bindQuad(program, FrameGl.FLIPPED_QUAD)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        pixels.clear()
+        GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
+        if (GLES20.glGetError() != GLES20.GL_NO_ERROR) return false
+        return FrameInterpolationNative.rgbaToRgb(pixels, width, height, buffer, format.stride) == 0
+    }
+
+    private fun tearDown() {
+        surfaceTexture?.setOnFrameAvailableListener(null)
+        surface?.release()
+        surfaceTexture?.release()
+        surface = null
+        surfaceTexture = null
+        egl?.let { if (pbuffer != EGL14.EGL_NO_SURFACE) {
+            EGL14.eglMakeCurrent(it.display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+            EGL14.eglDestroySurface(it.display, pbuffer)
+        } }
+        pbuffer = EGL14.EGL_NO_SURFACE
+        FrameGl.release(egl)
+        egl = null
+        readback = null
+    }
+
+    private companion object {
+        const val OES_VERTEX = "attribute vec2 aPosition; attribute vec2 aCoordinate; uniform mat4 uTransform;" +
+            "varying vec2 vCoordinate; void main() { vCoordinate = (uTransform * vec4(aCoordinate, 0.0, 1.0)).xy;" +
+            " gl_Position = vec4(aPosition, 0.0, 1.0); }"
+        const val OES_FRAGMENT = "#extension GL_OES_EGL_image_external : require\n" +
+            "precision mediump float; varying vec2 vCoordinate; uniform samplerExternalOES uTexture;" +
+            "void main() { gl_FragColor = texture2D(uTexture, vCoordinate); }"
+    }
+}
