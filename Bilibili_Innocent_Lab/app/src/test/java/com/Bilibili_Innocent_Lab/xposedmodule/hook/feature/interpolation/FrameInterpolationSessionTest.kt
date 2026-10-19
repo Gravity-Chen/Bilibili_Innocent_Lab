@@ -426,4 +426,26 @@ class FrameInterpolationSessionTest {
         assertTrue(screen.shown[1].id in setOf(ids.first, ids.second))
         assertEquals(2, ledger.stats().allocated)
     }
+
+    @Test fun `repeated rejected clocks restore native and drain old worker and presenter frames`() {
+        val (session, ledger, _) = playing()
+        session.tick(0L)
+        now = slot1
+        session.tick(now)
+        assertEquals(1, tasks.size)
+        repeat(3) { i ->
+            val invalid = ClockSnapshot(0L, 0L, 1.0, false, 1L, uncertaintyUs = 10_000L)
+            assertEquals(ClockState.RESTART_REQUIRED, session.updateClock(invalid))
+            assertEquals(i < 2, session.onClockRejected(now))
+            if (i < 2) assertTrue(session.begin(epoch(2L + i), 4, 2))
+        }
+        assertEquals(Phase.NATIVE, session.snapshot().phase)
+        assertEquals(FramePresentationRecovery.Cause.UNVERIFIED_CLOCK, screen.restores.single().cause)
+        drain()
+        screen.shown.forEach { it.done(Outcome.Dropped(now)) }
+        session.close()
+        drain()
+        assertTrue(ledger.drained())
+        assertEquals(1, synth.closed)
+    }
 }

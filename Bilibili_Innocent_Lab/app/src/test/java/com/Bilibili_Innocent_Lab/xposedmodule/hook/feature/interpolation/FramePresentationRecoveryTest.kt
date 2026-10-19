@@ -12,6 +12,26 @@ class FramePresentationRecoveryTest {
     private fun FramePresentationRecovery.onTime(count: Int) = repeat(count) { onPresented(0L, 0L, 8_000_000L) }
     private fun FramePresentationRecovery.late() = onPresented(0L, 20_000_000L, 8_000_000L)
 
+    @Test fun `repeated clock rejection falls back even with successful presentations in between`() {
+        val recovery = started()
+        repeat(3) { i ->
+            recovery.onTime(120)
+            recovery.onClockRejected(i * second)
+        }
+        assertEquals(State.FALLBACK, recovery.report().state)
+        assertEquals(Cause.UNVERIFIED_CLOCK, recovery.report().cause)
+        assertFalse(recovery.report().pipelinePresents)
+        assertTrue(recovery.start(3 * second))
+        assertTrue("a retry starts a fresh clock budget", recovery.onClockRejected(3 * second).pipelinePresents)
+    }
+
+    @Test fun `isolated clock rejections expire instead of disabling a long playing video`() {
+        val recovery = started()
+        for (time in listOf(0L, 2L, 8L, 10L)) assertTrue(recovery.onClockRejected(time * second).pipelinePresents)
+        assertEquals(State.FALLBACK, recovery.onClockRejected(12 * second).state)
+        assertEquals(Cause.UNVERIFIED_CLOCK, recovery.report().cause)
+    }
+
     @Test fun `on time presentation keeps interpolating`() {
         val recovery = started()
         recovery.onTime(40)

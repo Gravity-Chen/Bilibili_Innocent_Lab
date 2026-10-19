@@ -292,6 +292,7 @@ internal class FrameCaptureBridge private constructor(
             if (state == FrameTimeline.ClockState.RESTART_REQUIRED || state == FrameTimeline.ClockState.NO_CLOCK) {
                 host.log("bridge.clock-restart", "$state uncertaintyUs=${snapshot.uncertaintyUs} " +
                     "mediaUs=${snapshot.mediaUs} arrivalAgeMs=${(now - lastArrivalNs) / 1_000_000}")
+                if (!session.onClockRejected(now)) return
                 discontinuityCount.incrementAndGet()
                 clock.reset()
                 // epoch 与账本格式只在捕获线程上重建（与填充同线程，见 FrameInterpolationSession.capture）。

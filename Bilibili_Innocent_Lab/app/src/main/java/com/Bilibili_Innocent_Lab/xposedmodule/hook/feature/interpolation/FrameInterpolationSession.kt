@@ -191,6 +191,14 @@ internal class FrameInterpolationSession(
         return update.state
     }
 
+    /** 不可信时钟导致的重启有独立预算；耗尽时即使没有晚交帧也必须交还原生播放。 */
+    @Synchronized fun onClockRejected(nowNs: Long): Boolean {
+        if (phase == Phase.CLOSED || phase == Phase.NATIVE) return false
+        val report = recovery.onClockRejected(nowNs)
+        if (!report.pipelinePresents) native()
+        return report.pipelinePresents
+    }
+
     /**
      * 由宿主的帧回调驱动（回退期间也要继续调用）；一次至多一个推理任务，超时即判定恢复失败。
      * 回退且退避已过时，以最近的 epoch 自动重试；Surface 丢失后须先有新 Surface 的 epoch。

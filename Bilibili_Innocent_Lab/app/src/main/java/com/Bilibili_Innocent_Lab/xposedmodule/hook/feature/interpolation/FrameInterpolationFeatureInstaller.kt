@@ -420,7 +420,7 @@ internal class FrameInterpolationFeatureInstaller(
     private val bridgeHost = object : FrameCaptureBridge.Host {
         override fun setAudioDelayUs(delayUs: Long) {
             if (delayUs > 0L) chooseAudioMode()
-            // 呈现延迟 200 ms + 相位锁定（≤ 100 ms）。
+            // 覆盖时间线允许的最大延迟 250 ms + 相位锁定（≤ 100 ms）；正式播放当前用 150 ms。
             audioDelayUs = delayUs.coerceIn(0L, 350_000L)
         }
         override fun playbackSpeed(): Double = speed

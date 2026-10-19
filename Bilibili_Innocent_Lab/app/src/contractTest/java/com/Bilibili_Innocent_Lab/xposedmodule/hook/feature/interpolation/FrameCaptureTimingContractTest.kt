@@ -7,6 +7,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FrameCaptureTimingContractTest {
+    @Test fun `clock rejection enters recovery before its observation window is reset`() {
+        val rejection = SourceContract.read("hook/feature/interpolation/FrameCaptureBridge.kt")
+            .after("if (state == FrameTimeline.ClockState.RESTART_REQUIRED").before("clock.reset()")
+        assertTrue("repeated invalid snapshots cannot bypass fallback by starting another epoch",
+            rejection.contains("if (!session.onClockRejected(now)) return"))
+    }
+
     @Test fun `host clock observation is taken after the potentially blocking texture latch`() {
         val callback = SourceContract.read("hook/feature/interpolation/FrameGlCapture.kt")
             .after("private fun onFrameAvailable(").before("private fun read(")

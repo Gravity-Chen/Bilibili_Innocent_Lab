@@ -5,8 +5,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
  *
  * - INTERPOLATING：允许生成并呈现插帧。
  * - DEGRADED：滑动窗口失败率越过降级线；只呈现原帧（不再提交推理），窗口恢复干净后回到 INTERPOLATING。
- * - FALLBACK：失败率越过回退线、连续失败、Surface 丢失或 worker 超时；外层必须立即撤销 epoch、
- *   归还全部帧并恢复宿主原生呈现。退避期过后，只有新的 epoch（新 Surface/seek/格式）才可重试。
+ * - FALLBACK：失败率越过回退线、连续失败、时钟反复失效、Surface 丢失或 worker 超时；外层必须立即撤销 epoch、
+ *   归还全部帧并恢复宿主原生呈现。会话只在退避期后重开 epoch；宿主桥交回原生后会关闭本桥。
  * - DISABLED：致命原生错误或重试次数用尽；本会话内不再尝试，始终原生播放。
  *
  * 纯状态，不取时钟；所有时间由调用方传入单调纳秒。阈值来自桌面推演，真机门限尚未标定。
@@ -19,12 +19,15 @@ internal class FramePresentationRecovery(
     private val maxRetries: Int = 3,
     private val baseBackoffNs: Long = 1_000_000_000L,
     /** 每次 start 后前若干个结果不计入（真机：新分辨率的首批推理会分配显存、编译着色器而超时）。 */
-    private val warmupSamples: Int = 0
+    private val warmupSamples: Int = 0,
+    /** 时钟拒绝会清空时间线；必须单独计数，不能被其间成功呈现的数百帧稀释。 */
+    private val maxClockRestarts: Int = 3,
+    private val clockRestartWindowNs: Long = 5_000_000_000L
 ) {
     enum class State { INACTIVE, INTERPOLATING, DEGRADED, FALLBACK, DISABLED }
     enum class Cause {
         NONE, STARTED, LATE_FRAMES, DROPPED_FRAMES, RECOVERED, SURFACE_LOST, WORKER_TIMEOUT,
-        NATIVE_TRANSIENT, NATIVE_FATAL, RETRIES_EXHAUSTED, RETRY, STOPPED
+        NATIVE_TRANSIENT, NATIVE_FATAL, RETRIES_EXHAUSTED, RETRY, STOPPED, UNVERIFIED_CLOCK
     }
     data class Report(val state: State, val cause: Cause, val failures: Int, val samples: Int,
                       val retries: Int, val nativeStatus: FrameInterpolationBackend.Status? = null) {
@@ -44,10 +47,12 @@ internal class FramePresentationRecovery(
     private var lastFailure = Cause.NONE
     private var report = Report(State.INACTIVE, Cause.NONE, 0, 0, 0)
     private val listeners = ArrayList<(Report) -> Unit>(1)
+    private val clockRestarts = ArrayDeque<Long>()
 
     init {
         require(window in 8..600 && degradeRatio > 0.0 && fallbackRatio > degradeRatio && fallbackRatio <= 1.0 &&
-            maxConsecutiveFailures >= 1 && maxRetries >= 0 && baseBackoffNs > 0L && warmupSamples in 0..window)
+            maxConsecutiveFailures >= 1 && maxRetries >= 0 && baseBackoffNs > 0L && warmupSamples in 0..window &&
+            maxClockRestarts in 1..60 && clockRestartWindowNs > 0L)
     }
 
     @Synchronized fun addListener(listener: (Report) -> Unit) { listeners += listener }
@@ -82,6 +87,14 @@ internal class FramePresentationRecovery(
     @Synchronized fun onDropped(nowNs: Long): Report = record(false, Cause.DROPPED_FRAMES, nowNs)
 
     @Synchronized fun onSurfaceLost(nowNs: Long): Report = fallback(Cause.SURFACE_LOST, nowNs)
+
+    /** 只用于被准入检查拒绝的时钟快照；正常 seek/暂停/Surface 换代不消耗此预算。 */
+    @Synchronized fun onClockRejected(nowNs: Long): Report {
+        if (!report.pipelinePresents) return report
+        while (clockRestarts.firstOrNull()?.let { nowNs - it > clockRestartWindowNs } == true) clockRestarts.removeFirst()
+        clockRestarts += nowNs
+        return if (clockRestarts.size >= maxClockRestarts) fallback(Cause.UNVERIFIED_CLOCK, nowNs) else report
+    }
     /**
      * 单次超时只计一次失败：真机偶发单次推理超过槽位 100 ms（GPU 被宿主占用），立即回退会让整段视频失去插帧；
      * 连续超时或失败率越线仍按常规回退。
@@ -147,6 +160,7 @@ internal class FramePresentationRecovery(
     private fun clearWindow() {
         outcomes.fill(true); cursor = 0; samples = 0; failures = 0; consecutive = 0; retryAfterNs = null
         warmupLeft = warmupSamples; lastFailure = Cause.NONE
+        clockRestarts.clear()
     }
 
     private fun transition(state: State, cause: Cause, status: FrameInterpolationBackend.Status? = null) {
