@@ -54,7 +54,8 @@ internal object VersionAdapterContract {
      * `view.v1.Relate#getDesc`）。老缓存缺键降级成空表，只抬 rule、不抬 schema；
      * 必须抬，否则已缓存设备永远拿不到详情页发布时间文案链。
      */
-    const val RULE_VERSION = 72
+    /** 72 → 73：倍速菜单增加后台 DexKit 兜底和可选成员缓存；旧缓存缺键仍可读取。 */
+    const val RULE_VERSION = 73
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

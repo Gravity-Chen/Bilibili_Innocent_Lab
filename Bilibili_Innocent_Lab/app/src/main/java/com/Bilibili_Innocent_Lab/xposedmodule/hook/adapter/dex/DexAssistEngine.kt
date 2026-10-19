@@ -63,7 +63,10 @@ internal enum class DexAssistQuery {
     BRAND_SPLASH_DECODER,
 
     /** 关注流专用背景装饰器：offsets 日志及源码常量，owner/model/home 关系二次验真。 */
-    FOLLOW_FEED_STYLE
+    FOLLOW_FEED_STYLE,
+
+    /** 倍速列表填充（clear + abs）、选项工厂 ABI 与专用打开事件；运行时复核全部模型结构。 */
+    PLAYER_SPEED_MENU
 }
 
 internal sealed interface DexAssistResult {

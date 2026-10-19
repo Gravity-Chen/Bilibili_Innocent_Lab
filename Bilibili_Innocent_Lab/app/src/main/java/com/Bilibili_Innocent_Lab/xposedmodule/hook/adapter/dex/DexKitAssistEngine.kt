@@ -13,6 +13,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionA
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
 
 /**
  * DexKit 后台实现：只在常规 KavaRef 定位缺失时创建桥，并在每个代码 APK 查询后立即关闭。
@@ -134,6 +136,15 @@ internal object DexKitAssistEngine : DexAssistEngine {
                                             val method = runCatching { data.getMethodInstance(classLoader) }.getOrNull()
                                                 ?: return@forEach
                                             found += method
+                                            if (query == DexAssistQuery.PLAYER_SPEED_MENU && PlayerSpeedMenuAdapter.factoryAbi(method)) {
+                                                val invokes = data.invokes
+                                                if (invokes.size > 128) { failed[query] = DexAssistResult.Reason.TOO_MANY_MATCHES; return@forEach }
+                                                invokes.filter { it.name == "<init>" }.mapNotNull {
+                                                    runCatching { it.getConstructorInstance(classLoader).declaringClass }.getOrNull()
+                                                }.distinct().filter { it.name.startsWith("${PlayerSpeedLocator.SPEED_UTILS_PKG}.") &&
+                                                    PlayerSpeedLocator.verifyOptionModel(it) != null
+                                                }.forEach { related.getValue(query).getOrPut(method) { linkedSetOf() } += it }
+                                            }
                                             if (query == DexAssistQuery.STORY_QUALITY_DEFAULT && StoryQualityLocator.integerAbi(method)) {
                                                 // 旧代策略可能经 selector 间接读取整数；限定同 owner 的真实调用链。
                                                 val members = bridge.findMethod { matcher { declaredClass = data.declaredClassName } }
@@ -204,6 +215,36 @@ internal object DexKitAssistEngine : DexAssistEngine {
     }
 
     private fun find(bridge: DexKitBridge, query: DexAssistQuery) = when (query) {
+        DexAssistQuery.PLAYER_SPEED_MENU -> listOf("java.util.List", "java.util.ArrayList").flatMap { clearOwner ->
+            bridge.findMethod {
+                searchPackages(PlayerSpeedLocator.SPEED_WIDGET_PKG)
+                matcher {
+                    returnType = "void"; paramTypes("float")
+                    addInvoke { declaredClass = clearOwner; name = "clear"; paramCount(0) }
+                    addInvoke { declaredClass = "java.lang.Math"; name = "abs"; paramTypes("float"); returnType = "float" }
+                }
+            } + bridge.findMethod {
+                searchPackages(PlayerSpeedLocator.SPEED_WIDGET_PKG)
+                matcher {
+                    returnType = "void"; paramTypes("float", "java.util.List")
+                    addInvoke { declaredClass = clearOwner; name = "clear"; paramCount(0) }
+                    addInvoke { declaredClass = "java.lang.Math"; name = "abs"; paramTypes("float"); returnType = "float" }
+                }
+            }
+        } + bridge.findMethod {
+            searchPackages(PlayerSpeedLocator.SPEED_UTILS_PKG)
+            matcher {
+                modifiers(Modifier.STATIC, MatchType.Contains); returnType = "java.util.List"
+                paramTypes(PlayerSpeedLocator.MEDIA_RESOURCE, "java.lang.Integer", "boolean", "int")
+                addInvoke { declaredClass = "java.util.ArrayList"; name = "add"; paramTypes("java.lang.Object") }
+            }
+        } + bridge.findMethod {
+            searchPackages(PlayerSpeedLocator.THESEUS_SPEED_PKG)
+            matcher {
+                modifiers(Modifier.STATIC, MatchType.Contains); returnType = "void"; paramCount(1)
+                usingStrings(listOf(PlayerSpeedMenuAdapter.OPEN_MARK), StringMatchType.Equals)
+            }
+        }
         // 8.84–8.93 仅 key，8.94–8.96 仅 helper，8.97+ 两者皆有；必须做并集。
         DexAssistQuery.STORY_QUALITY_DEFAULT -> bridge.findMethod {
             searchPackages(StoryQualityLocator.QUALITY_PACKAGE)

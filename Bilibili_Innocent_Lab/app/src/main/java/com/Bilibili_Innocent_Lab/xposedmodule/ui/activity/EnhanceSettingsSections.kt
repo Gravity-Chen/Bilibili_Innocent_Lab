@@ -679,6 +679,32 @@ internal fun MainActivity.enhancePlaybackCategory(
             }
         }
     }
+    LinearLayout(
+        lparams = LayoutParams(widthMatchParent = true) { topMargin = 8.dp },
+        init = {
+            orientation = LinearLayout.VERTICAL
+            background = selfRippleBackground(10f)
+            updatePadding(horizontal = 0.dp, vertical = 9.dp)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showPlayerSpeedMenuDialog(it) }
+            settingsDestinations.bind(SettingsCatalog.ID_PLAYER_SPEED_MENU, this)
+        }
+    ) {
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            text = stringResource(R.string.player_speed_menu)
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 5.dp }) {
+            alpha = 0.6f
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+            setLineSpacing(6f, 1f)
+            playerSpeedMenuSummary = this
+            updatePlayerSpeedSummaries()
+        }
+    }
     TextView(lparams = LayoutParams(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)

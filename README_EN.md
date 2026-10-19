@@ -282,6 +282,7 @@ The sections below describe capabilities by feature topic. Developer-facing cate
 | Block automatic activity half-sheets on the film and TV page | Blocks the Premium promotion and similar activity half-sheets that expand automatically below the player on movie, TV series and anime playback pages; deliberate activity links, purchase entries and normal playback permission checks are kept. Off by default, takes effect after restarting Bilibili |
 | Transparent player status bar | Applies the transparent status bar style only on the ordinary video detail page; no other Activity or window is modified globally |
 | Default playback quality | Follow Bilibili, or prefer 360P / 480P / 720P / 720P60 / 1080P / 1080P high bitrate / 1080P60 / 4K / 8K; it only changes the initial quality request when playback starts and does not unlock Premium or paid quality — the client still adjusts automatically when the source, account, network or server does not support the requested quality |
+| Playback speed menu options | In Advanced settings → Player, enter 1–12 speeds from 0.1× to 8× with up to two decimal places, separated by commas or spaces. Options are deduplicated and sorted highest first. Switching between this feature and Default playback speed shows a conflict prompt; long-press speed remains independent. Follow Bilibili restores the original menu. Restart Bilibili after changes |
 
 #### Danmaku cleanup
 

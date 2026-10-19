@@ -14,6 +14,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLo
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStylePoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedPoints
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuPoints
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionPoints
@@ -1851,7 +1853,8 @@ object VersionAdapter {
         val commentClassicStyle: CommentClassicStylePoints? = null,
         val playerPopupPromotion: PlayerPopupPromotionPoints? = null,
         val brandSplashDecoder: HookPoint? = null,
-        val followFeedStyle: FollowFeedPoints? = null
+        val followFeedStyle: FollowFeedPoints? = null,
+        val playerSpeedMenu: PlayerSpeedMenuPoints? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("sv", SCHEMA_VERSION)
@@ -1891,6 +1894,7 @@ object VersionAdapter {
             playerPopupPromotion?.let { put("player_popup_promotion", it.toJson()) }
             brandSplashDecoder?.let { put("brand_splash_decoder", it.toJson()) }
             followFeedStyle?.let { put("follow_feed_style", it.toJson()) }
+            playerSpeedMenu?.let { put("player_speed_menu", it.toJson()) }
             put("fp", hostFingerprint)
             put("protocol_fp", protocolFingerprint)
             put("dex_fp", dexSourceFingerprint)
@@ -2211,6 +2215,7 @@ object VersionAdapter {
                 } != false &&
                 brandSplashDecoder?.let { it.isValid() && it.viewField == null &&
                     it.paramClassNames == listOf(BrandSplashDecoderAdapter.INFO) } != false &&
+                playerSpeedMenu?.isStructurallyValid() != false &&
                 diagnostics.map { it.id }.let { ids -> ids.all { it.isNotBlank() } && ids.distinct().size == ids.size }
 
         companion object {
@@ -2282,7 +2287,9 @@ object VersionAdapter {
                             if (point.viewField != null || point.paramClassNames != listOf(BrandSplashDecoderAdapter.INFO)) return null
                         } else null,
                     followFeedStyle = if (o.has("follow_feed_style"))
-                        FollowFeedPoints.fromJson(o.getJSONObject("follow_feed_style")) ?: return null else null
+                        FollowFeedPoints.fromJson(o.getJSONObject("follow_feed_style")) ?: return null else null,
+                    playerSpeedMenu = if (o.has("player_speed_menu"))
+                        PlayerSpeedMenuPoints.fromJson(o.getJSONObject("player_speed_menu")) ?: return null else null
                 ).takeIf { it.isStructurallyValid() }
             }
         }
@@ -2948,7 +2955,7 @@ object VersionAdapter {
                     id == KotlinDefaultWordsLocator.DIAGNOSTIC &&
                         runtime.homeTopBar?.kotlinDefaultWords == null &&
                         stored.state == AdaptState.MISSING -> stored
-                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC) &&
+                    (id in PlayerPopupPromotionAdapter.Family.entries.map { it.diagnostic } || id == BrandSplashDecoderAdapter.DIAGNOSTIC || id == FollowFeedAdapter.DIAGNOSTIC || id == StoryQualityLocator.DIAGNOSTIC || id == PlayerSpeedMenuAdapter.DIAGNOSTIC) &&
                         stored.state == AdaptState.MISSING && live.state == AdaptState.NOT_APPLICABLE &&
                         live.detail == "quick-locate" -> stored
                     else -> live
@@ -3003,7 +3010,8 @@ object VersionAdapter {
             commentClassicStyle = CommentClassicStyleLocator.merge(runtime.commentClassicStyle, cached.commentClassicStyle),
             playerPopupPromotion = PlayerPopupPromotionAdapter.merge(runtime.playerPopupPromotion, cached.playerPopupPromotion),
             brandSplashDecoder = runtime.brandSplashDecoder ?: cached.brandSplashDecoder,
-            followFeedStyle = runtime.followFeedStyle ?: cached.followFeedStyle
+            followFeedStyle = runtime.followFeedStyle ?: cached.followFeedStyle,
+            playerSpeedMenu = runtime.playerSpeedMenu ?: cached.playerSpeedMenu
         )
     }
 
@@ -3112,9 +3120,10 @@ object VersionAdapter {
         playerPopupPromotionEnabled: Boolean = false,
         brandSplashCustomEnabled: Boolean = false,
         followFeedStyleEnabled: Boolean = false,
-        playerQualityEnabled: Boolean = false
+        playerQualityEnabled: Boolean = false,
+        playerSpeedMenuEnabled: Boolean = false
     ) = ensureAdapted(
-        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled
+        context, classLoader, resetTimestamp, callback, readStartupCache(context, resetTimestamp), kotlinDefaultWordsEnabled, sponsorBlockEnabled, commentClassicStyleEnabled, playerPopupPromotionEnabled, brandSplashCustomEnabled, followFeedStyleEnabled, playerQualityEnabled, playerSpeedMenuEnabled
     )
 
     internal fun ensureAdapted(
@@ -3129,7 +3138,8 @@ object VersionAdapter {
         playerPopupPromotionEnabled: Boolean = false,
         brandSplashCustomEnabled: Boolean = false,
         followFeedStyleEnabled: Boolean = false,
-        playerQualityEnabled: Boolean = false
+        playerQualityEnabled: Boolean = false,
+        playerSpeedMenuEnabled: Boolean = false
     ) {
         // reset 不同意味着不是同一次安装快照，必须重新读取而不能复用已缓存的 null/旧结果。
         val startup = if (startupCache.resetTimestamp == resetTimestamp.coerceAtLeast(0L)) {
@@ -3149,6 +3159,10 @@ object VersionAdapter {
         // 评论 high 点缺失只影响整轮快路径，不能使播放器已经完成的兜底每次启动重扫。
         val popupHistory = startup.usableCache(highCandidateExists = false)
         val previousFollow = popupHistory?.followFeedStyle
+        val previousSpeedMenu = popupHistory?.playerSpeedMenu
+        val speedMenuAttempted = popupHistory?.diagnostics.orEmpty().any {
+            it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING)
+        }
         val previousStoryQuality = popupHistory?.playerQuality?.story
         val previouslyMissingStoryQuality = popupHistory?.diagnostics.orEmpty().any {
             it.id == StoryQualityLocator.DIAGNOSTIC && it.state == AdaptState.MISSING
@@ -3176,6 +3190,8 @@ object VersionAdapter {
                 SponsorPlayerLocator.direct(classLoader) != null,
                 value.sponsorPlayer?.let { SponsorPlayerLocator.resolve(classLoader, it) } != null,
                 value.diagnostics.any { it.id == SponsorPlayerLocator.DIAGNOSTIC && it.state == AdaptState.MISSING })
+            PlayerSpeedMenuAdapter.needsQuery(classLoader, value.playerSpeedMenu, playerSpeedMenuEnabled,
+                value.diagnostics.any { it.id == PlayerSpeedMenuAdapter.DIAGNOSTIC && it.state in setOf(AdaptState.FOUND, AdaptState.MISSING) }) ||
             StoryQualityLocator.planned(classLoader, value.playerQuality?.story, playerQualityEnabled,
                 value.diagnostics.any { it.id == StoryQualityLocator.DIAGNOSTIC && it.state == AdaptState.MISSING }).isNotEmpty() ||
             FollowFeedAdapter.needsQuery(classLoader, value.followFeedStyle, followFeedStyleEnabled,
@@ -3215,7 +3231,8 @@ object VersionAdapter {
                         commentClassicStyleEnabled, playerPopupPromotionEnabled, previousPopup, previouslyMissingPopup,
                         brandSplashCustomEnabled, previousBrand, previouslyMissingBrand,
                         followFeedStyleEnabled, previousFollow, previouslyMissingFollow,
-                        playerQualityEnabled, previousStoryQuality, previouslyMissingStoryQuality) }.getOrNull()
+                        playerQualityEnabled, previousStoryQuality, previouslyMissingStoryQuality,
+                        playerSpeedMenuEnabled, previousSpeedMenu, speedMenuAttempted) }.getOrNull()
                     result?.let { adapted ->
                         // 写文件缓存（loadApp 快路径载体）；校验后原子替换，旧缓存不会被半截 JSON 覆盖。
                         if (!writeCache(adapted)) {
@@ -3402,7 +3419,8 @@ object VersionAdapter {
                       previousPopup: PlayerPopupPromotionPoints?, previouslyMissingPopup: Set<PlayerPopupPromotionAdapter.Family>,
                       brandSplashCustomEnabled: Boolean, previousBrand: HookPoint?, previouslyMissingBrand: Boolean,
                       followFeedStyleEnabled: Boolean, previousFollow: FollowFeedPoints?, previouslyMissingFollow: Boolean,
-                      playerQualityEnabled: Boolean, previousStoryQuality: StoryQualityPoints?, previouslyMissingStoryQuality: Boolean): AdaptResult? {
+                      playerQualityEnabled: Boolean, previousStoryQuality: StoryQualityPoints?, previouslyMissingStoryQuality: Boolean,
+                      playerSpeedMenuEnabled: Boolean, previousSpeedMenu: PlayerSpeedMenuPoints?, speedMenuAttempted: Boolean): AdaptResult? {
         val vc = biliVersionCode(context)
         val dexSource = runCatching {
             context.packageManager.getPackageInfo("tv.danmaku.bili", 0).applicationInfo
@@ -3419,6 +3437,7 @@ object VersionAdapter {
         val sponsorNeedsAssist = sponsorBlockEnabled && SponsorPlayerLocator.needsQuery(sponsorBlockEnabled, SponsorPlayerLocator.applicable(loader), directSponsor != null)
         val classicMissing = if (commentClassicStyleEnabled) CommentClassicStyleLocator.missing(loader) else emptySet()
         val followPlanned = FollowFeedAdapter.needsQuery(loader, previousFollow, followFeedStyleEnabled, previouslyMissingFollow)
+        val speedMenuPlanned = PlayerSpeedMenuAdapter.needsQuery(loader, previousSpeedMenu, playerSpeedMenuEnabled, speedMenuAttempted)
         val storyQualityPlanned = StoryQualityLocator.planned(loader, previousStoryQuality, playerQualityEnabled, previouslyMissingStoryQuality)
         val brandPlanned = BrandSplashDecoderAdapter.needsQuery(loader, previousBrand, brandSplashCustomEnabled, previouslyMissingBrand)
         val popupMissing = if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.missing(loader) else emptySet()
@@ -3450,10 +3469,25 @@ object VersionAdapter {
                     popupPlanned.forEach { add(it.query) }
                     if (brandPlanned) add(BrandSplashDecoderAdapter.query)
                     if (followPlanned) add(DexAssistQuery.FOLLOW_FEED_STYLE)
+                    if (speedMenuPlanned) add(PlayerSpeedMenuAdapter.query)
                 }
             )
         }
         val sponsor = directSponsor ?: if (sponsorNeedsAssist) SponsorPlayerLocator.assisted(loader, dexAssist) else null
+        val speedMenu = PlayerSpeedMenuAdapter.locate(loader, dexAssist, previousSpeedMenu, playerSpeedMenuEnabled, speedMenuPlanned)
+        val speedMenuComplete = playerSpeedMenuEnabled && PlayerSpeedMenuAdapter.complete(loader, PlayerSpeedMenuAdapter.resolve(loader, speedMenu))
+        val speedMenuDiagnostic = AdaptDiagnostic(PlayerSpeedMenuAdapter.DIAGNOSTIC,
+            if (speedMenuComplete) AdaptState.FOUND else if (playerSpeedMenuEnabled || speedMenuAttempted) AdaptState.MISSING else AdaptState.NOT_APPLICABLE,
+            when {
+                !playerSpeedMenuEnabled -> if (speedMenuAttempted) "feature-disabled:cached-attempt-preserved" else "feature-disabled"
+                speedMenuComplete -> "verified"
+                !speedMenuPlanned -> "cached-attempt"
+                dexAssist == null -> "no-dex-source"
+                else -> when (val outcome = dexAssist.result(PlayerSpeedMenuAdapter.query)) {
+                    is DexAssistResult.Unavailable -> outcome.reason.name.lowercase()
+                    else -> "missing-or-ambiguous-structure"
+                }
+            })
         val classic = if (commentClassicStyleEnabled) CommentClassicStyleLocator.locate(loader, dexAssist, true) else null
         val popup = if (playerPopupPromotionEnabled) PlayerPopupPromotionAdapter.locate(loader, dexAssist, true, previousPopup, popupPlanned) else previousPopup
         val follow = FollowFeedAdapter.locate(loader, dexAssist, followFeedStyleEnabled, previousFollow, followPlanned)
@@ -3695,13 +3729,14 @@ object VersionAdapter {
                 commentTopologyOutcome.failureDetail, commentSection,
                 splashAds
             ) + protocolFingerprint.toDiagnostic() + blockUpdateAssist.diagnostic +
-                topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic,
+                topologyAssist.diagnostic + playerQualityAssist.diagnostic + defaultWordsAssist.diagnostic + sponsorDiagnostic + classicDiagnostic + popupDiagnostics + brandDiagnostic + followDiagnostic + storyQualityDiagnostic + speedMenuDiagnostic,
             dexSourceFingerprint = dexSource?.value ?: DEX_SOURCE_UNAVAILABLE,
             sponsorPlayer = sponsor?.classes,
             commentClassicStyle = classic,
             playerPopupPromotion = popup,
             brandSplashDecoder = brand,
-            followFeedStyle = follow
+            followFeedStyle = follow,
+            playerSpeedMenu = speedMenu
         )
     }
 
