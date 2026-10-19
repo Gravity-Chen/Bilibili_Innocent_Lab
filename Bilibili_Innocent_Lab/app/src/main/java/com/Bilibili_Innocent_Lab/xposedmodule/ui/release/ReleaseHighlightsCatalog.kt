@@ -37,8 +37,10 @@ internal object ReleaseHighlightsCatalog {
     // 20 → 21（1.2.0）：新增的设置（智能过滤的接口类型 / 模型 / 超时 / 多来源 / 各面判定来源 / 自定义类型 /
     // 判定口径 / 缓存保留天数）都已有公告条目与导航目标；其余改动（NPatch 下设置同步与重启入口、
     // 9.14.0 适配、竖屏进入详情页的来源放行、新通道过滤）没有引入新设置，不需要新增条目。
+    // 21 → 22（1.2.1）：1.2.0 之后新增的设置随各自功能另开批次 4 起的公告条目与导航目标，
+    // 本次改版本号不新增条目。
     // 注意以后改版本号都要改一下这个地方的版本号，下面这个REVIEWED，不然过不了ci
-    const val REVIEWED_VERSION_CODE = 21
+    const val REVIEWED_VERSION_CODE = 22
     const val SETTINGS_BASELINE_VERSION = 13
     // 历史已达 64 项；新增功能时保留已有公告，目录继续以 96 项为硬上限。
     const val MAX_BUNDLED_ENTRIES = 96
