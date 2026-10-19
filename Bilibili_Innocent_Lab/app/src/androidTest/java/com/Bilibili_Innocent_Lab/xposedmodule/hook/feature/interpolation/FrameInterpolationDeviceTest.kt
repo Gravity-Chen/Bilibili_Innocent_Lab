@@ -59,10 +59,10 @@ class FrameInterpolationDeviceTest {
                 FrameInterpolationNative.configure(handle, flags))
             val (left, right, out) = List(3) { ByteBuffer.allocateDirect(4 * 2 * 3) }
             assertEquals(FrameInterpolationBackend.Status.NOT_LOADED.nativeValue,
-                FrameInterpolationNative.process(handle, left, right, out, 4, 2, 12, 12, 12, 0.5f, -1L, -1L))
+                FrameInterpolationNative.process(handle, left, right, out, 4, 2, 12, 12, 12, 0.5f, -1L, -1L, 0))
             FrameInterpolationNative.close(handle)
             assertEquals(FrameInterpolationBackend.Status.NOT_LOADED.nativeValue,
-                FrameInterpolationNative.process(handle, left, right, out, 4, 2, 12, 12, 12, 0.5f, -1L, -1L))
+                FrameInterpolationNative.process(handle, left, right, out, 4, 2, 12, 12, 12, 0.5f, -1L, -1L, 0))
         }
     }
 

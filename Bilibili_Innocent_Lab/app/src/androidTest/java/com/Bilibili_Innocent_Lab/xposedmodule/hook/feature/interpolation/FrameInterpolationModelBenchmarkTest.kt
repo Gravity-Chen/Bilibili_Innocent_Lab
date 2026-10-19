@@ -578,5 +578,44 @@ class FrameInterpolationModelBenchmarkTest {
         }
     }
 
+    /**
+     * 1080p 档位：同一自适应引擎逐次指定 1/4、1/6、1/8 光流。宿主稳态耗时（滚动帧、前一帧命中缓存）与
+     * 对真值中间帧的 PSNR；横屏与竖屏各测一次。
+     */
+    @Test fun flowTiersAt1080p() {
+        val model = modelDir!!
+        assumeTrue("model not pushed", File(model, "flownet.bin").isFile)
+        assertEquals(FrameNativeLoader.Status.READY,
+            FrameInterpolationNative.prepare(File(context.applicationInfo.sourceDir), context.codeCacheDir))
+        val opened = FrameInterpolationBackend.openResearchModel(model, FrameInterpolationBackend.Backend.VULKAN, 1,
+            true, 4, true, true, 2560L * 1440L, adaptiveFlow = true)
+        assertEquals(FrameInterpolationBackend.Status.OK, opened.status)
+        val engine = opened.engine!!
+        try {
+            for ((w, h) in listOf(1920 to 1080, 1080 to 1920)) {
+                val d = (maxOf(w, h) / 80) and 1.inv()
+                val scenes = List(5) { ByteBuffer.allocateDirect(w * h * 3).put(scene(w, h, it * d)).also { b -> b.flip() } }
+                val truth = scene(w, h, d)
+                val out = ByteBuffer.allocateDirect(w * h * 3)
+                var id = 1_000L
+                for (scale in listOf(4, 6, 8)) {
+                    fun step(i: Int): Double {
+                        val began = System.nanoTime()
+                        assertEquals(FrameInterpolationBackend.Status.OK, engine.process(scenes[i % 4], scenes[(i + 1) % 4],
+                            out, w, h, 0.5f, leftId = id + i, rightId = id + i + 1, flowScale = scale))
+                        return (System.nanoTime() - began) / 1e6
+                    }
+                    repeat(4) { step(it) }
+                    val times = (4 until 64).map(::step).sorted()
+                    id += 1_000L
+                    assertEquals(FrameInterpolationBackend.Status.OK,
+                        engine.process(scenes[0], scenes[2], out, w, h, 0.5f, flowScale = scale))
+                    val quality = psnr(truth, ByteArray(out.capacity()).also { out.duplicate().get(it) })
+                    report("TIER ${w}x$h flow-1/$scale psnr-vs-truth=%.2fdB".format(quality), times)
+                }
+            }
+        } finally { engine.close() }
+    }
+
     private companion object { const val TAG = "FrameBench" }
 }

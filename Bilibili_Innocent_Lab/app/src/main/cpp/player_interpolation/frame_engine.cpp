@@ -14,6 +14,7 @@
 #include <gpu.h>
 #include <mat.h>
 #include <net.h>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -166,9 +167,9 @@ public:
     std::unique_ptr<ncnn::Net> network;
     std::unique_ptr<ncnn::Net> downscale;
     std::unique_ptr<ncnn::Net> upscale;
-    // adaptiveFlow 时 1/8 光流的缩放网络（无权重）。
-    std::unique_ptr<ncnn::Net> downscaleHigh;
-    std::unique_ptr<ncnn::Net> upscaleHigh;
+    // adaptiveFlow 时另备 1/6 与 1/8 光流的缩放网络（无权重），按 [scale] 索引；可逐次选择。
+    std::array<std::unique_ptr<ncnn::Net>, 9> extraDown;
+    std::array<std::unique_ptr<ncnn::Net>, 9> extraUp;
     std::vector<std::uint8_t> staging;
     std::atomic<std::int64_t> timings[3] = {};
 #if NCNN_VULKAN
@@ -185,6 +186,8 @@ public:
         ncnn::VkMat full, reduced;
         int sourceWidth = 0, sourceHeight = 0;
         std::size_t sourceStride = 0;
+        // 下采样输入的光流比例；不同比例的 reduced 尺寸不同，缓存命中必须一致。
+        int scale = 0;
     };
     GpuFrame frames[3];
     int nextFrame = 0;
@@ -201,7 +204,9 @@ public:
         clearFrames();
         reduce.reset(); fused.reset(); postproc.reset(); preproc.reset();
 #endif
-        upscaleHigh.reset(); downscaleHigh.reset(); upscale.reset(); downscale.reset(); network.reset();
+        for (auto& net : extraUp) net.reset();
+        for (auto& net : extraDown) net.reset();
+        upscale.reset(); downscale.reset(); network.reset();
     }
     void releaseAllocators() noexcept {
 #if NCNN_VULKAN
@@ -339,7 +344,7 @@ Status Engine::load(ModelView model) noexcept {
             }
         }
 #endif
-        for (const int scale : {impl_->flowScale, impl_->adaptiveFlow ? 8 : 1}) {
+        for (const int scale : {impl_->flowScale, impl_->adaptiveFlow ? 6 : 1, impl_->adaptiveFlow ? 8 : 1}) {
             if (scale == 1) continue;
             auto downscale = std::make_unique<ncnn::Net>();
             auto upscale = std::make_unique<ncnn::Net>();
@@ -354,8 +359,8 @@ Status Engine::load(ModelView model) noexcept {
                 upscale->register_custom_layer("rife.Warp", detail::createWarp) != 0 ||
                 upscale->load_param_mem(upParam.c_str()) != 0 || upscale->load_model(empty) != 0)
                 return {Code::ModelLoadFailed};
-            (scale == impl_->flowScale ? impl_->downscale : impl_->downscaleHigh) = std::move(downscale);
-            (scale == impl_->flowScale ? impl_->upscale : impl_->upscaleHigh) = std::move(upscale);
+            (scale == impl_->flowScale ? impl_->downscale : impl_->extraDown[scale]) = std::move(downscale);
+            (scale == impl_->flowScale ? impl_->upscale : impl_->extraUp[scale]) = std::move(upscale);
         }
 #if NCNN_VULKAN
         if (impl_->gpuIo) {
@@ -396,7 +401,7 @@ Status Engine::load(ModelView model) noexcept {
 }
 
 Status Engine::processRgb8(ImageView left, ImageView right, float timestep, MutableImageView output,
-                           std::int64_t leftId, std::int64_t rightId) noexcept {
+                           std::int64_t leftId, std::int64_t rightId, int flowScale) noexcept {
     try {
         std::unique_lock<std::mutex> guard(impl_->mutex, std::try_to_lock);
         if (!guard.owns_lock()) return {Code::Busy};
@@ -418,11 +423,16 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
         } else {
             const auto began = nowNs();
             // 全分辨率补到 32×scale 的倍数，低分辨率恰为 32 的倍数，上下采样严格 scale 倍。
-            const bool high = impl_->adaptiveFlow &&
-                static_cast<std::int64_t>(left.width) * left.height > AdaptiveFlowPixels;
-            const int scale = high ? 8 : impl_->flowScale;
-            ncnn::Net* const downNet = high ? impl_->downscaleHigh.get() : impl_->downscale.get();
-            ncnn::Net* const upNet = high ? impl_->upscaleHigh.get() : impl_->upscale.get();
+            // 光流比例：调用方显式指定（仅自适应模式，须为已载入的 4/6/8），否则按像素数自动选择。
+            int scale = impl_->flowScale;
+            if (impl_->adaptiveFlow)
+                scale = flowScale > 0 ? flowScale
+                    : static_cast<std::int64_t>(left.width) * left.height > AdaptiveFlowPixels ? 8 : impl_->flowScale;
+            else if (flowScale > 0 && flowScale != impl_->flowScale) return {Code::InvalidArgument};
+            const bool extra = scale != impl_->flowScale;
+            if (extra && (scale < 0 || scale > 8 || !impl_->extraDown[scale])) return {Code::InvalidArgument};
+            ncnn::Net* const downNet = extra ? impl_->extraDown[scale].get() : impl_->downscale.get();
+            ncnn::Net* const upNet = extra ? impl_->extraUp[scale].get() : impl_->upscale.get();
             const int align = 32 * scale;
             const int paddedWidth = (left.width + align - 1) / align * align;
             const int paddedHeight = (left.height + align - 1) / align * align;
@@ -462,7 +472,7 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                                                                      std::tuple{right, rightId, &full1, &flowInput1}}) {
                         const Impl::GpuFrame* hit = nullptr;
                         for (const auto& frame : impl_->frames)
-                            if (id >= 0 && frame.id == id && frame.width == paddedWidth && frame.height == paddedHeight &&
+                            if (id >= 0 && frame.id == id && frame.scale == scale && frame.width == paddedWidth && frame.height == paddedHeight &&
                                 frame.sourceWidth == image.width && frame.sourceHeight == image.height &&
                                 frame.sourceStride == image.strideBytes) hit = &frame;
                         if (hit != nullptr) { *target = hit->full; *reduced = hit->reduced; continue; }
@@ -511,7 +521,7 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                             }
                         }
                         if (id >= 0) fresh.push_back({id, paddedWidth, paddedHeight, *target, *reduced,
-                            image.width, image.height, image.strideBytes});
+                            image.width, image.height, image.strideBytes, scale});
                     }
                 } else {
                     command.record_upload(first, full0, opt);

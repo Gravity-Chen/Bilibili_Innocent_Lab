@@ -27,16 +27,18 @@ internal class FrameInterpolationBackend private constructor(private var handle:
         width: Int, height: Int, timestep: Float,
         leftStride: Int = width * 3, rightStride: Int = width * 3, outputStride: Int = width * 3,
         /** 帧 ID ≥ 0 时引擎复用该帧已上传的显存张量；同一 ID 的像素在其存续期内必须不变。 */
-        leftId: Long = -1L, rightId: Long = -1L
+        leftId: Long = -1L, rightId: Long = -1L,
+        /** 自适应光流模式下本次的光流比例 4/6/8；0 按像素数自动选择。 */
+        flowScale: Int = 0
     ): Status {
         requireWorker()
         if (handle == 0L) return Status.NOT_LOADED
         if (!timestep.isFinite() || timestep !in 0f..1f || output.isReadOnly ||
             !planeValid(left, width, height, leftStride, maxPixels) || !planeValid(right, width, height, rightStride, maxPixels) ||
-            !planeValid(output, width, height, outputStride, maxPixels)) return Status.INVALID_ARGUMENT
+            !planeValid(output, width, height, outputStride, maxPixels) || flowScale !in setOf(0, 4, 6, 8)) return Status.INVALID_ARGUMENT
         return Status.fromNative(
             FrameInterpolationNative.process(handle, left, right, output, width, height,
-                leftStride, rightStride, outputStride, timestep, leftId, rightId)
+                leftStride, rightStride, outputStride, timestep, leftId, rightId, flowScale)
         )
     }
 
@@ -166,7 +168,7 @@ internal object FrameInterpolationNative {
     external fun load(handle: Long, param: ByteBuffer, weights: ByteBuffer): Int
     external fun process(handle: Long, left: ByteBuffer, right: ByteBuffer, output: ByteBuffer,
         width: Int, height: Int, leftStride: Int, rightStride: Int, outputStride: Int, timestep: Float,
-        leftId: Long, rightId: Long): Int
+        leftId: Long, rightId: Long, flowScale: Int): Int
     external fun close(handle: Long)
     external fun configure(handle: Long, flags: Int): Int
     external fun timings(handle: Long): LongArray

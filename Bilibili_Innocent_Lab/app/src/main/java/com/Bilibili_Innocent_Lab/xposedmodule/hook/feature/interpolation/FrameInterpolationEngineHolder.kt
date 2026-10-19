@@ -37,6 +37,21 @@ internal class FrameInterpolationEngineHolder(
     /** 两档中较大的可持续像素数；0 表示尚未测定。 */
     val maxPixels: Long get() = maxOf(capability.standard, capability.high)
 
+    /**
+     * 720p 以上、1080p 及以下的光流比例档：按 1/4 → 1/6 → 1/8 依次实测 1080p，取第一个满足预算的；
+     * 1/4 只在明显宽裕（≤ [COMFORTABLE_MS]）时选用，因为 1/6 画质几乎相同而 GPU 负载与功耗低得多。
+     * 2026-10-19 真机：1080p 1/4 为 22 ms、1/6 为 14 ms，两者对真值的 PSNR 相同（50.7 dB），1/8 降到 39.6 dB。
+     */
+    @Volatile var standardFlowScale = 4
+        private set
+
+    /** 本次插帧的光流比例：≤720p 用 1/4，≤1080p 用实测档，以上用 1/8（光流输入约 480×270 或更小）。 */
+    fun flowScaleFor(pixels: Long): Int = when {
+        pixels <= 1280L * 720L -> 4
+        pixels <= FrameProcessingSize.STANDARD_FLOW_PIXELS -> standardFlowScale
+        else -> 8
+    }
+
     /** 引擎就绪后在推理 worker 上调用一次：用于迟接管冷启动时已开始原生播放的解码器。 */
     @Volatile var onReady: (() -> Unit)? = null
     data class WorkSample(val wallNs: Long, val cpuNs: Long, val bypassed: Boolean, val status: FrameInterpolationBackend.Status)
@@ -82,14 +97,20 @@ internal class FrameInterpolationEngineHolder(
         backend = engine
         // 真机：首次推理某分辨率时分配显存与编译着色器，远超槽位预算；先在各尺寸上各跑一次。
         for ((width, height) in WARM_SIZES + capabilitySizes) warm(engine, width, height)
-        val passing = capabilitySizes.filter { (width, height) -> medianMs(engine, width, height) <= CAPABILITY_LIMIT_MS }
-            .map { (width, height) -> width.toLong() * height }
+        val passing = capabilitySizes.filter { (width, height) ->
+            val pixels = width.toLong() * height
+            val tiers = if (pixels > 1280L * 720L && pixels <= FrameProcessingSize.STANDARD_FLOW_PIXELS) STANDARD_TIERS
+                else listOf(flowScaleFor(pixels))
+            val tier = tiers.firstOrNull { scale -> medianMs(engine, width, height, scale) <= tierLimitMs(scale, tiers.size > 1) }
+            if (tier != null && tiers.size > 1) standardFlowScale = tier
+            tier != null
+        }.map { (width, height) -> width.toLong() * height }
         capability = FrameProcessingSize.Capability(
             standard = passing.filter { it <= FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L,
             high = passing.filter { it > FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L)
         if (maxPixels == 0L) { fail("capability"); return }
         state = State.READY
-        log("engine.ready", "${modelDirectory.name} standard=${capability.standard} high=${capability.high}")
+        log("engine.ready", "${modelDirectory.name} standard=${capability.standard} high=${capability.high} tier=1/$standardFlowScale")
         runCatching { onReady?.invoke() }.onFailure { log("engine.onReady", it.javaClass.simpleName) }
     }
 
@@ -106,26 +127,26 @@ internal class FrameInterpolationEngineHolder(
         val started = System.nanoTime()
         val status = runCatching {
             engine.process(ByteBuffer.allocateDirect(bytes), ByteBuffer.allocateDirect(bytes),
-                ByteBuffer.allocateDirect(bytes), width, height, 0.5f)
+                ByteBuffer.allocateDirect(bytes), width, height, 0.5f, flowScale = flowScaleFor(width.toLong() * height))
         }.getOrDefault(FrameInterpolationBackend.Status.INFERENCE_FAILED)
         log("engine.warm", "${width}x$height $status ${(System.nanoTime() - started) / 1_000_000}ms")
     }
 
-    private fun medianMs(engine: FrameInterpolationBackend, width: Int, height: Int): Double {
+    private fun medianMs(engine: FrameInterpolationBackend, width: Int, height: Int, flowScale: Int): Double {
         val bytes = width * height * 3
         val frames = List(4) { ByteBuffer.allocateDirect(bytes) }
         val out = ByteBuffer.allocateDirect(bytes)
         // 宿主稳态：每次插帧只有后一帧是新上传的，前一帧按 ID 命中显存缓存。ID 取在账本永远达不到的区间。
-        val base = CAPABILITY_ID_BASE + width.toLong() * 65_536L + height
+        val base = CAPABILITY_ID_BASE + (width.toLong() * 65_536L + height) * 16L + flowScale
         fun step(i: Int) = engine.process(frames[i % 4], frames[(i + 1) % 4], out, width, height, 0.5f,
-            leftId = base + i * 0x1_0000_0000L, rightId = base + (i + 1) * 0x1_0000_0000L)
+            leftId = base + i * 0x1_0000_0000L, rightId = base + (i + 1) * 0x1_0000_0000L, flowScale = flowScale)
         step(0)
         val times = List(3) { index ->
             val started = System.nanoTime()
             step(index + 1)
             (System.nanoTime() - started) / 1e6
         }.sorted()
-        log("engine.capability", "${width}x$height median=%.1fms".format(times[1]))
+        log("engine.capability", "${width}x$height flow=1/$flowScale median=%.1fms".format(times[1]))
         return times[1]
     }
 
@@ -137,6 +158,10 @@ internal class FrameInterpolationEngineHolder(
     private companion object {
         val WARM_SIZES = listOf(854 to 480, 640 to 360)
         val DEFAULT_CAPABILITY_SIZES = listOf(1280 to 720, 1920 to 1080, 2560 to 1440)
+        val STANDARD_TIERS = listOf(4, 6, 8)
+        /** 1080p 档选 1/4 的门槛：留出余量给宿主 UI 与温控，否则用画质相同的 1/6。 */
+        const val COMFORTABLE_MS = 16.0
+        fun tierLimitMs(scale: Int, tiered: Boolean) = if (tiered && scale == 4) COMFORTABLE_MS else CAPABILITY_LIMIT_MS
         /**
          * 独立计时中位数上限。30→60 每 33.3 ms 需一次补帧；留约 9 ms 给同时进行的捕获、呈现与宿主 UI 合成。
          * 呈现延迟已放宽（用户接受更多延迟），单次偶发超时由时间线丢槽与恢复策略吸收，持续超时回原生。
@@ -180,7 +205,8 @@ internal class FrameInterpolationEngineHolder(
             }
             val nativeStarted = System.nanoTime()
             val result = engine.process(left, right, output, format.width, format.height, alpha,
-                format.stride, format.stride, format.stride, leftId, rightId)
+                format.stride, format.stride, format.stride, leftId, rightId,
+                flowScale = flowScaleFor(format.width.toLong() * format.height))
             lastNativeUs = (System.nanoTime() - nativeStarted) / 1_000L
             return result
         }

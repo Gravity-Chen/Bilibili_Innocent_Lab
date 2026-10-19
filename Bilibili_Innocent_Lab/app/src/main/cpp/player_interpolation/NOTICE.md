@@ -16,7 +16,7 @@ Local adaptations use a private namespace, check shapes/statuses and finite outp
 reads and image capacities, support CPU-only builds, and avoid global GPU destruction. CPU Warp
 clamps coordinates before float-to-int conversion. TTA, UHD and older model variants are omitted.
 The generic ncnn Extractor handles transfers for Vulkan; this is not a zero-copy Surface renderer.
-Vulkan defaults to float32 pack1/pack4. fp16 storage/arithmetic, reduced-resolution flow (1/2, 1/4 or 1/8, or adaptive: 1/4 up to 1920×1080 pixels and 1/8 above)
+Vulkan defaults to float32 pack1/pack4. fp16 storage/arithmetic, reduced-resolution flow (1/2, 1/4 or 1/8, or adaptive: 1/4 up to 1920×1080 pixels and 1/8 above, with a per-call 1/4, 1/6 or 1/8 choice)
 and GPU RGB8 conversion are explicit options set through `configure` before `load` (the host player enables all three); ncnn still
 clips fp16 to device support. Pixel positions in the fused warp and the RGB8 reduction, and the downscale Interp, use fp32 arithmetic because fp16 spacing is 2 px above 2048. Reduced-resolution flow runs the unchanged v4.6 graph on downscaled inputs,
 reads its flow (blob 327) and mask (blob 332), then upsamples them (flow values scaled by the same factor)

@@ -74,15 +74,16 @@ public:
     // flowScale > 1 与 gpuIo（RGB8 转换在 GPU 完成）仅支持 Vulkan。调用即撤销已加载模型。
     // rawGpuInput 是显式研究选项；本机有较高 CPU/PSS 代价，不默认启用。
     // adaptiveFlow（须 flowScale 4）：像素数超过 1920×1080 的帧改用 1/8 光流，使光流输入在各分辨率下都约为
-    // 480×270；模型不变，只多载一对无权重的缩放网络。
+    // 480×270；另载 1/6 与 1/8 的无权重缩放网络，调用方也可逐次指定 4/6/8（1080p 的速度/画质档）。
     Status configure(bool fp16, int flowScale, bool gpuIo, bool protectStaticDetails = false, bool fusedWarp = false,
                      bool rawGpuInput = false, bool adaptiveFlow = false) noexcept;
     Status load(ModelView model) noexcept;
     // 最近一次成功插帧的阶段耗时（纳秒）：0 预处理，1 推理（含上传/下载），2 后处理。
     void timings(std::int64_t out[3]) const noexcept;
     // leftId/rightId ≥ 0 时按帧 ID 复用显存张量（仅 gpuIo 路径）；同一 ID 的内容必须不变，-1 表示不缓存。
+    // flowScale > 0 时本次使用该光流比例（仅 adaptiveFlow，可为 4/6/8）；0 按像素数自动选择。
     Status processRgb8(ImageView left, ImageView right, float timestep, MutableImageView output,
-                       std::int64_t leftId = -1, std::int64_t rightId = -1) noexcept;
+                       std::int64_t leftId = -1, std::int64_t rightId = -1, int flowScale = 0) noexcept;
     Backend backend() const noexcept;
     bool ready() const noexcept;
 

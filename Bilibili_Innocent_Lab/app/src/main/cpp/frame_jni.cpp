@@ -128,7 +128,7 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameInterpolationNative_process(
     JNIEnv* env, jobject, jlong id, jobject left, jobject right, jobject output,
     jint width, jint height, jint leftStride, jint rightStride, jint outputStride, jfloat timestep,
-    jlong leftId, jlong rightId) {
+    jlong leftId, jlong rightId, jint flowScale) {
     auto engine = acquire(id);
     if (!engine) return static_cast<jint>(Code::NotLoaded);
     void *l = nullptr, *r = nullptr, *o = nullptr;
@@ -146,7 +146,7 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameIn
         ImageView{static_cast<std::uint8_t*>(l), width, height, static_cast<std::size_t>(leftStride), lSize},
         ImageView{static_cast<std::uint8_t*>(r), width, height, static_cast<std::size_t>(rightStride), rSize}, timestep,
         MutableImageView{static_cast<std::uint8_t*>(o), width, height, static_cast<std::size_t>(outputStride), oSize},
-        leftId, rightId).value();
+        leftId, rightId, flowScale).value();
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -202,8 +202,8 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameIn
     const auto* b = static_cast<const std::uint8_t*>(r);
     std::uint64_t sum = 0, count = 0;
     bool still = true;
-    // 采样网格约 480 列：成本不随处理尺寸增长（1080p 步长 4，1440p 5，4K 8），判定语义按比例不变。
-    const int step = std::max(4, width / 480);
+    // 采样网格约 320 列：成本不随处理尺寸增长（720p 步长 4，1080p 6，1440p 8，4K 12），判定语义按比例不变。
+    const int step = std::max(4, width / 320);
     for (int y = 0; y < height && still; y += step) {
         for (int x = 0; x < width && still; x += step) {
             const auto i = static_cast<std::size_t>(y) * stride + static_cast<std::size_t>(x) * 3;
