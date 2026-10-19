@@ -24,6 +24,10 @@ layout(binding=5) readonly buffer mask_blob { sfp mask_data[]; };
 layout(push_constant) uniform parameter {
     int width; int height; int words; int w; int inputCstep; int protectDetails;
     int h; int flowW; int flowH; int flowCstep; int flowPack; int scale;
+    // guard: per-pixel motion-confidence fallback and unreliable-pixel counting (flag_data[1]).
+    float timestep; int guard;
+    // Frame-wide brightness change (right vs left channel means): offset model and gain model.
+    float offsetR; float offsetG; float offsetB; float gainR; float gainG; float gainB;
 } p;
 vec3 leftPixel(int x, int y)
 {
@@ -84,6 +88,10 @@ afpvec3 warpPixel(int x,int y,afpvec2 flow,bool right) {
     afpvec3 v5=v2*(afp(1.f)-f.x)+v3*f.x;
     return v4*(afp(1.f)-f.y)+v5*f.y;
 }
+float pixelError=0.f;
+float flowSpread=0.f;
+const float GUARD_LOW=0.30f, GUARD_HIGH=0.55f, GUARD_COUNT=0.25f;
+const int GUARD_TILES_X=16, GUARD_TILES_Y=9;
 vec3 mergedPixel(int x,int y) {
     // ncnn Interp, align_corner=false, with replicated border.
     vec2 g=(vec2(x,y)+0.5f)/float(p.scale)-0.5f;
@@ -91,8 +99,13 @@ vec3 mergedPixel(int x,int y) {
     bvec2 under=lessThan(a,ivec2(0)), over=greaterThan(a,ivec2(p.flowW-2,p.flowH-2));
     a=clamp(a,ivec2(0),ivec2(p.flowW-2,p.flowH-2));
     f=mix(f,afpvec2(0.f),under); f=mix(f,afpvec2(1.f),over);
-    afpvec4 q0=flowPixel(a.x,a.y)*(afp(1.f)-f.x)+flowPixel(a.x+1,a.y)*f.x;
-    afpvec4 q1=flowPixel(a.x,a.y+1)*(afp(1.f)-f.x)+flowPixel(a.x+1,a.y+1)*f.x;
+    afpvec4 f00=flowPixel(a.x,a.y), f10=flowPixel(a.x+1,a.y), f01=flowPixel(a.x,a.y+1), f11=flowPixel(a.x+1,a.y+1);
+    afpvec4 q0=f00*(afp(1.f)-f.x)+f10*f.x;
+    afpvec4 q1=f01*(afp(1.f)-f.x)+f11*f.x;
+    // Flow coherence: spread of the four neighbouring low-resolution vectors, in full-resolution pixels.
+    vec4 fm=(vec4(f00)+vec4(f10)+vec4(f01)+vec4(f11))*0.25f;
+    vec4 fs=max(max(abs(vec4(f00)-fm),abs(vec4(f10)-fm)),max(abs(vec4(f01)-fm),abs(vec4(f11)-fm)));
+    flowSpread=max(max(fs.x,fs.y),max(fs.z,fs.w))*float(p.scale);
     afpvec4 flow=afpvec4(sfpvec4(q0*(afp(1.f)-f.y)+q1*f.y))*afp(p.scale);
     flow=afpvec4(sfpvec4(flow));
     int i=a.y*p.flowW+a.x;
@@ -106,17 +119,38 @@ vec3 mergedPixel(int x,int y) {
     afpvec3 r=afpvec3(sfpvec3(warpPixel(x,y,flow.zw,true)));
     afpvec3 aa=afpvec3(sfpvec3(l*mask));
     afpvec3 bb=afpvec3(sfpvec3(r*inv));
-    return vec3(sfpvec3(aa+bb));
+    vec3 merged=vec3(sfpvec3(aa+bb));
+    if (p.guard != 0) {
+        // Motion confidence: where both warps land on clearly different colours the flow has failed
+        // (scene cut, flash, motion beyond the flow range). Fade towards the unwarped time-weighted
+        // blend, which ghosts instead of tearing. Occlusions disagree too but are narrow; the ramp
+        // starts high so that the mask still decides there.
+        // Flashes and fades change every pixel by a frame-wide offset or gain while the flow stays
+        // valid; compare under whichever model explains the pair better.
+        vec3 lv=vec3(l), rv=vec3(r);
+        vec3 d=min(abs(lv+vec3(p.offsetR,p.offsetG,p.offsetB)-rv), abs(lv*vec3(p.gainR,p.gainG,p.gainB)-rv));
+        // A decisive mask over a smooth flow field means the network chose one side on purpose
+        // (occlusion, large but coherent motion). Treat a contradiction as a failure only where the mask
+        // is undecided or the flow field itself is chaotic, as it is across a cut.
+        float undecided=1.f-smoothstep(0.2f,0.4f,abs(float(mask)-0.5f));
+        float chaotic=smoothstep(4.f,12.f,flowSpread);
+        float suspect=max(undecided,chaotic);
+        pixelError=max(d.r,max(d.g,d.b))*step(0.5f,suspect);
+        float w=smoothstep(GUARD_LOW,GUARD_HIGH,max(d.r,max(d.g,d.b)))*suspect;
+        if (w>0.f) merged=mix(merged,mix(leftPixel(x,y),rightPixel(x,y),p.timestep),w);
+    }
+    return merged;
 }
 void main() {
     int group=int(gl_GlobalInvocationID.x);
     if (group*4>=p.width*p.height) return;
-    uvec3 packed=uvec3(0u); bool bad=false;
+    uvec3 packed=uvec3(0u); bool bad=false; uint unreliable=0u;
     for(int j=0;j<4;j++) {
         int pixel=group*4+j; if(pixel>=p.width*p.height) break;
         int y=pixel/p.width, x=pixel-y*p.width;
         vec3 value=mergedPixel(x,y);
         bad=bad||any(isnan(value))||any(isinf(value));
+        if(pixelError>GUARD_COUNT) unreliable++;
         if(p.protectDetails!=0) {
             vec3 original=leftPixel(x,y);
             if(any(greaterThanEqual(abs(value-original),vec3(0.5f/255.f))) && stationaryInk(x,y,original)) value=original;
@@ -126,4 +160,11 @@ void main() {
     }
     for(int i=0;i<3;i++) if(group*3+i<p.words) target_data[group*3+i]=packed[i];
     if(bad) atomicOr(flag_data[0],1u);
+    // Sampled count (every 8th group) keeps atomics cheap; the engine scales it by the sampled pixels.
+    // flag_data[2..] holds the same count per tile of a 16x9 grid (tile of the group's first pixel).
+    if(p.guard!=0 && unreliable>0u && group%8==0) {
+        atomicAdd(flag_data[1],unreliable);
+        int first=group*4, ty=first/p.width, tx=first-ty*p.width;
+        atomicAdd(flag_data[2+(ty*GUARD_TILES_Y/p.height)*GUARD_TILES_X+tx*GUARD_TILES_X/p.width],unreliable);
+    }
 }

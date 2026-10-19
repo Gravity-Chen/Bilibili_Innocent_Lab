@@ -14,6 +14,7 @@
 #include <gpu.h>
 #include <mat.h>
 #include <net.h>
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -114,6 +115,25 @@ ncnn::Mat inputTensor(ImageView image, int paddedWidth, int paddedHeight) {
 // 低分辨率光流（scale = 2 或 4）：GPU 下采样输入，flownet 只在 1/scale 分辨率上估计光流与融合遮罩，
 // 再把光流（数值 ×scale）与遮罩上采样到全分辨率，用全分辨率原帧做 Warp 与融合。
 // 末段与 flownet.param 的 warp_6/warp_7/mul_76/mul_77/add_78 同构：blob 327 为 4 通道光流，332 为遮罩。
+// 运动置信度分块：与 frame_fused*.comp 的 GUARD_TILES_X/Y 一致。
+constexpr int GuardTilesX = 16, GuardTilesY = 9, GuardTiles = GuardTilesX * GuardTilesY;
+// 分块不可靠像素千分比：达到前者直接换成最近原帧；达到后者且与已换分块相邻时一并替换。
+constexpr int TilePatchPermille = 300, TileNeighbourPermille = 50;
+
+// 约 320×180 网格的通道均值（0..255）；只读原图，成本与分辨率无关。
+void sampleMeans(const ImageView& image, double out[3]) {
+    const int stepX = std::max(1, image.width / 320), stepY = std::max(1, image.height / 180);
+    std::uint64_t sum[3] = {0, 0, 0}, count = 0;
+    for (int y = 0; y < image.height; y += stepY) {
+        const auto* row = image.data + static_cast<std::size_t>(y) * image.strideBytes;
+        for (int x = 0; x < image.width; x += stepX) {
+            for (int c = 0; c < 3; ++c) sum[c] += row[static_cast<std::size_t>(x) * 3 + c];
+            ++count;
+        }
+    }
+    for (int c = 0; c < 3; ++c) out[c] = count ? static_cast<double>(sum[c]) / count : 0.0;
+}
+
 // adaptiveFlow：像素数超过此值的帧用 1/8 光流（1080p 及以下保持 1/4）。
 constexpr std::int64_t AdaptiveFlowPixels = 1920LL * 1080LL;
 
@@ -164,6 +184,10 @@ public:
     bool fusedWarp = false;
     bool rawGpuInput = false;
     bool adaptiveFlow = false;
+    // 运动置信度保护（融合路径）：逐像素回退到未 warp 的时间加权混合，并统计不可靠像素比例。
+    bool motionGuard = true;
+    std::atomic<int> unreliablePermille{0};
+    std::atomic<int> patchedTiles{0};
     std::unique_ptr<ncnn::Net> network;
     std::unique_ptr<ncnn::Net> downscale;
     std::unique_ptr<ncnn::Net> upscale;
@@ -299,6 +323,12 @@ Status Engine::configure(bool fp16, int flowScale, bool gpuIo, bool protectStati
     return {};
 }
 
+int Engine::unreliablePermille() const noexcept { return impl_->unreliablePermille.load(); }
+
+int Engine::patchedTiles() const noexcept { return impl_->patchedTiles.load(); }
+
+void Engine::setMotionGuard(bool enabled) noexcept { impl_->motionGuard = enabled; }
+
 void Engine::timings(std::int64_t out[3]) const noexcept {
     for (int i = 0; i < 3; ++i) out[i] = impl_->timings[i].load();
 }
@@ -422,6 +452,8 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                             image.data + static_cast<std::size_t>(y) * image.strideBytes, rowBytes);
         } else {
             const auto began = nowNs();
+            impl_->unreliablePermille.store(0);
+            impl_->patchedTiles.store(0);
             // 全分辨率补到 32×scale 的倍数，低分辨率恰为 32 的倍数，上下采样严格 scale 倍。
             // 光流比例：调用方显式指定（仅自适应模式，须为已载入的 4/6/8），否则按像素数自动选择。
             int scale = impl_->flowScale;
@@ -565,12 +597,13 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                     const int words = static_cast<int>((rowBytes * static_cast<std::size_t>(left.height) + 3) / 4);
                     ncnn::VkMat packed, flag;
                     packed.create(words, static_cast<std::size_t>(4u), 1, impl_->blobAllocator);
-                    ncnn::Mat zero(1, static_cast<std::size_t>(4u));
+                    // [0] 非有限值标志，[1] 运动置信度不足的抽样像素数，[2..] 同一计数按 16×9 分块（仅融合路径）。
+                    ncnn::Mat zero(2 + GuardTiles, static_cast<std::size_t>(4u));
                     if (packed.empty() || zero.empty()) return {Code::AllocationFailed};
-                    static_cast<std::uint32_t*>(zero.data)[0] = 0;
+                    std::memset(zero.data, 0, (2 + GuardTiles) * sizeof(std::uint32_t));
                     keepAlive.push_back(zero);
                     command.record_clone(zero, flag, opt);
-                    std::vector<ncnn::vk_constant_type> constants(impl_->fusedWarp ? (impl_->rawGpuInput ? 13 : 12) : 7);
+                    std::vector<ncnn::vk_constant_type> constants(impl_->fusedWarp ? (impl_->rawGpuInput ? 21 : 20) : 7);
                     constants[0].i = left.width;
                     constants[1].i = left.height;
                     constants[2].i = words;
@@ -586,6 +619,17 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                         constants[9].i = static_cast<int>(flow.cstep);
                         constants[10].i = flow.elempack; constants[11].i = scale;
                         if (impl_->rawGpuInput) constants[12].i = static_cast<int>(right.strideBytes);
+                        const int extra = impl_->rawGpuInput ? 13 : 12;
+                        constants[extra].f = timestep;
+                        constants[extra + 1].i = impl_->motionGuard ? 1 : 0;
+                        // 整帧亮度变化（闪白、淡入淡出）：抽样通道均值的偏移与增益，供置信度比较时扣除。
+                        double meanL[3] = {0, 0, 0}, meanR[3] = {0, 0, 0};
+                        sampleMeans(left, meanL);
+                        sampleMeans(right, meanR);
+                        for (int c = 0; c < 3; ++c) {
+                            constants[extra + 2 + c].f = static_cast<float>((meanR[c] - meanL[c]) / 255.0);
+                            constants[extra + 5 + c].f = static_cast<float>(meanL[c] > 8.0 ? std::clamp(meanR[c] / meanL[c], 0.0, 8.0) : 1.0);
+                        }
                         ncnn::VkMat dispatcher;
                         dispatcher.dims = 1; dispatcher.w = (left.width*left.height+3)/4; dispatcher.h = dispatcher.c = 1;
                         command.record_pipeline(impl_->fused.get(), {flow, packed, flag, full0, full1, mask}, constants, dispatcher);
@@ -607,11 +651,58 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                     }
                     if (flagged.empty() || bytes.empty() || static_cast<const std::uint32_t*>(flagged.data)[0] != 0)
                         return {Code::InvalidOutput};
+                    std::array<bool, GuardTiles> patch{};
+                    if (impl_->fusedWarp && impl_->motionGuard) {
+                        // 抽样：每 8 组（每组 4 像素）计一组，按组首像素归入分块，与着色器一致。
+                        const auto* counts = static_cast<const std::uint32_t*>(flagged.data);
+                        std::array<std::int64_t, GuardTiles> sampledTiles{};
+                        const std::int64_t pixels = static_cast<std::int64_t>(left.width) * left.height;
+                        std::int64_t sampled = 0;
+                        for (std::int64_t first = 0; first < pixels; first += 32) {
+                            const std::int64_t ty = first / left.width, tx = first - ty * left.width;
+                            const auto n = std::min<std::int64_t>(4, pixels - first);
+                            sampledTiles[static_cast<std::size_t>((ty * GuardTilesY / left.height) * GuardTilesX + tx * GuardTilesX / left.width)] += n;
+                            sampled += n;
+                        }
+                        impl_->unreliablePermille.store(static_cast<int>(std::min<std::int64_t>(1000, counts[1] * 1000 / std::max<std::int64_t>(1, sampled))));
+                        // 局部转场（画中画、分屏切换、局部字幕卡）：多数像素不可靠的分块换成最近原帧；
+                        // 与之相邻、也有相当比例不可靠的分块一并替换，避免接缝处残留拉扯。
+                        std::array<int, GuardTiles> permille{};
+                        for (int t = 0; t < GuardTiles; ++t)
+                            permille[t] = sampledTiles[t] ? static_cast<int>(counts[2 + t] * 1000 / sampledTiles[t]) : 0;
+                        for (int t = 0; t < GuardTiles; ++t) patch[t] = permille[t] >= TilePatchPermille;
+                        std::array<bool, GuardTiles> core = patch;
+                        for (int t = 0; t < GuardTiles; ++t) {
+                            if (core[t] || permille[t] < TileNeighbourPermille) continue;
+                            const int x = t % GuardTilesX, y = t / GuardTilesX;
+                            for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                                const int nx = x + dx, ny = y + dy;
+                                if (nx >= 0 && ny >= 0 && nx < GuardTilesX && ny < GuardTilesY && core[ny * GuardTilesX + nx]) patch[t] = true;
+                            }
+                        }
+                    }
                     // No output writes until fence completion and the finite-value flag are validated.
                     // The download is already a stable tight RGB8 image; avoid an extra 4K staging copy.
                     for (int y = 0; y < output.height; ++y)
                         std::memcpy(output.data + static_cast<std::size_t>(y)*output.strideBytes,
                             static_cast<const std::uint8_t*>(bytes.data)+static_cast<std::size_t>(y)*rowBytes,rowBytes);
+                    int patched = 0;
+                    const ImageView& nearest = timestep <= 0.5f ? left : right;
+                    for (int t = 0; t < GuardTiles; ++t) {
+                        if (!patch[t]) continue;
+                        ++patched;
+                        // 分块范围与着色器的 x*16/width 归属一致。
+                        const int tx = t % GuardTilesX, ty = t / GuardTilesX;
+                        const int x0 = (tx * output.width + GuardTilesX - 1) / GuardTilesX;
+                        const int x1 = ((tx + 1) * output.width + GuardTilesX - 1) / GuardTilesX;
+                        const int y0 = (ty * output.height + GuardTilesY - 1) / GuardTilesY;
+                        const int y1 = ((ty + 1) * output.height + GuardTilesY - 1) / GuardTilesY;
+                        for (int y = y0; y < y1; ++y)
+                            std::memcpy(output.data + static_cast<std::size_t>(y) * output.strideBytes + static_cast<std::size_t>(x0) * 3,
+                                nearest.data + static_cast<std::size_t>(y) * nearest.strideBytes + static_cast<std::size_t>(x0) * 3,
+                                static_cast<std::size_t>(x1 - x0) * 3);
+                    }
+                    impl_->patchedTiles.store(patched);
                     impl_->timings[0].store(prepared-began);
                     impl_->timings[1].store(inferred-prepared);
                     impl_->timings[2].store(nowNs()-inferred);

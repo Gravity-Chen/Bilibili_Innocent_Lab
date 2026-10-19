@@ -63,6 +63,12 @@ internal class FrameInterpolationEngineHolder(
     /** 因静止画面而省掉的推理次数（诊断）。 */
     val staticSkips = java.util.concurrent.atomic.AtomicLong()
     val sceneCutSkips = java.util.concurrent.atomic.AtomicLong()
+    /** 推理后按运动置信度判为转场、改用最近原帧的次数（诊断）。 */
+    val transitionSkips = java.util.concurrent.atomic.AtomicLong()
+    @Volatile var lastUnreliablePermille = 0
+        private set
+    /** 局部转场：引擎把部分分块换成最近原帧的插帧次数（诊断）。 */
+    val tilePatchedFrames = java.util.concurrent.atomic.AtomicLong()
     @Volatile var lastGuardUs = 0L
         private set
     @Volatile var lastNativeUs = 0L
@@ -155,10 +161,12 @@ internal class FrameInterpolationEngineHolder(
         log("engine.failed", reason)
     }
 
-    private companion object {
+    companion object {
         val WARM_SIZES = listOf(854 to 480, 640 to 360)
         val DEFAULT_CAPABILITY_SIZES = listOf(1280 to 720, 1920 to 1080, 2560 to 1440)
         val STANDARD_TIERS = listOf(4, 6, 8)
+        /** 不可靠像素达到此千分比即视为转场；由 FrameInterpolationModelBenchmarkTest#transitionGuard 标定。 */
+        const val TRANSITION_PERMILLE = 200
         /** 1080p 档选 1/4 的门槛：留出余量给宿主 UI 与温控，否则用画质相同的 1/6。 */
         const val COMFORTABLE_MS = 16.0
         fun tierLimitMs(scale: Int, tiered: Boolean) = if (tiered && scale == 4) COMFORTABLE_MS else CAPABILITY_LIMIT_MS
@@ -208,6 +216,17 @@ internal class FrameInterpolationEngineHolder(
                 format.stride, format.stride, format.stride, leftId, rightId,
                 flowScale = flowScaleFor(format.width.toLong() * format.height))
             lastNativeUs = (System.nanoTime() - nativeStarted) / 1_000L
+            if (result != FrameInterpolationBackend.Status.OK) return result
+            // 转场保护：大面积两侧 warp 互相矛盾说明光流整体失效（切镜、闪白、超出光流范围的运动），
+            // 此时任何合成都会拉扯变形；改为最近的原帧（与切镜处理一致），逐像素回退只用于局部失效。
+            val unreliable = engine.unreliablePermille()
+            lastUnreliablePermille = unreliable
+            if (engine.patchedTiles() > 0) tilePatchedFrames.incrementAndGet()
+            if (unreliable >= TRANSITION_PERMILLE) {
+                val nearest = if (alpha <= 0.5f) left else right
+                output.duplicate().also { it.clear() }.put(nearest.duplicate().also { it.position(0); it.limit(format.bytes) })
+                transitionSkips.incrementAndGet()
+            }
             return result
         }
         override fun close() = Unit

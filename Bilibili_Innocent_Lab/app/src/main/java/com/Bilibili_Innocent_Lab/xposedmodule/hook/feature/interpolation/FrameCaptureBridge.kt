@@ -238,6 +238,8 @@ internal class FrameCaptureBridge private constructor(
                 "inferUs=${snapshot.averageInferenceUs} leadUs=${snapshot.averageLeadUs} delayUs=${session.effectiveDelayUs()} " +
                 "planned=${snapshot.planned} source=${cadence.describe()} audioDelayUs=$audioDelayUs " +
                 "staticSkips=${engine.staticSkips.get()} cutSkips=${engine.sceneCutSkips.get()} " +
+                "transitionSkips=${engine.transitionSkips.get()} tilePatched=${engine.tilePatchedFrames.get()} " +
+                "unreliable=${engine.lastUnreliablePermille} " +
                 "guardUs=${engine.lastGuardUs} nativeUs=${engine.lastNativeUs} thermal=${power?.lastHeadroom} batteryC=${power?.lastBatteryC}")
         }
     }

@@ -512,9 +512,9 @@ class FrameInterpolationModelBenchmarkTest {
      * 不重复的值噪声纹理（两个八度，格距随分辨率缩放），整体水平平移 shift 像素。棋盘格有周期，
      * 平移接近半周期时运动有歧义，不能作为真值。
      */
-    private fun scene(width: Int, height: Int, shift: Int): ByteArray {
+    private fun scene(width: Int, height: Int, shift: Int, seed: Int = 0): ByteArray {
         fun hash(x: Int, y: Int, c: Int): Int {
-            var v = x * 374761393 + y * 668265263 + c * 1442695041
+            var v = x * 374761393 + y * 668265263 + c * 1442695041 + seed * 951274213
             v = (v xor (v ushr 13)) * 1274126177
             return (v xor (v ushr 16)) and 0xff
         }
@@ -614,6 +614,86 @@ class FrameInterpolationModelBenchmarkTest {
                     report("TIER ${w}x$h flow-1/$scale psnr-vs-truth=%.2fdB".format(quality), times)
                 }
             }
+        } finally { engine.close() }
+    }
+
+    /**
+     * 转场保护标定（1080p，1/6 光流）：保护开/关各跑一次，记录对真值的 PSNR 与不可靠像素千分比。
+     * 正常运动不得误判为转场且画质不降；整屏切镜必须达到转场阈值（宿主据此换成最近原帧）。
+     */
+    @Test fun transitionGuard() {
+        val model = modelDir!!
+        assumeTrue("model not pushed", File(model, "flownet.bin").isFile)
+        assertEquals(FrameNativeLoader.Status.READY,
+            FrameInterpolationNative.prepare(File(context.applicationInfo.sourceDir), context.codeCacheDir))
+        val opened = FrameInterpolationBackend.openResearchModel(model, FrameInterpolationBackend.Backend.VULKAN, 1,
+            true, 4, true, true, 2560L * 1440L, adaptiveFlow = true)
+        assertEquals(FrameInterpolationBackend.Status.OK, opened.status)
+        val engine = opened.engine!!
+        val (w, h) = 1920 to 1080
+        val n = w * h * 3
+        fun mix(a: ByteArray, b: ByteArray, t: Double) = ByteArray(n) { i ->
+            ((a[i].toInt() and 0xff) * (1 - t) + (b[i].toInt() and 0xff) * t + 0.5).toInt().toByte() }
+        fun brighten(a: ByteArray, amount: Int) = ByteArray(n) { i -> ((a[i].toInt() and 0xff) + amount).coerceIn(0, 255).toByte() }
+        val a0 = scene(w, h, 0); val b0 = scene(w, h, 0, seed = 7)
+        val d = 24
+        val halfCut = scene(w, h, 0).also { out -> val other = scene(w, h, 0, seed = 9)
+            for (y in 0 until h) System.arraycopy(other, y * w * 3, out, y * w * 3, w * 3 / 2) }
+        // 局部转场：左上四分之一（分屏）与右下约 1/9 的画中画换成另一场景，其余静止。
+        fun region(x0: Int, y0: Int, x1: Int, y1: Int) = scene(w, h, 0).also { out -> val other = scene(w, h, 0, seed = 11)
+            for (y in y0 until y1) System.arraycopy(other, (y * w + x0) * 3, out, (y * w + x0) * 3, (x1 - x0) * 3) }
+        val quarter = intArrayOf(0, 0, w / 2, h / 2)
+        val pip = intArrayOf(w * 2 / 3, h * 2 / 3, w, h)
+        val quarterCut = region(quarter[0], quarter[1], quarter[2], quarter[3])
+        val pipCut = region(pip[0], pip[1], pip[2], pip[3])
+        fun regionPsnr(a: ByteArray, b: ByteArray, r: IntArray): Double {
+            var sum = 0.0; var count = 0
+            for (y in r[1] until r[3]) for (x in r[0] * 3 until r[2] * 3) {
+                val i = y * w * 3 + x; val diff = (a[i].toInt() and 0xff) - (b[i].toInt() and 0xff); sum += diff * diff; count++ }
+            val mse = sum / count
+            return if (mse == 0.0) 99.0 else 10 * kotlin.math.log10(255.0 * 255.0 / mse)
+        }
+        // name, left, right, truth (null: either original is acceptable)
+        val cases = listOf(
+            Triple("motion", a0 to scene(w, h, 2 * d), scene(w, h, d)),
+            Triple("hard-cut", a0 to b0, null),
+            Triple("dissolve", mix(a0, b0, 0.4) to mix(a0, b0, 0.6), mix(a0, b0, 0.5)),
+            Triple("flash", a0 to brighten(a0, 90), brighten(a0, 45)),
+            Triple("over-range", a0 to scene(w, h, 400), scene(w, h, 200)),
+            Triple("half-cut", a0 to halfCut, null),
+            Triple("quarter-cut", a0 to quarterCut, null),
+            Triple("pip-cut", a0 to pipCut, null))
+        val regions = mapOf("quarter-cut" to quarter, "pip-cut" to pip)
+        val out = ByteBuffer.allocateDirect(n)
+        try {
+            val results = HashMap<String, Pair<Int, Double>>()
+            val patchedTiles = HashMap<String, Int>()
+            for (guard in listOf(false, true)) {
+                engine.setMotionGuard(guard)
+                for ((name, pair, truth) in cases) {
+                    val left = ByteBuffer.allocateDirect(n).put(pair.first).also { it.flip() }
+                    val right = ByteBuffer.allocateDirect(n).put(pair.second).also { it.flip() }
+                    assertEquals(FrameInterpolationBackend.Status.OK, engine.process(left, right, out, w, h, 0.5f, flowScale = 6))
+                    val permille = engine.unreliablePermille()
+                    val tiles = engine.patchedTiles()
+                    val output = ByteArray(n).also { out.duplicate().get(it) }
+                    // 局部转场：变化区域内与最近原帧（左帧）的 PSNR；整帧与两侧原帧中较近者的 PSNR。
+                    val quality = regions[name]?.let { regionPsnr(pair.first, output, it) } ?: truth?.let { psnr(it, output) }
+                        ?: maxOf(psnr(pair.first, output), psnr(pair.second, output))
+                    if (guard) patchedTiles[name] = tiles
+                    val blend = truth?.let { psnr(it, mix(pair.first, pair.second, 0.5)) } ?: 0.0
+                    if (guard) results[name] = permille to quality
+                    report("GUARD ${if (guard) "on " else "off"} $name unreliable=$permille‰ tiles=$tiles psnr=%.2fdB blend=%.2fdB".format(quality, blend),
+                        listOf(0.0))
+                }
+            }
+            assertTrue("motion misjudged as transition: ${results["motion"]}",
+                results.getValue("motion").first < FrameInterpolationEngineHolder.TRANSITION_PERMILLE)
+            assertEquals("motion must not patch tiles", 0, patchedTiles.getValue("motion"))
+            assertEquals("flash must not patch tiles", 0, patchedTiles.getValue("flash"))
+            for (name in regions.keys) assertTrue("$name region not protected: ${results[name]}", results.getValue(name).second >= 40.0)
+            assertTrue("hard cut not detected: ${results["hard-cut"]}",
+                results.getValue("hard-cut").first >= FrameInterpolationEngineHolder.TRANSITION_PERMILLE)
         } finally { engine.close() }
     }
 

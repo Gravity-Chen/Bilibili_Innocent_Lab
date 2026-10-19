@@ -176,6 +176,26 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameIn
         (flags & 32) != 0, (flags & 64) != 0, (flags & 128) != 0).value();
 }
 
+extern "C" JNIEXPORT jint JNICALL
+Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameInterpolationNative_unreliablePermille(
+    JNIEnv*, jobject, jlong id) {
+    auto engine = acquire(id);
+    return engine ? engine->unreliablePermille() : 0;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameInterpolationNative_patchedTiles(
+    JNIEnv*, jobject, jlong id) {
+    auto engine = acquire(id);
+    return engine ? engine->patchedTiles() : 0;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameInterpolationNative_setMotionGuard(
+    JNIEnv*, jobject, jlong id, jboolean enabled) {
+    if (auto engine = acquire(id)) engine->setMotionGuard(enabled == JNI_TRUE);
+}
+
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameInterpolationNative_timings(
     JNIEnv* env, jobject, jlong id) {

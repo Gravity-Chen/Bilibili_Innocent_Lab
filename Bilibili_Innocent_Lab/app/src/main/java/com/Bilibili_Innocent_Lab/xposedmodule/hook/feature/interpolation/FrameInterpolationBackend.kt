@@ -42,6 +42,18 @@ internal class FrameInterpolationBackend private constructor(private var handle:
         )
     }
 
+    /** 最近一次插帧中运动置信度不足的像素比例（千分比，抽样）；用于把转场帧换成最近原帧。 */
+    @Synchronized fun unreliablePermille(): Int =
+        if (handle == 0L) 0 else FrameInterpolationNative.unreliablePermille(handle)
+
+    /** 最近一次插帧中因局部转场换成最近原帧的分块数（16×9 网格）。 */
+    @Synchronized fun patchedTiles(): Int = if (handle == 0L) 0 else FrameInterpolationNative.patchedTiles(handle)
+
+    /** 运动置信度保护默认开启；仅供对照测试关闭。 */
+    @Synchronized fun setMotionGuard(enabled: Boolean) {
+        if (handle != 0L) FrameInterpolationNative.setMotionGuard(handle, enabled)
+    }
+
     /** Last successful interpolation stage durations in ns: preprocess, inference (incl. transfers), postprocess. */
     @Synchronized fun stageNanos(): LongArray =
         if (handle == 0L) LongArray(3) else FrameInterpolationNative.timings(handle)
@@ -170,6 +182,9 @@ internal object FrameInterpolationNative {
         width: Int, height: Int, leftStride: Int, rightStride: Int, outputStride: Int, timestep: Float,
         leftId: Long, rightId: Long, flowScale: Int): Int
     external fun close(handle: Long)
+    external fun unreliablePermille(handle: Long): Int
+    external fun patchedTiles(handle: Long): Int
+    external fun setMotionGuard(handle: Long, enabled: Boolean)
     external fun configure(handle: Long, flags: Int): Int
     external fun timings(handle: Long): LongArray
     /** 0 运动，1 近静止，2 切镜，-1 布局无效；只读 RGB8 直接缓冲，不拷贝像素。 */
