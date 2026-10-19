@@ -38,8 +38,15 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
  *   音频 127.6 ms 对视频 127.5 ms。用户确认与关闭插帧时同样顺滑、无音频卡顿、口型同步。HDR 键与 AV1 profile
  *   的宿主行为已修正。未验证：25→50 fps 实片、倍速播放（IjkMediaPlayerClient 无 setSpeed，时钟按 1.0）、
  *   长时间/温控、其他分辨率与机型、TextureView 之外的显示路径。
- * - DEVICE_VALIDATED：在真机上记录过「无泄漏、呈现准时、回退可恢复」的验证。只能真机证明，
- *   故 [DEVICE_VALIDATION_RECORDED] 为编译期常量 false，契约测试锁定，改它须附真机记录。
+ * - DEVICE_VALIDATED：在真机上记录过「无泄漏、呈现准时、回退可恢复」的验证。上面 2026-10-19 的宿主内
+ *   记录即此证据，故 [DEVICE_VALIDATION_RECORDED] 为 true。
+ *
+ * 上线判定（2026-10-19）：宿主时钟/捕获/呈现 hook 已实现并在宿主内真机通过，[HOST_INTEGRATION_AVAILABLE] 为 true。
+ * 余下四项只有在播放时才有事实，不能在装配时证明，改为逐次播放强制执行（[RUNTIME_ENFORCED]）：
+ * NATIVE_READY 与 MODEL_VERIFIED 由 [FrameInterpolationEngineHolder.load] 解包原生库、按固定哈希校验
+ * 用户下载的模型，任一失败即 FAILED、不接管任何 Surface；INFERENCE_WITHIN_BUDGET 由同处的能力测量
+ * （中位推理 ≤ 20 ms）决定可插帧的最大像素，0 即 FAILED；MEDIA_PERMIT 由 [FrameMediaGate] 对每个解码器
+ * 判定，没有 Permit 就不接管、保持原生输出。[entryOpen] 只放行缺口全在这四项内的判定。
  */
 internal object FrameInterpolationEntryGate {
     enum class Condition {
@@ -67,11 +74,15 @@ internal object FrameInterpolationEntryGate {
     /** 已在本仓库实现并由 JVM 测试覆盖；不代表真机时序已验证。 */
     const val OWNERSHIP_AND_RECOVERY_IMPLEMENTED = true
 
-    /** 只能由真机验证记录改为 true；见类注释。 */
-    const val DEVICE_VALIDATION_RECORDED = false
+    /** 2026-10-19 宿主内真机记录；见类注释。 */
+    const val DEVICE_VALIDATION_RECORDED = true
 
-    /** 宿主侧时钟、捕获、呈现 hook 均未实现；实现前生产证据恒为缺失。 */
-    const val HOST_INTEGRATION_AVAILABLE = false
+    /** 宿主侧时钟、捕获、呈现 hook 已实现并在宿主内真机通过；见类注释。 */
+    const val HOST_INTEGRATION_AVAILABLE = true
+
+    /** 只在播放时才可证明、由宿主逐次强制执行的条件；见类注释。 */
+    val RUNTIME_ENFORCED: Set<Condition> = setOf(
+        Condition.NATIVE_READY, Condition.MODEL_VERIFIED, Condition.MEDIA_PERMIT, Condition.INFERENCE_WITHIN_BUDGET)
 
     fun evaluate(evidence: Evidence): Verdict = Verdict(buildList {
         if (!evidence.nativeReady) add(Condition.NATIVE_READY)
@@ -99,6 +110,9 @@ internal object FrameInterpolationEntryGate {
         presentationOwned = HOST_INTEGRATION_AVAILABLE
     ))
 
-    /** 入口可见性；关闭时设置页不得渲染 FPS 档位，播放器不得构造 [FrameInterpolationSession]。 */
-    fun entryOpen(): Boolean = production().open
+    /**
+     * 入口可见性；关闭时设置页不得渲染 FPS 档位，播放器不得构造 [FrameInterpolationSession]。
+     * 打开只表示装配时可证明的条件齐全；[RUNTIME_ENFORCED] 中的条件仍由宿主逐次播放检查。
+     */
+    fun entryOpen(): Boolean = production().missing.all { it in RUNTIME_ENFORCED }
 }

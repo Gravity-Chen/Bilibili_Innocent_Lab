@@ -8,22 +8,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 /**
- * 插帧 / FPS 入口在真机验证前必须保持关闭，且原生依赖保持「压缩随包、用到才解包」。
+ * 插帧 / FPS 入口只放行装配时已证明的条件，原生库、模型、能力与媒体准入必须在播放时逐次强制执行；
+ * 原生依赖保持「压缩随包、用到才解包」，模型只由用户在模块内下载、按固定哈希校验，不随包分发。
  * 改动这里锁定的常量或装配，必须同时附上真机验证记录（见 FrameInterpolationEntryGate 注释）。
  */
 class FrameInterpolationEntryContractTest {
     private val dir = "hook/feature/interpolation"
     private val gate = SourceContract.read("$dir/FrameInterpolationEntryGate.kt")
 
-    @Test fun `device validation and host integration stay compile time false`() {
-        assertTrue(gate.contains("const val DEVICE_VALIDATION_RECORDED = false"))
-        assertTrue(gate.contains("const val HOST_INTEGRATION_AVAILABLE = false"))
+    @Test fun `entry defers only playback time conditions and the host enforces each one`() {
+        assertTrue(gate.contains("const val DEVICE_VALIDATION_RECORDED = true"))
+        assertTrue(gate.contains("const val HOST_INTEGRATION_AVAILABLE = true"))
         val production = gate.after("fun production(): Verdict").before("fun entryOpen()")
         assertTrue(production.contains("modelVerified = false"))
         assertTrue(production.contains("mediaPermit = false"))
         assertTrue(production.contains("inferenceWithinBudget = false"))
         assertFalse(production.contains("deviceValidated"))
-        assertTrue(gate.after("fun entryOpen()").contains("production().open"))
+        val runtime = gate.after("val RUNTIME_ENFORCED").before("fun evaluate(")
+        assertEquals(4, Regex("Condition\\.").findAll(runtime).count())
+        assertTrue(gate.after("fun entryOpen()").contains("production().missing.all { it in RUNTIME_ENFORCED }"))
+
+        val engine = SourceContract.read("$dir/FrameInterpolationEngineHolder.kt")
+        assertTrue(engine.contains("if (native != FrameNativeLoader.Status.READY) { fail(\"native:\$native\"); return }"))
+        assertTrue(engine.contains("fail(\"model:unavailable\")"))
+        assertTrue(engine.contains("if (maxPixels == 0L) { fail(\"capability\"); return }"))
+        val cache = SourceContract.read("$dir/FrameModelCache.kt")
+        assertTrue(cache.contains("FrameModelSpec.matches("))
+        val bridge = SourceContract.read("$dir/FrameCaptureBridge.kt")
+        assertTrue(bridge.contains("if (resolution.permit == null) {"))
     }
 
     @Test fun `nothing outside the interpolation package builds a session or opens the backend`() {

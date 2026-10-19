@@ -309,6 +309,9 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(22, listOf(
         ReleaseHighlight("recommend-publish-time", HighlightKind.NEW, R.string.highlights_recommend_publish_time,
             HighlightDestination(SettingsCatalog.ID_RECOMMEND_VIDEO_PUBLISH_TIME_RULE))
+    )), ReleaseHighlightsBatch(23, listOf(
+        ReleaseHighlight("player-frame-interpolation", HighlightKind.NEW, R.string.highlights_player_frame_interpolation,
+            HighlightDestination("player.frame_interpolation.enabled"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

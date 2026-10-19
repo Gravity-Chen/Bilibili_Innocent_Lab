@@ -579,6 +579,7 @@ internal fun MainActivity.enhancePlaybackCategory(
         }
     }
     playerBufferSettingsRows(this)
+    playerFrameInterpolationSettingsRows(this, uiSettings)
     TextView(
         lparams = LayoutParams(widthMatchParent = true) {
             topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp

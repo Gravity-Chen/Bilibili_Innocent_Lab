@@ -30,16 +30,16 @@ class FrameInterpolationEntryGateTest {
     @Test fun `default evidence carries only what this repository proves`() {
         val verdict = FrameInterpolationEntryGate.evaluate(Evidence())
         assertFalse(Condition.OWNERSHIP_AND_RECOVERY in verdict.missing)
-        assertTrue(Condition.DEVICE_VALIDATED in verdict.missing)
+        assertFalse(Condition.DEVICE_VALIDATED in verdict.missing)
+        assertTrue(verdict.missing.containsAll(FrameInterpolationEntryGate.RUNTIME_ENFORCED))
     }
 
-    @Test fun `production entry is closed and names every unproven condition`() {
+    @Test fun `production entry leaves only runtime enforced conditions to playback`() {
         val verdict = FrameInterpolationEntryGate.production()
         assertFalse(verdict.open)
-        assertFalse(FrameInterpolationEntryGate.entryOpen())
-        assertTrue(verdict.missing.containsAll(listOf(Condition.MODEL_VERIFIED, Condition.MEDIA_PERMIT,
-            Condition.VERIFIED_CLOCK, Condition.VERIFIED_CAPTURE, Condition.PRESENTATION_OWNED,
-            Condition.INFERENCE_WITHIN_BUDGET, Condition.DEVICE_VALIDATED)))
-        assertTrue(Condition.NATIVE_READY in verdict.missing)
+        assertTrue(FrameInterpolationEntryGate.entryOpen())
+        assertEquals(FrameInterpolationEntryGate.RUNTIME_ENFORCED, verdict.missing.toSet())
+        assertEquals(setOf(Condition.NATIVE_READY, Condition.MODEL_VERIFIED, Condition.MEDIA_PERMIT,
+            Condition.INFERENCE_WITHIN_BUDGET), FrameInterpolationEntryGate.RUNTIME_ENFORCED)
     }
 }
