@@ -353,9 +353,10 @@ internal class FrameCaptureBridge private constructor(
             val bridge = runCatching {
                 // 60 fps 源的四帧窗口只覆盖 50 ms，无法保留 100 ms 延迟管线起步所需的原帧。
                 // 120 验证档扩为八源帧与十六个 RGB 缓冲，仍由账本硬上限约束。
-                // 720p 以上：推理占槽位比例更高，抖动更易错过槽位。加深流水线（延迟 150 ms、提前 100 ms、六源帧窗口），
-                // 让 worker 跑得更靠前以吸收抖动；音频按同一延迟补偿。720p 保持已在宿主验证的 100 ms。
-                val deep = processing.pixels > 1280L * 720L
+                // 深流水线（延迟 150 ms、提前 100 ms）：让 worker 跑得更靠前以吸收抖动；音频按同一延迟补偿。
+                // 起初只用于 720p 以上；宿主真机 720p 在去重（补帧比例升到约 56%）与录屏等 GPU 负载下推理约 24 ms，
+                // 100 ms/60 ms 的余量不足、出现 skippedLead，故所有尺寸都用深流水线（显式验证档位除外）。
+                val deep = requestedTargetFps == null || processing.pixels > 1280L * 720L
                 val delayNs = if (deep) DEEP_DELAY_NS else config.presentationDelayNs
                 // 源帧窗口须覆盖整个呈现延迟再加两帧余量：150 ms 在 60 fps 源上需要 11 帧（宿主真机：6 帧窗口时
                 // 时间线等不到后一帧、画面停住）。
