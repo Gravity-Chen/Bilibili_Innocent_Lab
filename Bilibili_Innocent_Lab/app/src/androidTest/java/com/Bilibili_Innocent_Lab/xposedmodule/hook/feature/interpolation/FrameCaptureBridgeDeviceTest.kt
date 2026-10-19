@@ -327,7 +327,13 @@ class FrameCaptureBridgeDeviceTest {
         val intervals = steady.zipWithNext { a, b -> (b - a) / 1e6 }
         val fps = if (steady.size > 1) (steady.size - 1) * 1e9 / (steady.last() - steady.first()) else 0.0
         val period = 1e9 / expectedFps
-        val hitches = intervals.count { it * 1e6 > period * 1.5 }
+        // 呈现跟随显示 vsync：目标帧率不能整除刷新率时（60 Hz 上 50 fps），部分帧必须多停一刷新。长间隔按「目标周期
+        // 向上取整到刷新周期」的 1.5 倍判定。
+        @Suppress("DEPRECATION")
+        val displayHz = context.getSystemService(android.view.WindowManager::class.java).defaultDisplay.refreshRate
+        val vsyncNs = 1e9 / displayHz.coerceAtLeast(1f)
+        val cadenceNs = kotlin.math.ceil(period / vsyncNs - 0.01) * vsyncNs
+        val hitches = intervals.count { it * 1e6 > maxOf(period, cadenceNs) * 1.5 }
         val summary = "first=${(secondStart - firstStart) / 1_000_000}ms displayed=${displayed.size} hitches=$hitches/${intervals.size} " +
             "before=$beforeSeek after=$afterSeek closed=$closed native=$native steadyFps=%.1f ".format(fps) +
             "maxGapMs=%.1f delayUs=${delays.minOrNull()}..${delays.maxOrNull()}".format(intervals.maxOrNull() ?: 0.0)
@@ -427,9 +433,9 @@ class FrameCaptureBridgeDeviceTest {
         assertTrue(afterSeek.presented > 0 && afterSeek.interpolated > 0)
         assertTrue("steady fps $fps", fps in expectedFps * 0.9..expectedFps * 1.1)
         assertTrue("arrival hitches $hitches of ${intervals.size}", hitches * 50 <= intervals.size)
-        // 正式播放所有尺寸都使用 150 ms 深流水线；相位锁定（FrameTimeline 上限 100 ms）并入音频补偿。
+        // 正式播放所有尺寸都使用 200 ms 深流水线；相位锁定（FrameTimeline 上限 100 ms）并入音频补偿。
         val deep = true
-        val baseDelayUs = if (deep) 150_000L else 100_000L
+        val baseDelayUs = if (deep) 200_000L else 100_000L
         val phaseUs = if (deep) 100_000L else 1_000L + 1_000_000L / sourceFps
         assertTrue("delay $delays", delays.isNotEmpty() && delays.all { it in baseDelayUs..(baseDelayUs + phaseUs) })
         assertEquals(FrameInterpolationSession.Phase.CLOSED, closed.phase)

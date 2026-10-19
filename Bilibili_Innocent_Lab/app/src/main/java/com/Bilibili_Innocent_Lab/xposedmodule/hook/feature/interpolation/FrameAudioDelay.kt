@@ -49,7 +49,7 @@ internal class FrameAudioDelay(sampleRate: Int, channels: Int, bytesPerSample: I
     private fun align(bytes: Long): Long = bytes / frameBytes * frameBytes
 
     companion object {
-        private const val MAX_DELAY_US = 250_000L
+        private const val MAX_DELAY_US = 350_000L
         private const val MAX_SILENCE_PER_WRITE = 1 shl 20
     }
 }

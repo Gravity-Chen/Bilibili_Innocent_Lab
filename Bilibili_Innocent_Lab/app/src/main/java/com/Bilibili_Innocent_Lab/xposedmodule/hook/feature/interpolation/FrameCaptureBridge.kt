@@ -195,6 +195,16 @@ internal class FrameCaptureBridge private constructor(
             discontinuityCount.incrementAndGet()
             beginEpoch()
         }
+        // 源间隔诊断：PTS 跳变（帧在宿主或解码器侧被丢弃）与到达间隔过长（PTS 连续但解码/释放迟到）分开记录，
+        // 附上一帧捕获耗时与当前音频补偿，用于区分宿主丢帧、解码器缺输出缓冲与本端捕获阻塞。
+        if (previousPtsUs != Long.MIN_VALUE) {
+            val ptsGapUs = pts - previousPtsUs
+            val arrivalGapNs = arrivalNs - lastArrivalNs
+            if (ptsGapUs > SOURCE_GAP_PTS_US || arrivalGapNs > SOURCE_GAP_ARRIVAL_NS)
+                host.log("bridge.gap", "pts=+%.1fms arrival=+%.1fms lastCapture=%.1fms audioDelayUs=$audioDelayUs"
+                    .format(ptsGapUs / 1000.0, arrivalGapNs / 1e6, lastCaptureNs / 1e6))
+        }
+        previousPtsUs = pts
         lastArrivalNs = arrivalNs
         // 捕获包含阻塞式 GPU 读回；ADPF 的 CPU 提示尚未按实际 CPU 工作分离，保持关闭以免错误提频。
         cadence.add(pts)
@@ -202,8 +212,15 @@ internal class FrameCaptureBridge private constructor(
             returnToNative("cadence:${cadence.describe()}")
             return
         }
+        val captureStarted = System.nanoTime()
         session.capture(pts, read)
+        lastCaptureNs = System.nanoTime() - captureStarted
+        if (lastCaptureNs > maxCaptureNs) maxCaptureNs = lastCaptureNs
     }
+
+    private var previousPtsUs = Long.MIN_VALUE
+    @Volatile private var lastCaptureNs = 0L
+    @Volatile private var maxCaptureNs = 0L
 
     /** 首帧时用解码器输出格式补齐颜色证据再做准入；拒绝即回原生，不呈现任何一帧。 */
     private fun admit(): Boolean {
@@ -280,6 +297,7 @@ internal class FrameCaptureBridge private constructor(
         // 音频线程上频繁阻塞写静音或丢字节，宿主内真机出现音频卡顿与视频顿挫。小幅偏差（< 20 ms）不影响口型。
         val target = session.effectiveDelayUs()
         if (target > 0L && (audioDelayUs == 0L || kotlin.math.abs(target - audioDelayUs) > AUDIO_HYSTERESIS_US)) {
+            host.log("bridge.audio", "${audioDelayUs}->$target")
             audioDelayUs = target
             host.setAudioDelayUs(target)
         }
@@ -296,7 +314,8 @@ internal class FrameCaptureBridge private constructor(
                 "unreliable=${engine.lastUnreliablePermille} flow=1/${engine.flowScaleFor(width.toLong() * height)} " +
                 "capability=${engine.capability.standard}/${engine.capability.high} " +
                 "guardUs=${engine.lastGuardUs} nativeUs=${engine.lastNativeUs} thermal=${power?.lastHeadroom} batteryC=${power?.lastBatteryC} " +
-                presenter.timingSummary())
+                "captureMaxMs=%.1f ".format(maxCaptureNs / 1e6) + presenter.timingSummary())
+            maxCaptureNs = 0L
         }
     }
 
@@ -329,8 +348,14 @@ internal class FrameCaptureBridge private constructor(
         private const val AUDIO_HYSTERESIS_US = 20_000L
         /** getThermalHeadroom 的 1.0 为严重降频；留出余量提前退出。 */
         private const val THERMAL_LIMIT = 0.85f
-        private const val DEEP_DELAY_NS = 150_000_000L
+        /**
+         * 呈现延迟 200 ms：宿主真机约每分钟一次解码迟到约 100 ms（之后一帧紧随到达），150 ms 时该处补帧来不及推理、
+         * 越过 3 个槽位（SurfaceFlinger 上 134 ms 停顿）；200 ms 让这类迟到仍能按时补帧。音频按同一延迟补偿。
+         */
+        private const val DEEP_DELAY_NS = 200_000_000L
         private const val DEEP_LEAD_NS = 100_000_000L
+        private const val SOURCE_GAP_PTS_US = 50_000L
+        private const val SOURCE_GAP_ARRIVAL_NS = 70_000_000L
         /** 账本 16 个缓冲：窗口 + 推理输出 + 呈现器持有约 3 帧。 */
         private const val MAX_FRAME_WINDOW = 11
         private const val TUNNELED = "tunneled-playback"
@@ -373,14 +398,15 @@ internal class FrameCaptureBridge private constructor(
             val bridge = runCatching {
                 // 60 fps 源的四帧窗口只覆盖 50 ms，无法保留 100 ms 延迟管线起步所需的原帧。
                 // 120 验证档扩为八源帧与十六个 RGB 缓冲，仍由账本硬上限约束。
-                // 深流水线（延迟 150 ms、提前 100 ms）：让 worker 跑得更靠前以吸收抖动；音频按同一延迟补偿。
+                // 深流水线（延迟 200 ms、提前 100 ms）：让 worker 跑得更靠前以吸收抖动；音频按同一延迟补偿。
                 // 起初只用于 720p 以上；宿主真机 720p 在去重（补帧比例升到约 56%）与录屏等 GPU 负载下推理约 24 ms，
                 // 100 ms/60 ms 的余量不足、出现 skippedLead，故所有尺寸都用深流水线（显式验证档位除外）。
                 val deep = requestedTargetFps == null || processing.pixels > 1280L * 720L
-                val delayNs = if (deep) DEEP_DELAY_NS else config.presentationDelayNs
-                // 源帧窗口须覆盖整个呈现延迟再加两帧余量：150 ms 在 60 fps 源上需要 11 帧（宿主真机：6 帧窗口时
-                // 时间线等不到后一帧、画面停住）。
+                // 源帧窗口须覆盖整个呈现延迟再加两帧余量（宿主真机：6 帧窗口配 150 ms、60 fps 源时时间线等不到后一帧、
+                // 画面停住）。窗口受账本上限约束，高帧率源的延迟按窗口能容纳的上限收紧（60 fps 源 150 ms）。
                 val sourceFps = (hint ?: 30f).coerceIn(10f, 120f)
+                val delayNs = if (deep) minOf(DEEP_DELAY_NS, ((MAX_FRAME_WINDOW - 2) * 1e9 / sourceFps).toLong())
+                    else config.presentationDelayNs
                 val window = maxOf(if (target >= 120) 8 else config.frameWindow,
                     kotlin.math.ceil(delayNs / 1e9 * sourceFps).toInt() + 2).coerceAtMost(MAX_FRAME_WINDOW)
                 val selected = config.copy(targetFps = target,
