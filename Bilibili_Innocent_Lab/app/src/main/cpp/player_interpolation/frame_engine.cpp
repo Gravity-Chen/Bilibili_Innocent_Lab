@@ -113,6 +113,9 @@ ncnn::Mat inputTensor(ImageView image, int paddedWidth, int paddedHeight) {
 // 低分辨率光流（scale = 2 或 4）：GPU 下采样输入，flownet 只在 1/scale 分辨率上估计光流与融合遮罩，
 // 再把光流（数值 ×scale）与遮罩上采样到全分辨率，用全分辨率原帧做 Warp 与融合。
 // 末段与 flownet.param 的 warp_6/warp_7/mul_76/mul_77/add_78 同构：blob 327 为 4 通道光流，332 为遮罩。
+// adaptiveFlow：像素数超过此值的帧用 1/8 光流（1080p 及以下保持 1/4）。
+constexpr std::int64_t AdaptiveFlowPixels = 1920LL * 1080LL;
+
 std::string downscaleParam(int scale) {
     const std::string factor = std::to_string(1.0 / scale);
     return "7767517\n4 4\nInput in0 0 1 in0\nInput in1 0 1 in1\n"
@@ -159,9 +162,13 @@ public:
     bool protectStaticDetails = false;
     bool fusedWarp = false;
     bool rawGpuInput = false;
+    bool adaptiveFlow = false;
     std::unique_ptr<ncnn::Net> network;
     std::unique_ptr<ncnn::Net> downscale;
     std::unique_ptr<ncnn::Net> upscale;
+    // adaptiveFlow 时 1/8 光流的缩放网络（无权重）。
+    std::unique_ptr<ncnn::Net> downscaleHigh;
+    std::unique_ptr<ncnn::Net> upscaleHigh;
     std::vector<std::uint8_t> staging;
     std::atomic<std::int64_t> timings[3] = {};
 #if NCNN_VULKAN
@@ -194,7 +201,7 @@ public:
         clearFrames();
         reduce.reset(); fused.reset(); postproc.reset(); preproc.reset();
 #endif
-        upscale.reset(); downscale.reset(); network.reset();
+        upscaleHigh.reset(); downscaleHigh.reset(); upscale.reset(); downscale.reset(); network.reset();
     }
     void releaseAllocators() noexcept {
 #if NCNN_VULKAN
@@ -203,13 +210,13 @@ public:
         blobAllocator = stagingAllocator = nullptr;
 #endif
     }
-    void configureNet(ncnn::Net& net) const {
+    void configureNet(ncnn::Net& net, bool fp16Arithmetic = true) const {
         net.opt.num_threads = options.threads;
         net.opt.use_vulkan_compute = options.backend == Backend::Vulkan;
         // fp16 仅在显式开启时启用，并由 ncnn 按设备能力再与运算；默认保持 fp32 参考路径。
         net.opt.use_fp16_packed = fp16;
         net.opt.use_fp16_storage = fp16;
-        net.opt.use_fp16_arithmetic = fp16;
+        net.opt.use_fp16_arithmetic = fp16 && fp16Arithmetic;
         net.opt.use_bf16_storage = false;
         net.opt.use_int8_inference = false;
 #if NCNN_VULKAN
@@ -264,13 +271,15 @@ std::unique_ptr<Engine> Engine::create(const Options& options, Status* status) n
     catch (...) { return fail(Code::InferenceFailed); }
 }
 
-Status Engine::configure(bool fp16, int flowScale, bool gpuIo, bool protectStaticDetails, bool fusedWarp, bool rawGpuInput) noexcept {
+Status Engine::configure(bool fp16, int flowScale, bool gpuIo, bool protectStaticDetails, bool fusedWarp, bool rawGpuInput,
+                         bool adaptiveFlow) noexcept {
     std::unique_lock<std::mutex> guard(impl_->mutex, std::try_to_lock);
     if (!guard.owns_lock()) return {Code::Busy};
-    if (flowScale != 1 && flowScale != 2 && flowScale != 4) return {Code::InvalidArgument};
+    if (flowScale != 1 && flowScale != 2 && flowScale != 4 && flowScale != 8) return {Code::InvalidArgument};
     if (protectStaticDetails && !gpuIo) return {Code::InvalidArgument};
     if (fusedWarp && (!gpuIo || flowScale == 1)) return {Code::InvalidArgument};
     if (rawGpuInput && !fusedWarp) return {Code::InvalidArgument};
+    if (adaptiveFlow && flowScale != 4) return {Code::InvalidArgument};
     if ((flowScale != 1 || gpuIo) && impl_->options.backend != Backend::Vulkan) return {Code::UnsupportedBackend};
     // 精度在 load 时固化进管线：改配置即撤销已加载模型，须重新 load。
     impl_->loaded.store(false);
@@ -281,6 +290,7 @@ Status Engine::configure(bool fp16, int flowScale, bool gpuIo, bool protectStati
     impl_->protectStaticDetails = protectStaticDetails;
     impl_->fusedWarp = fusedWarp;
     impl_->rawGpuInput = rawGpuInput;
+    impl_->adaptiveFlow = adaptiveFlow;
     return {};
 }
 
@@ -329,20 +339,23 @@ Status Engine::load(ModelView model) noexcept {
             }
         }
 #endif
-        if (impl_->flowScale != 1) {
+        for (const int scale : {impl_->flowScale, impl_->adaptiveFlow ? 8 : 1}) {
+            if (scale == 1) continue;
             auto downscale = std::make_unique<ncnn::Net>();
             auto upscale = std::make_unique<ncnn::Net>();
-            impl_->configureNet(*downscale);
+            // 下采样只做 Interp：fp16 运算下源坐标超过 2048 时间距为 2 像素，4K 输入会错位取样；改用 fp32 运算
+            // （存储仍为 fp16），代价可忽略。
+            impl_->configureNet(*downscale, false);
             impl_->configureNet(*upscale);
             const BoundedReader empty(nullptr, 0);
-            const std::string downParam = downscaleParam(impl_->flowScale);
-            const std::string upParam = upscaleParam(impl_->flowScale);
+            const std::string downParam = downscaleParam(scale);
+            const std::string upParam = upscaleParam(scale);
             if (downscale->load_param_mem(downParam.c_str()) != 0 || downscale->load_model(empty) != 0 ||
                 upscale->register_custom_layer("rife.Warp", detail::createWarp) != 0 ||
                 upscale->load_param_mem(upParam.c_str()) != 0 || upscale->load_model(empty) != 0)
                 return {Code::ModelLoadFailed};
-            impl_->downscale = std::move(downscale);
-            impl_->upscale = std::move(upscale);
+            (scale == impl_->flowScale ? impl_->downscale : impl_->downscaleHigh) = std::move(downscale);
+            (scale == impl_->flowScale ? impl_->upscale : impl_->upscaleHigh) = std::move(upscale);
         }
 #if NCNN_VULKAN
         if (impl_->gpuIo) {
@@ -405,7 +418,11 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
         } else {
             const auto began = nowNs();
             // 全分辨率补到 32×scale 的倍数，低分辨率恰为 32 的倍数，上下采样严格 scale 倍。
-            const int scale = impl_->flowScale;
+            const bool high = impl_->adaptiveFlow &&
+                static_cast<std::int64_t>(left.width) * left.height > AdaptiveFlowPixels;
+            const int scale = high ? 8 : impl_->flowScale;
+            ncnn::Net* const downNet = high ? impl_->downscaleHigh.get() : impl_->downscale.get();
+            ncnn::Net* const upNet = high ? impl_->upscaleHigh.get() : impl_->upscale.get();
             const int align = 32 * scale;
             const int paddedWidth = (left.width + align - 1) / align * align;
             const int paddedHeight = (left.height + align - 1) / align * align;
@@ -487,7 +504,7 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                             command.record_pipeline(impl_->preproc.get(), {rawGpu, *target}, constants, *target);
                             *reduced = *target;
                             if (scale != 1) {
-                                downs.push_back(impl_->downscale->create_extractor());
+                                downs.push_back(downNet->create_extractor());
                                 downs.back().set_light_mode(false);
                                 if (downs.back().input("in0", *target) != 0 || downs.back().extract("half0", *reduced, command) != 0)
                                     return {Code::InferenceFailed};
@@ -502,7 +519,7 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                     flowInput0 = full0;
                     flowInput1 = full1;
                     if (scale != 1) {
-                        downs.push_back(impl_->downscale->create_extractor());
+                        downs.push_back(downNet->create_extractor());
                         auto& down = downs.back();
                         down.set_light_mode(false);
                         if (down.input("in0", full0) != 0 || down.input("in1", full1) != 0 ||
@@ -523,7 +540,7 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                     if (estimate.extract(FlowBlob, flow, command) != 0 || estimate.extract(MaskBlob, mask, command) != 0)
                         return {Code::InferenceFailed};
                     if (!impl_->fusedWarp) {
-                        up.emplace(impl_->upscale->create_extractor());
+                        up.emplace(upNet->create_extractor());
                         if (up->input("in0", full0) != 0 || up->input("in1", full1) != 0 || up->input("flow", flow) != 0 ||
                             up->input("mask", mask) != 0 || up->extract("out0", merged, command) != 0)
                             return {Code::InferenceFailed};

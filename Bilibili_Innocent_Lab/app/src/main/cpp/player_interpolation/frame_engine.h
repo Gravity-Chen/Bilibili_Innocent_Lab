@@ -70,11 +70,13 @@ public:
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
-    // 在 load 前调用；fp16 由 ncnn 再按设备能力裁剪。flowScale 为 1/2/4（光流估计分辨率的倒数），
+    // 在 load 前调用；fp16 由 ncnn 再按设备能力裁剪。flowScale 为 1/2/4/8（光流估计分辨率的倒数；8 用于 1440p 以上），
     // flowScale > 1 与 gpuIo（RGB8 转换在 GPU 完成）仅支持 Vulkan。调用即撤销已加载模型。
     // rawGpuInput 是显式研究选项；本机有较高 CPU/PSS 代价，不默认启用。
+    // adaptiveFlow（须 flowScale 4）：像素数超过 1920×1080 的帧改用 1/8 光流，使光流输入在各分辨率下都约为
+    // 480×270；模型不变，只多载一对无权重的缩放网络。
     Status configure(bool fp16, int flowScale, bool gpuIo, bool protectStaticDetails = false, bool fusedWarp = false,
-                     bool rawGpuInput = false) noexcept;
+                     bool rawGpuInput = false, bool adaptiveFlow = false) noexcept;
     Status load(ModelView model) noexcept;
     // 最近一次成功插帧的阶段耗时（纳秒）：0 预处理，1 推理（含上传/下载），2 后处理。
     void timings(std::int64_t out[3]) const noexcept;

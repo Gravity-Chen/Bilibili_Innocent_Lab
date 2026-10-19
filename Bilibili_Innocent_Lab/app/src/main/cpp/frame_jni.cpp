@@ -24,6 +24,8 @@ using innocent::interpolation::Status;
 namespace {
 constexpr std::size_t kMaxEngines = 2;
 constexpr std::size_t kMaxPixels = 1920u * 1080u;
+// 逐帧工具（RGBA→RGB8、场景分析）的上限：处理尺寸可到 4K；两者都按实际缓冲容量再校验。
+constexpr std::size_t kMaxFramePixels = 4096u * 2160u;
 std::mutex registryMutex;
 std::map<jlong, std::shared_ptr<Engine>> engines;
 jlong sequence = 0;
@@ -166,12 +168,12 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameIn
     JNIEnv*, jobject, jlong id, jint flags) {
     auto engine = acquire(id);
     if (!engine) return static_cast<jint>(Code::NotLoaded);
-    // bit0 fp16, bit1 半分辨率光流, bit2 四分之一分辨率光流, bit3 GPU RGB8 转换,
-    // bit4 静态细节保护, bit5 融合光流上采样/warp/混合/RGB8 打包。
-    if ((flags & ~127) != 0 || (flags & 6) == 6) return static_cast<jint>(Code::InvalidArgument);
-    const int flowScale = (flags & 4) != 0 ? 4 : (flags & 2) != 0 ? 2 : 1;
+    // bit0 fp16, bit1 半分辨率光流, bit2 四分之一分辨率光流（bit1|bit2 为八分之一）, bit3 GPU RGB8 转换,
+    // bit4 静态细节保护, bit5 融合光流上采样/warp/混合/RGB8 打包, bit6 RGB8 原帧输入, bit7 自适应光流比例。
+    if ((flags & ~255) != 0) return static_cast<jint>(Code::InvalidArgument);
+    const int flowScale = (flags & 6) == 6 ? 8 : (flags & 4) != 0 ? 4 : (flags & 2) != 0 ? 2 : 1;
     return engine->configure((flags & 1) != 0, flowScale, (flags & 8) != 0, (flags & 16) != 0,
-        (flags & 32) != 0, (flags & 64) != 0).value();
+        (flags & 32) != 0, (flags & 64) != 0, (flags & 128) != 0).value();
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
@@ -191,7 +193,7 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameIn
     JNIEnv* env, jobject, jobject left, jobject right, jint width, jint height, jint stride) {
     void *l = nullptr, *r = nullptr;
     std::size_t lSize = 0, rSize = 0;
-    if (width <= 0 || height <= 0 || static_cast<std::uint64_t>(width) * height > kMaxPixels ||
+    if (width <= 0 || height <= 0 || static_cast<std::uint64_t>(width) * height > kMaxFramePixels ||
         static_cast<std::int64_t>(stride) < static_cast<std::int64_t>(width) * 3 ||
         !direct(env, left, &l, &lSize) || !direct(env, right, &r, &rSize)) return -1;
     const auto required = static_cast<std::uint64_t>(height - 1) * stride + static_cast<std::uint64_t>(width) * 3;
@@ -200,8 +202,10 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameIn
     const auto* b = static_cast<const std::uint8_t*>(r);
     std::uint64_t sum = 0, count = 0;
     bool still = true;
-    for (int y = 0; y < height && still; y += 4) {
-        for (int x = 0; x < width && still; x += 4) {
+    // 采样网格约 480 列：成本不随处理尺寸增长（1080p 步长 4，1440p 5，4K 8），判定语义按比例不变。
+    const int step = std::max(4, width / 480);
+    for (int y = 0; y < height && still; y += step) {
+        for (int x = 0; x < width && still; x += step) {
             const auto i = static_cast<std::size_t>(y) * stride + static_cast<std::size_t>(x) * 3;
             for (int c = 0; c < 3; ++c) {
                 const int d = std::abs(static_cast<int>(a[i + c]) - b[i + c]);
@@ -245,7 +249,7 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameIn
     JNIEnv* env, jobject, jobject rgba, jint width, jint height, jobject output, jint outputStride) {
     void *source = nullptr, *target = nullptr;
     std::size_t sourceSize = 0, targetSize = 0;
-    if (width <= 0 || height <= 0 || static_cast<std::size_t>(width) * static_cast<std::size_t>(height) > kMaxPixels ||
+    if (width <= 0 || height <= 0 || static_cast<std::size_t>(width) * static_cast<std::size_t>(height) > kMaxFramePixels ||
         outputStride < width * 3 || !direct(env, rgba, &source, &sourceSize) || !direct(env, output, &target, &targetSize))
         return static_cast<jint>(Code::InvalidArgument);
     const auto rowBytes = static_cast<std::size_t>(width) * 4u;

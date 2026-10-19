@@ -470,5 +470,113 @@ class FrameInterpolationModelBenchmarkTest {
         }
     }
 
+    /**
+     * 宿主处理分辨率选择依据：按宿主稳态（滚动帧对、每帧只上传一次并按 ID 复用）测 1/4 与 1/8 光流在
+     * 720p～4K 的单次补帧耗时，并以同尺寸 1/4 光流为参照给出 1/8 的 PSNR。可用 -e sizes 2560x1440,3840x2160 限定。
+     */
+    @Test fun processingResolutionThroughput() {
+        val selected = InstrumentationRegistry.getArguments().getString("sizes")?.split(',')?.map {
+            val (w, h) = it.split('x'); w.toInt() to h.toInt() }
+        val sizes = selected ?: listOf(1280 to 720, 1920 to 1080, 2560 to 1440, 3840 to 2160)
+        for ((w, h) in sizes) {
+            val frames = List(4) { frame(w, h, it * 12) }
+            val outputs = HashMap<Int, ByteArray>()
+            for (scale in listOf(4, 8)) {
+                val engine = open(FrameInterpolationBackend.Backend.VULKAN, 1, fp16 = true, flowScale = scale, gpuIo = true,
+                    protectStaticDetails = true, maxPixels = maxOf(1920L * 1080L, w.toLong() * h))
+                try {
+                    val out = ByteBuffer.allocateDirect(w * h * 3)
+                    fun step(i: Long): Double {
+                        val began = System.nanoTime()
+                        assertEquals(FrameInterpolationBackend.Status.OK, engine.process(frames[(i % 4).toInt()],
+                            frames[((i + 1) % 4).toInt()], out, w, h, 0.5f, leftId = i, rightId = i + 1))
+                        return (System.nanoTime() - began) / 1e6
+                    }
+                    repeat(4) { step(it.toLong()) }
+                    val times = (4L until 64L).map(::step).sorted()
+                    assertEquals(FrameInterpolationBackend.Status.OK,
+                        engine.process(frames[0], frames[1], out, w, h, 0.5f))
+                    outputs[scale] = ByteArray(out.capacity()).also { out.duplicate().get(it) }
+                    val quality = if (scale == 8) " psnr-vs-flow4=%.1fdB".format(psnr(outputs.getValue(4), outputs.getValue(8))) else ""
+                    report("PROCESSING ${w}x$h fp16 flow-1/$scale cached$quality", times)
+                } finally { engine.close() }
+            }
+        }
+    }
+
+    /**
+     * 对真值的画质：右帧为整体平移 2d，理想中间帧恰为平移 d。比较 1/4、1/8 与自适应光流对真值的 PSNR，
+     * 并以两帧直接平均（不做运动补偿）为下限基线；自适应须与对应固定比例逐字节一致。
+     */
+    /**
+     * 不重复的值噪声纹理（两个八度，格距随分辨率缩放），整体水平平移 shift 像素。棋盘格有周期，
+     * 平移接近半周期时运动有歧义，不能作为真值。
+     */
+    private fun scene(width: Int, height: Int, shift: Int): ByteArray {
+        fun hash(x: Int, y: Int, c: Int): Int {
+            var v = x * 374761393 + y * 668265263 + c * 1442695041
+            v = (v xor (v ushr 13)) * 1274126177
+            return (v xor (v ushr 16)) and 0xff
+        }
+        fun noise(fx: Double, fy: Double, c: Int): Double {
+            val x0 = kotlin.math.floor(fx).toInt(); val y0 = kotlin.math.floor(fy).toInt()
+            val tx = fx - x0; val ty = fy - y0
+            val a = hash(x0, y0, c) * (1 - tx) + hash(x0 + 1, y0, c) * tx
+            val b = hash(x0, y0 + 1, c) * (1 - tx) + hash(x0 + 1, y0 + 1, c) * tx
+            return a * (1 - ty) + b * ty
+        }
+        val cell = width / 24.0
+        val out = ByteArray(width * height * 3)
+        var i = 0
+        for (y in 0 until height) for (x in 0 until width) {
+            val sx = x - shift
+            for (c in 0 until 3) {
+                val v = 0.65 * noise(sx / cell, y / cell, c) + 0.35 * noise(sx * 4 / cell, y * 4 / cell, c + 3)
+                out[i++] = v.toInt().coerceIn(0, 255).toByte()
+            }
+        }
+        return out
+    }
+
+    @Test fun flowScaleQualityAgainstTruth() {
+        val selected = InstrumentationRegistry.getArguments().getString("sizes")?.split(',')?.map {
+            val (w, h) = it.split('x'); w.toInt() to h.toInt() }
+        val sizes = selected ?: listOf(1280 to 720, 1920 to 1080, 2560 to 1440, 3840 to 2160)
+        val engines = listOf("flow4" to Triple(4, false, false), "flow8" to Triple(8, false, false),
+            "adaptive" to Triple(4, true, false))
+        for ((w, h) in sizes) {
+            val d = (w / 80) and 1.inv()
+            val left = ByteBuffer.allocateDirect(w * h * 3).put(scene(w, h, 0)).also { it.flip() }
+            val right = ByteBuffer.allocateDirect(w * h * 3).put(scene(w, h, 2 * d)).also { it.flip() }
+            val truth = scene(w, h, d)
+            val blend = ByteArray(w * h * 3).also { out ->
+                for (i in out.indices) out[i] = (((left.get(i).toInt() and 0xff) + (right.get(i).toInt() and 0xff) + 1) / 2).toByte()
+            }
+            val outputs = LinkedHashMap<String, ByteArray>()
+            for ((name, config) in engines) {
+                val engine = FrameInterpolationBackend.openResearchModel(modelDir!!.also {
+                    assumeTrue("model not pushed", File(it, "flownet.bin").isFile)
+                    assertEquals(FrameNativeLoader.Status.READY,
+                        FrameInterpolationNative.prepare(File(context.applicationInfo.sourceDir), context.codeCacheDir))
+                }, FrameInterpolationBackend.Backend.VULKAN, 1, true, config.first, true, true,
+                    maxOf(1920L * 1080L, w.toLong() * h), adaptiveFlow = config.second)
+                assertEquals("open $name", FrameInterpolationBackend.Status.OK, engine.status)
+                try {
+                    val out = ByteBuffer.allocateDirect(w * h * 3)
+                    val times = List(8) {
+                        val began = System.nanoTime()
+                        assertEquals(FrameInterpolationBackend.Status.OK, engine.engine!!.process(left, right, out, w, h, 0.5f))
+                        (System.nanoTime() - began) / 1e6
+                    }.drop(2).sorted()
+                    outputs[name] = ByteArray(out.capacity()).also { out.duplicate().get(it) }
+                    report("TRUTH ${w}x$h $name d=$d psnr-vs-truth=%.2fdB blend-baseline=%.2fdB".format(
+                        psnr(truth, outputs.getValue(name)), psnr(truth, blend)), times)
+                } finally { engine.engine!!.close() }
+            }
+            val expected = if (w.toLong() * h > 1920L * 1080L) "flow8" else "flow4"
+            assertArrayEquals("adaptive ${w}x$h", outputs.getValue(expected), outputs.getValue("adaptive"))
+        }
+    }
+
     private companion object { const val TAG = "FrameBench" }
 }

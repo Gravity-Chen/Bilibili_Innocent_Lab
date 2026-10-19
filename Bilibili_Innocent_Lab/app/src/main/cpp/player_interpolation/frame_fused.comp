@@ -70,11 +70,12 @@ afpvec4 flowPixel(int x, int y) {
                    buffer_ld1(flow_data,2*p.flowCstep+i), buffer_ld1(flow_data,3*p.flowCstep+i));
 }
 afpvec3 warpPixel(int x,int y,afpvec2 flow,bool right) {
-    afpvec2 samplexy=afpvec2(x,y)+flow;
+    // Positions in fp32: fp16 spacing is 2 px above 2048, which snapped 4K samples to even pixels.
+    vec2 samplexy=vec2(x,y)+vec2(flow);
     ivec2 a=ivec2(floor(samplexy));
     ivec2 b=clamp(a+1,ivec2(0),ivec2(p.w-1,p.h-1));
     a=clamp(a,ivec2(0),ivec2(p.w-1,p.h-1));
-    afpvec2 f=samplexy-afpvec2(a);
+    afpvec2 f=afpvec2(samplexy-vec2(a));
     afpvec3 v0=afpvec3(right?rightPixel(a.x,a.y):leftPixel(a.x,a.y));
     afpvec3 v1=afpvec3(right?rightPixel(b.x,a.y):leftPixel(b.x,a.y));
     afpvec3 v2=afpvec3(right?rightPixel(a.x,b.y):leftPixel(a.x,b.y));
@@ -85,8 +86,8 @@ afpvec3 warpPixel(int x,int y,afpvec2 flow,bool right) {
 }
 vec3 mergedPixel(int x,int y) {
     // ncnn Interp, align_corner=false, with replicated border.
-    afpvec2 f=(afpvec2(x,y)+afp(0.5f))/afp(p.scale)-afp(0.5f);
-    ivec2 a=ivec2(floor(f)); f-=afpvec2(a);
+    vec2 g=(vec2(x,y)+0.5f)/float(p.scale)-0.5f;
+    ivec2 a=ivec2(floor(g)); afpvec2 f=afpvec2(g-vec2(a));
     bvec2 under=lessThan(a,ivec2(0)), over=greaterThan(a,ivec2(p.flowW-2,p.flowH-2));
     a=clamp(a,ivec2(0),ivec2(p.flowW-2,p.flowH-2));
     f=mix(f,afpvec2(0.f),under); f=mix(f,afpvec2(1.f),over);

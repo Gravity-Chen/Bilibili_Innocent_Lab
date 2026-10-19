@@ -53,11 +53,11 @@ internal class FrameInterpolationBackend private constructor(private var handle:
     }
 
     companion object {
-        private const val MAX_PIXELS = 1920L * 1080L
+        const val MAX_PIXELS = 1920L * 1080L
 
         /**
          * Research caller supplies the exact reviewed files. No network, download or model discovery.
-         * fp16 is still clipped by ncnn to device support. flowScale 2 or 4 estimates motion at 1/flowScale
+         * fp16 is still clipped by ncnn to device support. flowScale 2, 4 or 8 estimates motion at 1/flowScale
          * resolution and warps at full resolution; gpuIo converts RGB8 on the GPU. flowScale > 1 and gpuIo
          * are Vulkan only. All are research options, off by default.
          */
@@ -66,10 +66,12 @@ internal class FrameInterpolationBackend private constructor(private var handle:
                               protectStaticDetails: Boolean = false, maxPixels: Long = MAX_PIXELS,
                               fusedWarp: Boolean = gpuIo && flowScale > 1,
                               /** Research opt-in: a small 4K latency gain has higher measured CPU/PSS cost. */
-                              rawGpuInput: Boolean = false): OpenResult {
+                              rawGpuInput: Boolean = false,
+                              /** flowScale 4 下，像素数超过 1920×1080 的帧改用 1/8 光流（光流输入约 480×270）。 */
+                              adaptiveFlow: Boolean = false): OpenResult {
             requireWorker()
-            if (threads !in 1..4 || flowScale !in setOf(1, 2, 4) || protectStaticDetails && !gpuIo ||
-                maxPixels !in 1L..(4096L * 2160L) || fusedWarp && (!gpuIo || flowScale == 1) || rawGpuInput && !fusedWarp)
+            if (threads !in 1..4 || flowScale !in setOf(1, 2, 4, 8) || protectStaticDetails && !gpuIo ||
+                maxPixels !in 1L..(4096L * 2160L) || fusedWarp && (!gpuIo || flowScale == 1) || rawGpuInput && !fusedWarp || adaptiveFlow && flowScale != 4)
                 return OpenResult(Status.INVALID_ARGUMENT)
             if (!FrameInterpolationNative.available) return OpenResult(Status.NATIVE_UNAVAILABLE)
             val model = runCatching {
@@ -88,9 +90,9 @@ internal class FrameInterpolationBackend private constructor(private var handle:
                     else Status.fromNative(created.firstOrNull()?.toInt() ?: -1))
             val handle = created[1]
             if (fp16 || flowScale != 1 || gpuIo) {
-                val flags = (if (fp16) 1 else 0) or (if (flowScale == 2) 2 else 0) or (if (flowScale == 4) 4 else 0) or
+                val flags = (if (fp16) 1 else 0) or (if (flowScale == 2 || flowScale == 8) 2 else 0) or (if (flowScale == 4 || flowScale == 8) 4 else 0) or
                     (if (gpuIo) 8 else 0) or (if (protectStaticDetails) 16 else 0) or (if (fusedWarp) 32 else 0) or
-                    (if (rawGpuInput) 64 else 0)
+                    (if (rawGpuInput) 64 else 0) or (if (adaptiveFlow) 128 else 0)
                 val configured = runCatching {
                     Status.fromNative(FrameInterpolationNative.configure(handle, flags))
                 }.getOrElse { Status.NATIVE_UNAVAILABLE }
