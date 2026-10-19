@@ -405,7 +405,8 @@ internal class FrameInterpolationFeatureInstaller(
                 val sizes = listOf(1280 to 720, 1920 to 1080, 2560 to 1440) +
                     (if (panelLong >= 3840) listOf(3840 to 2160) else emptyList())
                 engine = FrameInterpolationEngineHolder(apk, host.codeCacheDir, modelSource,
-                    log = { event, detail -> log(event, detail) }, capabilitySizes = sizes)
+                    log = { event, detail -> log(event, detail) }, capabilitySizes = sizes,
+                    dumpDir = if (verifying) File(external, "$VERIFY_DIR/dump").apply { mkdirs() } else null)
                     .also { it.onReady = ::attachPending; it.warmUp() }
             }
             log("activate", "enabled=$enabled verifying=$verifying decided=$decided")

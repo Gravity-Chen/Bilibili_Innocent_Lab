@@ -21,7 +21,12 @@ internal class FrameInterpolationEngineHolder(
     private val protectStaticDetails: Boolean = true,
     private val workObserver: ((WorkSample) -> Unit)? = null,
     /** 能力测量尺寸；默认到 1440p（手机面板），面板达 4K 时由调用方加入 3840×2160。 */
-    private val capabilitySizes: List<Pair<Int, Int>> = DEFAULT_CAPABILITY_SIZES
+    private val capabilitySizes: List<Pair<Int, Int>> = DEFAULT_CAPABILITY_SIZES,
+    /**
+     * 仅 debug 验证构建：目录内存在 armed 标记时，把之后每 15 次补帧的前帧/后帧/输出各存一份 PPM（共 12 组），
+     * 用于查看真实画面中的伪影；写完删除标记。null 时完全不启用。
+     */
+    private val dumpDir: File? = null
 ) {
     constructor(moduleApk: File, hostCodeCache: File, modelDirectory: File, log: (String, String) -> Unit,
                 protectStaticDetails: Boolean = true, workObserver: ((WorkSample) -> Unit)? = null) :
@@ -38,8 +43,9 @@ internal class FrameInterpolationEngineHolder(
     val maxPixels: Long get() = maxOf(capability.standard, capability.high)
 
     /**
-     * 720p 以上、1080p 及以下的光流比例档：按 1/4 → 1/6 → 1/8 依次实测 1080p，取第一个满足预算的；
-     * 1/4 只在明显宽裕（≤ [COMFORTABLE_MS]）时选用，因为 1/6 画质几乎相同而 GPU 负载与功耗低得多。
+     * 720p 以上、1080p 及以下的光流比例档：按 1/4 → 1/6 → 1/8 依次在宿主内实测 1080p，取第一个满足预算的。
+     * 纹理场景下 1/6 与 1/4 画质相近，但动画中快速移动的细线（发丝、描边）需要更细的光流：宿主抓帧中 1/6 让
+     * 呆毛在补帧里消失，合成细线真值测试 1/4 比 1/6 高 4.3 dB。能力允许时优先 1/4。
      * 2026-10-19 真机：1080p 1/4 为 22 ms、1/6 为 14 ms，两者对真值的 PSNR 相同（50.7 dB），1/8 降到 39.6 dB。
      */
     @Volatile var standardFlowScale = 4
@@ -185,9 +191,13 @@ internal class FrameInterpolationEngineHolder(
         val STANDARD_TIERS = listOf(4, 6, 8)
         /** 不可靠像素达到此千分比即视为转场；由 FrameInterpolationModelBenchmarkTest#transitionGuard 标定。 */
         const val TRANSITION_PERMILLE = 200
-        /** 1080p 档选 1/4 的门槛：留出余量给宿主 UI 与温控，否则用画质相同的 1/6。 */
-        const val COMFORTABLE_MS = 16.0
-        fun tierLimitMs(scale: Int, tiered: Boolean) = if (tiered && scale == 4) COMFORTABLE_MS else CAPABILITY_LIMIT_MS
+        private const val DUMP_SAMPLES = 12
+        /**
+         * 1080p 选 1/4 的上限略宽：细线画质收益明显（+4.3 dB），深流水线下真机端到端 1/4（约 25 ms）无迟到；
+         * 1/5 实测反而劣于 1/6（与网络内部 2 的幂金字塔对不齐），不作为档位。
+         */
+        const val FINE_TIER_LIMIT_MS = 26.0
+        fun tierLimitMs(scale: Int, tiered: Boolean) = if (tiered && scale == 4) FINE_TIER_LIMIT_MS else CAPABILITY_LIMIT_MS
         /**
          * 独立计时中位数上限。30→60 每 33.3 ms 需一次补帧；留约 9 ms 给同时进行的捕获、呈现与宿主 UI 合成。
          * 呈现延迟已放宽（用户接受更多延迟），单次偶发超时由时间线丢槽与恢复策略吸收，持续超时回原生。
@@ -195,6 +205,33 @@ internal class FrameInterpolationEngineHolder(
         const val CAPABILITY_LIMIT_MS = 24.0
         /** 能力测量用的帧 ID 区间；账本 ID 从 0 递增，不可能到达。 */
         const val CAPABILITY_ID_BASE = 1L shl 60
+    }
+
+    private var dumpCounter = 0
+    private var dumped = 0
+    private val dumpWriter by lazy {
+        java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "innocent-frame-dump").apply { isDaemon = true } }
+    }
+
+    private fun maybeDump(dir: File, left: ByteBuffer, right: ByteBuffer, output: ByteBuffer, format: FrameBufferLedger.Format,
+                          alpha: Float, unreliable: Int, tiles: Int) {
+        val armed = File(dir, "armed")
+        if (!armed.isFile) { dumped = 0; dumpCounter = 0; return }
+        if (dumpCounter++ % 15 != 0) return
+        fun copy(buffer: ByteBuffer) = ByteArray(format.height * format.width * 3).also { out ->
+            val source = buffer.duplicate()
+            for (y in 0 until format.height) { source.position(y * format.stride); source.get(out, y * format.width * 3, format.width * 3) }
+        }
+        val frames = listOf("a" to copy(left), "b" to copy(right), "mid" to copy(output))
+        val index = dumped++
+        if (dumped >= DUMP_SAMPLES) armed.delete()
+        dumpWriter.execute {
+            runCatching {
+                val header = "P6\n${format.width} ${format.height}\n255\n".toByteArray()
+                for ((name, bytes) in frames) File(dir, "%02d-$name.ppm".format(index)).outputStream().use { it.write(header); it.write(bytes) }
+                File(dir, "%02d-info.txt".format(index)).writeText("alpha=$alpha unreliable=$unreliable tiles=$tiles flow=1/${flowScaleFor(format.width.toLong() * format.height)}\n")
+            }.onFailure { log("engine.dump", it.javaClass.simpleName) }
+        }
     }
 
     fun worker(): FrameInterpolationSession.Worker =
@@ -240,6 +277,7 @@ internal class FrameInterpolationEngineHolder(
             val unreliable = engine.unreliablePermille()
             lastUnreliablePermille = unreliable
             if (engine.patchedTiles() > 0) tilePatchedFrames.incrementAndGet()
+            dumpDir?.let { maybeDump(it, left, right, output, format, alpha, unreliable, engine.patchedTiles()) }
             if (unreliable >= TRANSITION_PERMILLE) {
                 val nearest = if (alpha <= 0.5f) left else right
                 output.duplicate().also { it.clear() }.put(nearest.duplicate().also { it.position(0); it.limit(format.bytes) })

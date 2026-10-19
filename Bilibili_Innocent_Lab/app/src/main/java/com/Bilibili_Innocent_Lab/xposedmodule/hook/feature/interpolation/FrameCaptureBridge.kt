@@ -262,7 +262,8 @@ internal class FrameCaptureBridge private constructor(
                 "planned=${snapshot.planned} source=${cadence.describe()} audioDelayUs=$audioDelayUs " +
                 "staticSkips=${engine.staticSkips.get()} cutSkips=${engine.sceneCutSkips.get()} " +
                 "transitionSkips=${engine.transitionSkips.get()} tilePatched=${engine.tilePatchedFrames.get()} " +
-                "unreliable=${engine.lastUnreliablePermille} " +
+                "unreliable=${engine.lastUnreliablePermille} flow=1/${engine.flowScaleFor(width.toLong() * height)} " +
+                "capability=${engine.capability.standard}/${engine.capability.high} " +
                 "guardUs=${engine.lastGuardUs} nativeUs=${engine.lastNativeUs} thermal=${power?.lastHeadroom} batteryC=${power?.lastBatteryC}")
         }
     }

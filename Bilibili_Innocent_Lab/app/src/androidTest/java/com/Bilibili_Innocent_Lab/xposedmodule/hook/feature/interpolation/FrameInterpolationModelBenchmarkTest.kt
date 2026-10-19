@@ -697,5 +697,145 @@ class FrameInterpolationModelBenchmarkTest {
         } finally { engine.close() }
     }
 
+    /**
+     * 快速运动物体（静止背景上平移的纹理方块）：对真值中间帧，在物体轨迹附近区域计 PSNR（光晕与撕裂都在这里）。
+     * 比较 1/4、1/6 光流在候选向量选择关/开下的画质与耗时；开启后不得劣于关闭。
+     */
+    @Test fun fastObjectBoundaries() {
+        val model = modelDir!!
+        assumeTrue("model not pushed", File(model, "flownet.bin").isFile)
+        assertEquals(FrameNativeLoader.Status.READY,
+            FrameInterpolationNative.prepare(File(context.applicationInfo.sourceDir), context.codeCacheDir))
+        val opened = FrameInterpolationBackend.openResearchModel(model, FrameInterpolationBackend.Backend.VULKAN, 1,
+            true, 4, true, true, 2560L * 1440L, adaptiveFlow = true)
+        assertEquals(FrameInterpolationBackend.Status.OK, opened.status)
+        val engine = opened.engine!!
+        val (w, h) = 1920 to 1080
+        val n = w * h * 3
+        val background = scene(w, h, 0)
+        val texture = scene(w, h, 0, seed = 5)
+        // 两个物体：大方块水平快移，小方块竖直快移。
+        data class Obj(val size: Int, val x: Int, val y: Int, val dx: Int, val dy: Int)
+        val objects = listOf(Obj(240, 500, 300, 96, 0), Obj(140, 1300, 500, 0, 72))
+        fun frame(t: Double) = background.copyOf().also { out ->
+            for (o in objects) {
+                val ox = (o.x + o.dx * t).toInt(); val oy = (o.y + o.dy * t).toInt()
+                for (y in 0 until o.size) System.arraycopy(texture, ((o.y + y) * w + o.x) * 3, out, ((oy + y) * w + ox) * 3, o.size * 3)
+            }
+        }
+        val left = ByteBuffer.allocateDirect(n).put(frame(0.0)).also { it.flip() }
+        val right = ByteBuffer.allocateDirect(n).put(frame(1.0)).also { it.flip() }
+        val truth = frame(0.5)
+        fun regionPsnr(out: ByteArray): Double {
+            var sum = 0.0; var count = 0L
+            for (o in objects) {
+                val x0 = (o.x - 48).coerceAtLeast(0); val x1 = (o.x + o.dx + o.size + 48).coerceAtMost(w)
+                val y0 = (o.y - 48).coerceAtLeast(0); val y1 = (o.y + o.dy + o.size + 48).coerceAtMost(h)
+                for (y in y0 until y1) for (x in x0 * 3 until x1 * 3) {
+                    val i = y * w * 3 + x; val d = (truth[i].toInt() and 0xff) - (out[i].toInt() and 0xff); sum += d * d; count++ }
+            }
+            return 10 * kotlin.math.log10(255.0 * 255.0 / (sum / count).coerceAtLeast(1e-9))
+        }
+        val out = ByteBuffer.allocateDirect(n)
+        val results = HashMap<String, Double>()
+        try {
+            for (scale in listOf(4, 6, 8)) {
+                val times = List(8) {
+                    val began = System.nanoTime()
+                    assertEquals(FrameInterpolationBackend.Status.OK, engine.process(left, right, out, w, h, 0.5f, flowScale = scale))
+                    (System.nanoTime() - began) / 1e6
+                }.drop(2).sorted()
+                val output = ByteArray(n).also { out.duplicate().get(it) }
+                val region = regionPsnr(output)
+                results["$scale"] = region
+                report("FAST flow-1/$scale region=%.2fdB frame=%.2fdB".format(region, psnr(truth, output)), times)
+            }
+            engine.setMotionGuard(false)
+            assertEquals(FrameInterpolationBackend.Status.OK, engine.process(left, right, out, w, h, 0.5f, flowScale = 6))
+            report("FAST flow-1/6 guard=off region=%.2fdB".format(regionPsnr(ByteArray(n).also { out.duplicate().get(it) })), listOf(0.0))
+            engine.setMotionGuard(true)
+            val full = FrameInterpolationBackend.openResearchModel(model, FrameInterpolationBackend.Backend.VULKAN, 1,
+                true, 1, true, true, 2560L * 1440L, fusedWarp = false)
+            if (full.status == FrameInterpolationBackend.Status.OK) try {
+                assertEquals(FrameInterpolationBackend.Status.OK, full.engine!!.process(left, right, out, w, h, 0.5f))
+                val output = ByteArray(n).also { out.duplicate().get(it) }
+                report("FAST full-res flow (model reference) region=%.2fdB frame=%.2fdB".format(regionPsnr(output), psnr(truth, output)), listOf(0.0))
+                // 误差位置：物体内部 vs 物体周围（遮挡/露出带）。
+                var inner = 0.0; var innerN = 0L; var ring = 0.0; var ringN = 0L
+                val o = objects[0]; val cx = o.x + o.dx / 2
+                for (y in o.y - 40 until o.y + o.size + 40) for (x in cx - 120 - 40 until cx + 120 + 40) {
+                    val inside = x in cx until cx + o.size - 0 && y in o.y until o.y + o.size
+                    for (c in 0 until 3) { val i = (y * w + x) * 3 + c
+                        val d = ((truth[i].toInt() and 0xff) - (output[i].toInt() and 0xff)).toDouble()
+                        if (inside) { inner += d * d; innerN++ } else { ring += d * d; ringN++ } }
+                }
+                report("FAST full-res inner-mse=%.1f ring-mse=%.1f".format(inner / innerN, ring / ringN), listOf(0.0))
+            } finally { full.engine!!.close() }
+        } finally { engine.setMotionGuard(true); engine.close() }
+        assertTrue("finer flow must not be worse: $results", results.getValue("4") >= results.getValue("8") - 0.5)
+    }
+
+    /**
+     * 动画细线（宿主真机抓帧所见：快速平移的角色头顶呆毛在补帧中消失）：纯色背景上带 4 px 描边的圆形「头部」
+     * 与其上方 4 px 粗的细线圆环一起平移 2d。对真值中间帧，在细线圆环区域与整个头部区域计 PSNR。
+     */
+    @Test fun thinLinesOnFlatBackground() {
+        val model = modelDir!!
+        assumeTrue("model not pushed", File(model, "flownet.bin").isFile)
+        assertEquals(FrameNativeLoader.Status.READY,
+            FrameInterpolationNative.prepare(File(context.applicationInfo.sourceDir), context.codeCacheDir))
+        val opened = FrameInterpolationBackend.openResearchModel(model, FrameInterpolationBackend.Backend.VULKAN, 1,
+            true, 4, true, true, 2560L * 1440L, adaptiveFlow = true)
+        assertEquals(FrameInterpolationBackend.Status.OK, opened.status)
+        val engine = opened.engine!!
+        val (w, h) = 1920 to 1080
+        val n = w * h * 3
+        val cy = 620; val r = 220; val loopCy = cy - r - 40; val loopR = 34
+        fun draw(cx: Int) = ByteArray(n).also { out ->
+            for (y in 0 until h) for (x in 0 until w) {
+                val i = (y * w + x) * 3
+                val dh = kotlin.math.hypot((x - cx).toDouble(), (y - cy).toDouble())
+                val dl = kotlin.math.hypot((x - cx - 10).toDouble(), (y - loopCy).toDouble())
+                val rgb = when {
+                    kotlin.math.abs(dl - loopR) <= 2.0 -> intArrayOf(40, 50, 90)          // 细线呆毛
+                    dh <= r - 4 -> intArrayOf(70, 100, 190)                                // 头发
+                    dh <= r -> intArrayOf(30, 30, 60)                                      // 描边
+                    else -> intArrayOf(104, 72, 150)                                       // 纯色背景
+                }
+                out[i] = rgb[0].toByte(); out[i + 1] = rgb[1].toByte(); out[i + 2] = rgb[2].toByte()
+            }
+        }
+        val start = 900; val d = 30
+        val left = ByteBuffer.allocateDirect(n).put(draw(start)).also { it.flip() }
+        val right = ByteBuffer.allocateDirect(n).put(draw(start + 2 * d)).also { it.flip() }
+        val truth = draw(start + d)
+        fun regionPsnr(out: ByteArray, x0: Int, y0: Int, x1: Int, y1: Int): Double {
+            var sum = 0.0; var count = 0L
+            for (y in y0 until y1) for (x in x0 * 3 until x1 * 3) {
+                val i = y * w * 3 + x; val e = (truth[i].toInt() and 0xff) - (out[i].toInt() and 0xff); sum += e * e; count++ }
+            return 10 * kotlin.math.log10(255.0 * 255.0 / (sum / count).coerceAtLeast(1e-9))
+        }
+        val loop = intArrayOf(start + 10 - loopR - 20, loopCy - loopR - 20, start + 2 * d + 10 + loopR + 20, loopCy + loopR + 20)
+        val head = intArrayOf(start - r - 20, cy - r - 20, start + 2 * d + r + 20, cy + r + 20)
+        val out = ByteBuffer.allocateDirect(n)
+        val results = HashMap<String, Double>()
+        try {
+            for (scale in listOf(4, 6, 8)) {
+                val times = List(6) {
+                    val began = System.nanoTime()
+                    assertEquals(FrameInterpolationBackend.Status.OK, engine.process(left, right, out, w, h, 0.5f, flowScale = scale))
+                    (System.nanoTime() - began) / 1e6
+                }.drop(2).sorted()
+                val output = ByteArray(n).also { out.duplicate().get(it) }
+                val loopPsnr = regionPsnr(output, loop[0], loop[1], loop[2], loop[3])
+                results["$scale"] = loopPsnr
+                report("THIN flow-1/$scale loop=%.2fdB head=%.2fdB".format(loopPsnr,
+                    regionPsnr(output, head[0], head[1], head[2], head[3])), times)
+            }
+        } finally { engine.close() }
+        // 细线依赖光流分辨率：1/4 必须明显优于 1/6（宿主据此在能力允许时为 1080p 选 1/4）。
+        assertTrue("thin lines need finer flow: $results", results.getValue("4") >= results.getValue("6") + 1.0)
+    }
+
     private companion object { const val TAG = "FrameBench" }
 }
