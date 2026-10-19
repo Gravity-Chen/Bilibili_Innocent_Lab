@@ -118,18 +118,27 @@ internal class FrameInterpolationSession(
     }
 
     /** fill 写入 RGB8 并返回是否成功；缓冲耗尽或填充失败时返回 null，当前帧由宿主原样处理。 */
-    @Synchronized fun capture(ptsUs: Long, fill: (ByteBuffer, FrameBufferLedger.Format) -> Boolean): Long? {
-        val current = lease ?: return null
-        if (phase != Phase.ACTIVE) return null
-        val slot = ledger.acquire() ?: return null
-        val filled = ledger.buffer(slot.frameId, Holder.CAPTURE)?.let { runCatching { fill(it, slot.format) }.getOrDefault(false) }
-        if (filled != true || !ledger.retain(slot.frameId, Holder.TIMELINE)) {
-            ledger.release(slot.frameId, Holder.CAPTURE); return null
+    /**
+     * 填充（GPU 读回，可能阻塞到推理让出 GPU）在会话锁之外进行：持锁读回会让 worker 完成回调、呈现交付与规划
+     * 全部排队等待，宿主真机表现为补帧槽位因提前量不足被跳过（间歇顿挫）。缓冲在锁内取得、填好后再在锁内交给
+     * 时间线；期间若 epoch 变化或会话关闭，丢弃这一帧。
+     */
+    fun capture(ptsUs: Long, fill: (ByteBuffer, FrameBufferLedger.Format) -> Boolean): Long? {
+        val (current, slot) = synchronized(this) {
+            val current = lease ?: return null
+            if (phase != Phase.ACTIVE) return null
+            current to (ledger.acquire() ?: return null)
         }
-        val offered = timeline.offer(current, FrameTimeline.Frame(slot.frameId, ptsUs))
-        ledger.releaseAll(offered.discardedIds, Holder.TIMELINE)
-        ledger.release(slot.frameId, Holder.CAPTURE)
-        return slot.frameId.takeIf { offered.accepted }
+        val filled = ledger.buffer(slot.frameId, Holder.CAPTURE)?.let { runCatching { fill(it, slot.format) }.getOrDefault(false) }
+        synchronized(this) {
+            if (filled != true || lease !== current || phase != Phase.ACTIVE || !ledger.retain(slot.frameId, Holder.TIMELINE)) {
+                ledger.release(slot.frameId, Holder.CAPTURE); return null
+            }
+            val offered = timeline.offer(current, FrameTimeline.Frame(slot.frameId, ptsUs))
+            ledger.releaseAll(offered.discardedIds, Holder.TIMELINE)
+            ledger.release(slot.frameId, Holder.CAPTURE)
+            return slot.frameId.takeIf { offered.accepted }
+        }
     }
 
     /** RESTART_REQUIRED/NO_CLOCK 会撤销本 epoch；宿主须以新 epoch 调用 [begin]，期间不呈现。 */

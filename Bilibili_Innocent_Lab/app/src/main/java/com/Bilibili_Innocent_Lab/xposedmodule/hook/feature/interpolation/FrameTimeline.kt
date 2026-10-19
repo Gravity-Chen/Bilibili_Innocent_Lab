@@ -70,13 +70,18 @@ internal class FrameTimeline(
     private var phaseOffsetUs = 0L
     private var phaseLocked = false
     /** 诊断计数：规划出的原帧/插帧槽位、相位跟踪对齐次数、因缺前后帧而等待次数。跨 epoch 累计。 */
-    data class Counters(val original: Long, val interpolate: Long, val snapped: Long, val noFuture: Long, val noPrevious: Long)
+    /** skippedLead：补帧槽位剩余提前量不足而跳过；skippedBehind：规划落后于时钟而越过的槽位。两者都会让上一帧多停一刷新。 */
+    data class Counters(val original: Long, val interpolate: Long, val snapped: Long, val noFuture: Long, val noPrevious: Long,
+                        val skippedLead: Long = 0L, val skippedBehind: Long = 0L)
     private var plannedOriginal = 0L
     private var plannedInterpolate = 0L
     private var snapped = 0L
     private var waitedFuture = 0L
     private var waitedPrevious = 0L
-    @Synchronized fun counters() = Counters(plannedOriginal, plannedInterpolate, snapped, waitedFuture, waitedPrevious)
+    private var skippedLead = 0L
+    private var skippedBehind = 0L
+    @Synchronized fun counters() = Counters(plannedOriginal, plannedInterpolate, snapped, waitedFuture, waitedPrevious,
+        skippedLead, skippedBehind)
 
     init {
         require(frameWindow in 4..12)
@@ -170,6 +175,7 @@ internal class FrameTimeline(
         val elapsed = difference(nowNs, start) ?: return Decision.Waiting(Reason.INVALID_TIME)
         if (elapsed < 0L) return Decision.Waiting(Reason.INVALID_TIME)
         val firstCurrent = firstTick(elapsed) ?: return Decision.Waiting(Reason.INVALID_TIME)
+        if (firstCurrent > nextTick && plannedOriginal + plannedInterpolate > 0L) skippedBehind += firstCurrent - nextTick
         nextTick = maxOf(nextTick, firstCurrent)
         val maxLead = maxLeadNs ?: ((NS_PER_SECOND + fps - 1L) / fps)
         // 最小提前量只约束需要推理的槽位：原帧无需推理，若也跳过会丢掉原帧、让插帧比例上升并掉帧（真机实测）。
@@ -213,6 +219,7 @@ internal class FrameTimeline(
             } else null
             val mode = if (selected == null) Mode.INTERPOLATE else Mode.ORIGINAL
             if (mode == Mode.INTERPOLATE && ahead < minLeadNs) {
+                skippedLead++
                 nextTick++
                 return@repeat
             }

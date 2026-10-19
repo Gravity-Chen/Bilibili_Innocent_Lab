@@ -57,7 +57,11 @@ class FrameCaptureBridgeDeviceTest {
     @Test fun realDecoder25FpsIsInterpolatedTo50() = run(sourceFps = 25, expectedFps = 50)
 
     /** 1080p、1440p 与 4K 源：真实解码 → 捕获时缩到处理尺寸 → 插帧 → 呈现，稳态 60 fps 且无回退。 */
-    @Test fun realDecoder1080pIsInterpolatedTo60() { width = 1920; height = 1080; run(sourceFps = 30, expectedFps = 60) }
+    @Test fun realDecoder1080pIsInterpolatedTo60() {
+        width = 1920; height = 1080
+        run(sourceFps = 30, expectedFps = 60,
+            seconds = InstrumentationRegistry.getArguments().getString("seconds", "3").toDouble().coerceIn(3.0, 120.0))
+    }
 
     @Test fun realDecoder1440pIsInterpolatedTo60() { width = 2560; height = 1440; run(sourceFps = 30, expectedFps = 60) }
 
