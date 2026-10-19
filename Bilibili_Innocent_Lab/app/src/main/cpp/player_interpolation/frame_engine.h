@@ -84,6 +84,8 @@ public:
     int unreliablePermille() const noexcept;
     // 最近一次插帧中因局部转场换成最近原帧的分块数（16×9 网格）。
     int patchedTiles() const noexcept;
+    // 最近一次插帧两帧颜色分布差异（千分比）；外层据此区分切镜与快速摇镜。
+    int histogramPermille() const noexcept;
     // 运动置信度保护默认开启；仅供对照测试关闭。
     void setMotionGuard(bool enabled) noexcept;
     // leftId/rightId ≥ 0 时按帧 ID 复用显存张量（仅 gpuIo 路径）；同一 ID 的内容必须不变，-1 表示不缓存。

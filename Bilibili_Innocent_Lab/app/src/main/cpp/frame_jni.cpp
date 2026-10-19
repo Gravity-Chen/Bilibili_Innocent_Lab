@@ -184,6 +184,13 @@ Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameIn
 }
 
 extern "C" JNIEXPORT jint JNICALL
+Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameInterpolationNative_histogramPermille(
+    JNIEnv*, jobject, jlong id) {
+    auto engine = acquire(id);
+    return engine ? engine->histogramPermille() : 0;
+}
+
+extern "C" JNIEXPORT jint JNICALL
 Java_com_Bilibili_1Innocent_1Lab_xposedmodule_hook_feature_interpolation_FrameInterpolationNative_patchedTiles(
     JNIEnv*, jobject, jlong id) {
     auto engine = acquire(id);

@@ -195,7 +195,9 @@ internal class FrameInterpolationEngineHolder(
         val DEFAULT_CAPABILITY_SIZES = listOf(1280 to 720, 1920 to 1080, 2560 to 1440)
         val STANDARD_TIERS = listOf(4, 6, 8)
         /** 不可靠像素达到此千分比即视为转场；由 FrameInterpolationModelBenchmarkTest#transitionGuard 标定。 */
-        const val TRANSITION_PERMILLE = 200
+        const val TRANSITION_PERMILLE = 300
+        const val CUT_PERMILLE = 100
+        const val CUT_HISTOGRAM_PERMILLE = 250
         private const val DUMP_SAMPLES = 12
         /** 约 4 s 的 30→60 补帧；平均超过约 80% 槽位即降档。 */
         const val TIER_WINDOW = 120
@@ -244,15 +246,17 @@ internal class FrameInterpolationEngineHolder(
     private fun maybeDump(dir: File, left: ByteBuffer, right: ByteBuffer, output: ByteBuffer, format: FrameBufferLedger.Format,
                           alpha: Float, unreliable: Int, tiles: Int) {
         val armed = File(dir, "armed")
-        if (!armed.isFile) { dumped = 0; dumpCounter = 0; return }
-        if (dumpCounter++ % 15 != 0) return
+        val tileArmed = File(dir, "armed-tiles")
+        if (!armed.isFile && !tileArmed.isFile) { dumped = 0; dumpCounter = 0; return }
+        // armed-tiles：只抓有分块被换成原帧的补帧（检查局部转场保护是否误触发）；armed：每 15 次抓一组。
+        if (tileArmed.isFile) { if (tiles == 0) return } else if (dumpCounter++ % 15 != 0) return
         fun copy(buffer: ByteBuffer) = ByteArray(format.height * format.width * 3).also { out ->
             val source = buffer.duplicate()
             for (y in 0 until format.height) { source.position(y * format.stride); source.get(out, y * format.width * 3, format.width * 3) }
         }
         val frames = listOf("a" to copy(left), "b" to copy(right), "mid" to copy(output))
         val index = dumped++
-        if (dumped >= DUMP_SAMPLES) armed.delete()
+        if (dumped >= DUMP_SAMPLES) { armed.delete(); tileArmed.delete() }
         dumpWriter.execute {
             runCatching {
                 val header = "P6\n${format.width} ${format.height}\n255\n".toByteArray()
@@ -307,7 +311,10 @@ internal class FrameInterpolationEngineHolder(
             lastUnreliablePermille = unreliable
             if (engine.patchedTiles() > 0) tilePatchedFrames.incrementAndGet()
             dumpDir?.let { maybeDump(it, left, right, output, format, alpha, unreliable, engine.patchedTiles()) }
-            if (unreliable >= TRANSITION_PERMILLE) {
+            // 宿主真机抓帧标定：切镜颜色分布差异 0.30–0.47、不可靠 183–300‰；快速摇镜/运动模糊差异 0.04–0.22、
+            // 不可靠 ≤ 148‰。摇镜整帧换原帧会退回 30 fps（掉帧感），故需颜色分布确认，或不可靠比例压倒性地高。
+            val histogram = engine.histogramPermille()
+            if (unreliable >= TRANSITION_PERMILLE || unreliable >= CUT_PERMILLE && histogram >= CUT_HISTOGRAM_PERMILLE) {
                 val nearest = if (alpha <= 0.5f) left else right
                 output.duplicate().also { it.clear() }.put(nearest.duplicate().also { it.position(0); it.limit(format.bytes) })
                 transitionSkips.incrementAndGet()

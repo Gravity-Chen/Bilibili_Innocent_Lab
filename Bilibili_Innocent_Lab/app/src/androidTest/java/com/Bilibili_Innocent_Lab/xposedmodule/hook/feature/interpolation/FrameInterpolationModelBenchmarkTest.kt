@@ -837,5 +837,48 @@ class FrameInterpolationModelBenchmarkTest {
         assertTrue("thin lines need finer flow: $results", results.getValue("4") >= results.getValue("6") + 1.0)
     }
 
+    /**
+     * 回放真机抓帧（files/replay/NN-a.ppm、NN-b.ppm，手动放入、不入库）：报告不可靠比例、回填分块、颜色分布差异
+     * 与宿主的整帧换原帧判定，用于在真实画面上标定转场保护。无数据时跳过。
+     */
+    @Test fun replayCapturedPairs() {
+        val dir = context.filesDir.resolve("replay")
+        val pairs = dir.listFiles { f -> f.name.endsWith("-a.ppm") }?.sortedBy { it.name }.orEmpty()
+        assumeTrue("no captured pairs", pairs.isNotEmpty())
+        val model = modelDir!!
+        assertEquals(FrameNativeLoader.Status.READY,
+            FrameInterpolationNative.prepare(File(context.applicationInfo.sourceDir), context.codeCacheDir))
+        val opened = FrameInterpolationBackend.openResearchModel(model, FrameInterpolationBackend.Backend.VULKAN, 1,
+            true, 4, true, true, 2560L * 1440L, adaptiveFlow = true)
+        val engine = opened.engine!!
+        fun read(file: File): Triple<Int, Int, ByteArray> {
+            val bytes = file.readBytes()
+            var offset = 0; val fields = ArrayList<String>()
+            while (fields.size < 4) {
+                while (bytes[offset].toInt().toChar().isWhitespace()) offset++
+                val start = offset
+                while (!bytes[offset].toInt().toChar().isWhitespace()) offset++
+                fields += String(bytes, start, offset - start)
+            }
+            offset++
+            return Triple(fields[1].toInt(), fields[2].toInt(), bytes.copyOfRange(offset, bytes.size))
+        }
+        try {
+            for (a in pairs) {
+                val (w, h, left) = read(a)
+                val right = read(File(a.path.replace("-a.ppm", "-b.ppm"))).third
+                val out = ByteBuffer.allocateDirect(w * h * 3)
+                assertEquals(FrameInterpolationBackend.Status.OK, engine.process(
+                    ByteBuffer.allocateDirect(left.size).put(left).also { it.flip() },
+                    ByteBuffer.allocateDirect(right.size).put(right).also { it.flip() }, out, w, h, 0.5f))
+                val unreliable = engine.unreliablePermille(); val histogram = engine.histogramPermille()
+                val swap = unreliable >= FrameInterpolationEngineHolder.TRANSITION_PERMILLE ||
+                    unreliable >= FrameInterpolationEngineHolder.CUT_PERMILLE && histogram >= FrameInterpolationEngineHolder.CUT_HISTOGRAM_PERMILLE
+                report("REPLAY ${a.name.removeSuffix("-a.ppm")} ${w}x$h unreliable=$unreliable‰ tiles=${engine.patchedTiles()} " +
+                    "histogram=$histogram‰ swap=$swap", listOf(0.0))
+            }
+        } finally { engine.close() }
+    }
+
     private companion object { const val TAG = "FrameBench" }
 }

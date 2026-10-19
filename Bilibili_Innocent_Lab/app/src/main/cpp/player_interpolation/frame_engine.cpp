@@ -120,6 +120,45 @@ constexpr int GuardTilesX = 16, GuardTilesY = 9, GuardTiles = GuardTilesX * Guar
 // 分块不可靠像素千分比：达到前者直接换成最近原帧；达到后者且与已换分块相邻时一并替换。
 constexpr int TilePatchPermille = 300, TileNeighbourPermille = 50;
 
+// 静止分块：抽样平均每通道绝对差不超过此值（0..255）。
+constexpr double StaticTileDiff = 3.0;
+
+// 每个 16×9 分块在两帧间的抽样平均通道绝对差（约 320×180 网格）。
+void tileMotion(const ImageView& a, const ImageView& b, std::array<double, GuardTiles>& out) {
+    const int stepX = std::max(1, a.width / 320), stepY = std::max(1, a.height / 180);
+    std::array<std::uint64_t, GuardTiles> sum{}, count{};
+    for (int y = 0; y < a.height; y += stepY) {
+        const auto* ra = a.data + static_cast<std::size_t>(y) * a.strideBytes;
+        const auto* rb = b.data + static_cast<std::size_t>(y) * b.strideBytes;
+        const int ty = y * GuardTilesY / a.height;
+        for (int x = 0; x < a.width; x += stepX) {
+            const int t = ty * GuardTilesX + x * GuardTilesX / a.width;
+            for (int c = 0; c < 3; ++c)
+                sum[t] += static_cast<std::uint64_t>(std::abs(static_cast<int>(ra[x * 3 + c]) - rb[x * 3 + c]));
+            count[t] += 3;
+        }
+    }
+    for (int t = 0; t < GuardTiles; ++t) out[t] = count[t] ? static_cast<double>(sum[t]) / count[t] : 0.0;
+}
+
+// 两帧颜色分布的差异（16 级 × 3 通道直方图的 L1 距离，0..1000）：切镜明显改变颜色构成，摇镜基本不变。
+int histogramDistancePermille(const ImageView& a, const ImageView& b) {
+    const int stepX = std::max(1, a.width / 320), stepY = std::max(1, a.height / 180);
+    std::array<std::int64_t, 48> bins{};
+    std::int64_t samples = 0;
+    for (int y = 0; y < a.height; y += stepY) {
+        const auto* ra = a.data + static_cast<std::size_t>(y) * a.strideBytes;
+        const auto* rb = b.data + static_cast<std::size_t>(y) * b.strideBytes;
+        for (int x = 0; x < a.width; x += stepX) {
+            for (int c = 0; c < 3; ++c) { ++bins[c * 16 + (ra[x * 3 + c] >> 4)]; --bins[c * 16 + (rb[x * 3 + c] >> 4)]; }
+            ++samples;
+        }
+    }
+    std::int64_t l1 = 0;
+    for (const auto v : bins) l1 += v < 0 ? -v : v;
+    return samples ? static_cast<int>(l1 * 1000 / (6 * samples)) : 0;
+}
+
 // 约 320×180 网格的通道均值（0..255）；只读原图，成本与分辨率无关。
 void sampleMeans(const ImageView& image, double out[3]) {
     const int stepX = std::max(1, image.width / 320), stepY = std::max(1, image.height / 180);
@@ -188,6 +227,7 @@ public:
     bool motionGuard = true;
     std::atomic<int> unreliablePermille{0};
     std::atomic<int> patchedTiles{0};
+    std::atomic<int> histogramPermille{0};
     std::unique_ptr<ncnn::Net> network;
     std::unique_ptr<ncnn::Net> downscale;
     std::unique_ptr<ncnn::Net> upscale;
@@ -327,6 +367,8 @@ int Engine::unreliablePermille() const noexcept { return impl_->unreliablePermil
 
 int Engine::patchedTiles() const noexcept { return impl_->patchedTiles.load(); }
 
+int Engine::histogramPermille() const noexcept { return impl_->histogramPermille.load(); }
+
 void Engine::setMotionGuard(bool enabled) noexcept { impl_->motionGuard = enabled; }
 
 void Engine::timings(std::int64_t out[3]) const noexcept {
@@ -454,6 +496,7 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
             const auto began = nowNs();
             impl_->unreliablePermille.store(0);
             impl_->patchedTiles.store(0);
+            impl_->histogramPermille.store(0);
             // 全分辨率补到 32×scale 的倍数，低分辨率恰为 32 的倍数，上下采样严格 scale 倍。
             // 光流比例：调用方显式指定（仅自适应模式，须为已载入的 4/6/8），否则按像素数自动选择。
             int scale = impl_->flowScale;
@@ -680,6 +723,26 @@ Status Engine::processRgb8(ImageView left, ImageView right, float timestep, Muta
                                 if (nx >= 0 && ny >= 0 && nx < GuardTilesX && ny < GuardTilesY && core[ny * GuardTilesX + nx]) patch[t] = true;
                             }
                         }
+                        // 分块回填只在周围静止时才不可见（分屏切换、静止画面上的画中画）。运动画面里（快速摇镜、
+                        // 运动模糊）原帧方块与周围补帧对不上，形成拼贴方块并让该区域退回 30 fps——宿主真机抓帧所见。
+                        // 已选分块周围的未选邻块里运动的超过三分之一时（摇镜：几乎全部在动），整帧都不回填；
+                        // 局部切换（分屏、画中画）只有边界上部分变化的少数邻块在动。
+                        std::array<double, GuardTiles> motion{};
+                        tileMotion(left, right, motion);
+                        std::array<bool, GuardTiles> ring{};
+                        for (int t = 0; t < GuardTiles; ++t) {
+                            if (!patch[t]) continue;
+                            const int x = t % GuardTilesX, y = t / GuardTilesX;
+                            for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                                const int nx = x + dx, ny = y + dy;
+                                if (nx < 0 || ny < 0 || nx >= GuardTilesX || ny >= GuardTilesY) continue;
+                                if (!patch[ny * GuardTilesX + nx]) ring[ny * GuardTilesX + nx] = true;
+                            }
+                        }
+                        int ringTiles = 0, movingRing = 0;
+                        for (int t = 0; t < GuardTiles; ++t) if (ring[t]) { ++ringTiles; if (motion[t] > StaticTileDiff) ++movingRing; }
+                        if (movingRing * 3 > ringTiles) patch.fill(false);
+                        impl_->histogramPermille.store(histogramDistancePermille(left, right));
                     }
                     // No output writes until fence completion and the finite-value flag are validated.
                     // The download is already a stable tight RGB8 image; avoid an extra 4K staging copy.

@@ -46,6 +46,9 @@ internal class FrameInterpolationBackend private constructor(private var handle:
     @Synchronized fun unreliablePermille(): Int =
         if (handle == 0L) 0 else FrameInterpolationNative.unreliablePermille(handle)
 
+    /** 最近一次插帧两帧颜色分布差异（千分比）：切镜明显，摇镜很小。 */
+    @Synchronized fun histogramPermille(): Int = if (handle == 0L) 0 else FrameInterpolationNative.histogramPermille(handle)
+
     /** 最近一次插帧中因局部转场换成最近原帧的分块数（16×9 网格）。 */
     @Synchronized fun patchedTiles(): Int = if (handle == 0L) 0 else FrameInterpolationNative.patchedTiles(handle)
 
@@ -184,6 +187,7 @@ internal object FrameInterpolationNative {
     external fun close(handle: Long)
     external fun unreliablePermille(handle: Long): Int
     external fun patchedTiles(handle: Long): Int
+    external fun histogramPermille(handle: Long): Int
     external fun setMotionGuard(handle: Long, enabled: Boolean)
     external fun configure(handle: Long, flags: Int): Int
     external fun timings(handle: Long): LongArray
