@@ -461,6 +461,7 @@ class MainActivity : SkinnedActivity() {
     internal var freeCopyDescEnabled = true
     internal var freeCopyLightMode = false
     internal var freeCopyAutoLight = false
+    internal var refreshCopyAppearanceOptions: () -> Unit = {}
     internal var hostBottomBarLiquidGlass = false
     internal var hostBottomBarGlassAppearance = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance()
     internal var hostBottomBarTouchGlow = false
@@ -4166,7 +4167,7 @@ class MainActivity : SkinnedActivity() {
         // Activity 销毁时主动关闭弹窗，避免 WindowLeaked（Activity has leaked window）
         activeConfirmDialog?.dismiss()
         activeConfirmDialog = null
-        hostBackgroundEditor?.close()
+        hostBackgroundEditor?.close(animate = false)
         hostBackgroundEditor = null
         liquidBackgroundDialog?.dismiss()
         liquidBackgroundDialog = null
@@ -4204,6 +4205,7 @@ class MainActivity : SkinnedActivity() {
         purificationSettingsRoot = null
         enhancementSettingsRoot = null
         beautificationSettingsRoot = null
+        refreshCopyAppearanceOptions = {}
         purificationAdvancedContent = null
         purificationAdvancedChevron = null
         enhancementAdvancedContent = null

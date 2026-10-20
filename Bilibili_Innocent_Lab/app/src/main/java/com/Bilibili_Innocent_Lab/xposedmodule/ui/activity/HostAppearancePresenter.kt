@@ -3,7 +3,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import android.util.Log
-import android.view.View
 import android.widget.LinearLayout as NativeLinearLayout
 import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.R
@@ -35,13 +34,7 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
 ) {
     with(performer) {
         var refreshGlassSettings: () -> Unit = {}
-        val capsuleOptions = mutableListOf<View>()
-        fun refreshCapsuleOptions() {
-            capsuleOptions.forEach {
-                it.isEnabled = hostBottomBarLiquidGlass
-                it.alpha = if (hostBottomBarLiquidGlass) 1f else .45f
-            }
-        }
+        val capsuleOptions = DependentAppearanceOptions { hostBottomBarLiquidGlass }
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {
                 topMargin = 12.dp
@@ -73,7 +66,7 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
                     )
                 }
                 refreshGlassSettings()
-                refreshCapsuleOptions()
+                capsuleOptions.refresh()
             }
         }
         TextView(
@@ -93,7 +86,7 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
                 bottomMargin = 5.dp
             }
         ) {
-            capsuleOptions += this
+            capsuleOptions.add(this)
             bindFavoriteSwitch(this, FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, directToggle = true)
             text = stringResource(R.string.host_bottom_bar_compact)
             isAllCaps = false
@@ -123,11 +116,11 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             }
         }
         TextView(lparams = LayoutParams(widthMatchParent = true) { marginStart = 16.dp }) {
-            capsuleOptions += this
             alpha = 0.6f
             text = stringResource(R.string.host_bottom_bar_compact_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
+            capsuleOptions.add(this)
         }
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {
@@ -136,7 +129,7 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
                 bottomMargin = 5.dp
             }
         ) {
-            capsuleOptions += this
+            capsuleOptions.add(this)
             bindFavoriteSwitch(this, FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, directToggle = true)
             text = stringResource(R.string.host_bottom_bar_icon_only)
             isAllCaps = false
@@ -166,13 +159,13 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             }
         }
         TextView(lparams = LayoutParams(widthMatchParent = true) { marginStart = 16.dp }) {
-            capsuleOptions += this
             alpha = 0.6f
             text = stringResource(R.string.host_bottom_bar_icon_only_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
+            capsuleOptions.add(this)
         }
-        refreshCapsuleOptions()
+        capsuleOptions.refresh()
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {
                 topMargin = 12.dp
@@ -311,6 +304,7 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
     performer: Hikage.Performer<NativeLinearLayout.LayoutParams>
 ) {
     with(performer) {
+        val cardOptions = DependentAppearanceOptions { hostVideoCards }
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {
                 topMargin = 12.dp
@@ -327,6 +321,7 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
                 hostVideoCards = checked
                 runCatching { prefs().edit { putBoolean(FeaturePreferences.HOST_VIDEO_CARDS, checked) } }
                     .onFailure { Log.e("BilibiliInnocentLab", "write host video card prefs failed", it) }
+                cardOptions.refresh()
             }
         }
         TextView(lparams = LayoutParams(widthMatchParent = true)) {
@@ -347,7 +342,8 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
             setPadding(0, 12.dp, 0, 12.dp)
             background = selfRippleBackground(10f)
             isClickable = true; isFocusable = true
-            setOnClickListener { showHostCardMaterialDialog(this, ::refresh) }
+            setOnClickListener { if (hostVideoCards) showHostCardMaterialDialog(this, ::refresh) }
+            cardOptions.add(this)
         }
         TextView(lparams = LayoutParams(widthMatchParent = true)) {
             alpha = 0.6f
@@ -355,6 +351,7 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
             text = stringResource(R.string.host_card_material_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
+            cardOptions.add(this)
         }
         TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }) {
             bindSettingDestination(this, FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP)
@@ -370,7 +367,8 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
             background = selfRippleBackground(10f)
             isClickable = true
             isFocusable = true
-            setOnClickListener { showHostVideoCardRadiusDialog(this) { refresh() } }
+            setOnClickListener { if (hostVideoCards) showHostVideoCardRadiusDialog(this) { refresh() } }
+            cardOptions.add(this)
         }
         TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }) {
             bindSettingDestination(this, FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP)
