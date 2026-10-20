@@ -4,8 +4,13 @@ import kotlin.math.roundToLong
 
 /**
  * 由宿主解码帧到达时刻推算主时钟。ijk 按音频主时钟在每帧应显示时 releaseOutputBuffer，
- * 帧到达只会因调度而偏晚、不会偏早，因此窗口内 (PTS − 到达时刻 × 倍速) 的最大值是最接近真实映射的样本；
- * 最大值与中位数之差作为误差上界报告给 [FrameTimeline]，由其按配置上界拒绝过抖的时钟。
+ * 帧到达只会因调度而偏晚、不会偏早，因此窗口内 (PTS − 到达时刻 × 倍速) 的最大值是最接近真实映射的样本（下包络）。
+ *
+ * 报告给 [FrameTimeline] 的误差上界是下包络的稳定度：最佳样本与第 [envelopeRank] 佳样本之差，加上限速平滑尚未
+ * 追上的量。原先用「最大值 − 中位数」，那衡量的是典型迟到量而不是估计误差：宿主进程里帧普遍迟到 5–15 ms
+ * （调度、捕获线程等 GPU），估计本身准确到 1 ms 时它仍报超过 8 ms，开播时只有 4 个样本更报出 60 ms 以上，
+ * 有界回退因此在时钟收敛前就交还原生。若干样本都贴近下包络时估计可信；只有一个孤立的更早样本时差值大、照样拒绝。
+ * 调度延迟的恒定下限会让映射整体偏晚同一常量，不影响节奏，也远小于音频补偿滞回。
  *
  * PTS 回跳、前跳超过 [discontinuityUs] 或长时间无帧后恢复（暂停/seek）都报告 DISCONTINUITY，
  * 外层须以新 epoch 重建；倍速只能由宿主已验证的设置传入，变化同样视为不连续。
@@ -13,7 +18,9 @@ import kotlin.math.roundToLong
 internal class FrameHostClock(
     private val window: Int = 32,
     private val discontinuityUs: Long = 250_000L,
-    private val minSamples: Int = 4,
+    /** 首个快照前至少这么多帧（30 fps 约 0.4 s），开播解码突发不会产出不可信的映射。 */
+    private val minSamples: Int = 12,
+    private val envelopeRank: Int = 4,
     private val minUncertaintyUs: Long = 500L,
     /**
      * 每次快照最多移动的映射量。下包络在更早样本到达或最佳样本移出窗口时会跳 1–3 ms（真机），
@@ -34,7 +41,7 @@ internal class FrameHostClock(
 
     init {
         require(window in 8..256 && discontinuityUs > 0L && minSamples in 2..window && minUncertaintyUs >= 0L &&
-            maxSlewUs > 0L && jumpUs > maxSlewUs)
+            maxSlewUs > 0L && jumpUs > maxSlewUs && envelopeRank in 2..minSamples)
     }
 
     @Synchronized fun feed(ptsUs: Long, arrivalNs: Long, playbackSpeed: Double = 1.0): Update {
@@ -57,7 +64,7 @@ internal class FrameHostClock(
         if (count < minSamples || nowNs < lastArrivalNs) return null
         val samples = offsets.copyOf(count).also { it.sort() }
         val best = samples.last()
-        val median = samples[count / 2]
+        val confirmed = samples[count - envelopeRank]
         val previous = applied
         val offset = when {
             previous == null || kotlin.math.abs(best - previous) > jumpUs -> best
@@ -66,7 +73,7 @@ internal class FrameHostClock(
         applied = offset
         val media = (offset + nowNs / 1_000.0 * speed).roundToLong()
         if (media < 0L) return null
-        val uncertainty = maxOf(minUncertaintyUs, (best - median).roundToLong() + kotlin.math.abs(best - offset).roundToLong())
+        val uncertainty = maxOf(minUncertaintyUs, (best - confirmed).roundToLong() + kotlin.math.abs(best - offset).roundToLong())
         return FrameTimeline.ClockSnapshot(media, nowNs, speed, false, discontinuity, uncertainty)
     }
 

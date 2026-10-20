@@ -42,6 +42,8 @@ class FrameCaptureBridgeDeviceTest {
     /** 编码时每 5 帧重复 1 帧画面（24 fps 动画嵌在 30 fps 流中的下拉）。 */
     private var pulldown = false
     private var requireNativeSize = false
+    /** 在前台 Surface 建立后、接管前重新测定共享引擎的能力（复现宿主进程启动时的一次测定）。 */
+    private var remeasureBeforeRun = false
     @Volatile private var rejectClock = false
     private var verifyClockFallback = false
     /** 呈现帧的内容指纹（移动亮块所在行的抽样和），用于统计重复帧。 */
@@ -86,6 +88,9 @@ class FrameCaptureBridgeDeviceTest {
 
     /** 必须全链路处理原尺寸；降到 720p 即失败，不能计作原尺寸 1080p 通过。 */
     @Test fun nativeResolution1080pIsInterpolatedTo60() {
+        // 宿主在播放进程启动时测一次能力；本测试验证这一判定，故在开始前重新测定，不沿用同类中先行测试
+        // （不同负载下）对共享引擎的测定结果。
+        remeasureBeforeRun = true
         requireNativeSize = true
         width = 1920; height = 1080
         run(sourceFps = 30, expectedFps = 60, onScreen = true,
@@ -218,6 +223,10 @@ class FrameCaptureBridgeDeviceTest {
         while (!engine.ready() && engine.state != FrameInterpolationEngineHolder.State.FAILED && System.nanoTime() < deadline) Thread.sleep(50)
         if (!engine.ready()) activity?.let { instrumentation.runOnMainSync { it.finish() } }
         assertTrue("engine ${engine.state} $logs", engine.ready())
+        if (remeasureBeforeRun) {
+            remeasureBeforeRun = false
+            assertTrue("capability re-measurement failed: $logs", engine.remeasureCapability())
+        }
         sendStatus("engine", "capability=${engine.capability} foreground=$onScreen")
 
         val displayThread = HandlerThread("frame-e2e-display").apply { start() }

@@ -14,10 +14,44 @@ class FrameHostClockTest {
 
     @Test fun `needs a few samples before reporting a clock`() {
         val clock = FrameHostClock()
-        clock.feedFrames(0, 3, 0L)
-        assertNull(clock.snapshot(100_000_000L, 1L))
-        clock.feedFrames(3, 4, 0L)
-        assertNotNull(clock.snapshot(100_000_000L, 1L))
+        clock.feedFrames(0, 11, 0L)
+        assertNull(clock.snapshot(500_000_000L, 1L))
+        clock.feedFrames(11, 12, 0L)
+        assertNotNull(clock.snapshot(500_000_000L, 1L))
+    }
+
+    /**
+     * 宿主进程的典型到达：普遍迟到 2–12 ms，另有约 10% 迟到 20–30 ms。真实映射已知（base + PTS）。
+     * 估计误差应只有调度延迟的下限量级；旧的「最大值 − 中位数」会超过 8 ms 门限，新的误差上界不会。
+     */
+    @Test fun `heavy tailed lateness keeps an accurate estimate and a bound under the gate`() {
+        val random = java.util.Random(7)
+        // 尾部到 30 ms：真实解码器按顺序交付，迟到不会超过一个帧间隔而让后一帧先到。
+        val lateness = LongArray(400) { if (random.nextInt(10) == 0) 20_000L + random.nextInt(10_000) else 2_000L + random.nextInt(10_000) }
+        val base = 1_000_000_000L
+        var worstError = 0L
+        var worstBound = 0L
+        for (i in 40 until 400) {
+            val fresh = FrameHostClock()
+            fresh.feedFrames(i - 32, i, base) { lateness[it] }
+            val now = base + i * periodUs * 1_000L
+            val snapshot = fresh.snapshot(now, 1L)!!
+            // 误差恰为窗口内最小迟到量（调度延迟下限），而非典型迟到量。
+            val floor = (i - 32 until i).minOf { lateness[it] }
+            assertTrue("estimate error at $i", kotlin.math.abs(snapshot.mediaUs - i * periodUs) <= floor + 100L)
+            worstError = maxOf(worstError, kotlin.math.abs(snapshot.mediaUs - i * periodUs))
+            worstBound = maxOf(worstBound, snapshot.uncertaintyUs)
+        }
+        assertTrue("estimate error $worstError", worstError <= 4_000L)
+        assertTrue("bound $worstBound must stay under the 8 ms gate", worstBound <= 8_000L)
+    }
+
+    @Test fun `an isolated early sample is not trusted until others confirm it`() {
+        val clock = FrameHostClock()
+        clock.feedFrames(0, 20, 0L) { 6_000L }
+        clock.feed(20 * periodUs, 20 * periodUs * 1_000L - 4_000_000L)
+        // 只有一个比其余早 10 ms 的样本：下包络未被确认，误差上界至少反映这 10 ms。
+        assertTrue(clock.snapshot(800_000_000L, 1L)!!.uncertaintyUs >= 9_000L)
     }
 
     @Test fun `late arrivals do not drag the clock and jitter becomes the uncertainty`() {
@@ -34,18 +68,18 @@ class FrameHostClockTest {
 
     @Test fun `a better sample moves the estimate gradually and a large offset jumps at once`() {
         val clock = FrameHostClock()
-        clock.feedFrames(0, 8, 0L) { 3_000L }
-        val first = clock.snapshot(300_000_000L, 1L)!!
+        clock.feedFrames(0, 12, 0L) { 3_000L }
+        val first = clock.snapshot(500_000_000L, 1L)!!
         // 一帧准时到达：下包络提前 3 ms，但每次快照最多移动 0.2 ms。
-        clock.feed(8 * periodUs, 8 * periodUs * 1_000L)
-        val second = clock.snapshot(300_000_000L, 1L)!!
+        clock.feed(12 * periodUs, 12 * periodUs * 1_000L)
+        val second = clock.snapshot(500_000_000L, 1L)!!
         assertEquals(200L, second.mediaUs - first.mediaUs)
         assertTrue(second.uncertaintyUs >= 2_800L)
         val slow = FrameHostClock(jumpUs = 2_000L)
-        slow.feedFrames(0, 8, 0L) { 3_000L }
-        val before = slow.snapshot(300_000_000L, 1L)!!
-        slow.feed(8 * periodUs, 8 * periodUs * 1_000L)
-        assertEquals(3_000L, slow.snapshot(300_000_000L, 1L)!!.mediaUs - before.mediaUs)
+        slow.feedFrames(0, 12, 0L) { 3_000L }
+        val before = slow.snapshot(500_000_000L, 1L)!!
+        slow.feed(12 * periodUs, 12 * periodUs * 1_000L)
+        assertEquals(3_000L, slow.snapshot(500_000_000L, 1L)!!.mediaUs - before.mediaUs)
     }
 
     @Test fun `seek back, jump forward and resume after pause are discontinuities`() {
@@ -61,12 +95,12 @@ class FrameHostClockTest {
     @Test fun `speed change restarts and the clock advances at the given speed`() {
         val clock = FrameHostClock()
         clock.feedFrames(0, 8, 0L)
-        val doubled = (8 until 16).map { clock.feed(it * periodUs, 8 * periodUs * 1_000L + (it - 8) * periodUs * 500L, 2.0) }
+        val doubled = (8 until 20).map { clock.feed(it * periodUs, 8 * periodUs * 1_000L + (it - 8) * periodUs * 500L, 2.0) }
         assertEquals(Update.DISCONTINUITY, doubled.first())
         assertTrue(doubled.drop(1).all { it == Update.ACCEPTED })
-        val lastArrival = 8 * periodUs * 1_000L + 7 * periodUs * 500L
+        val lastArrival = 8 * periodUs * 1_000L + 11 * periodUs * 500L
         val snapshot = clock.snapshot(lastArrival + 10_000_000L, 1L)!!
-        assertEquals(15 * periodUs + 20_000L, snapshot.mediaUs)
+        assertEquals(19 * periodUs + 20_000L, snapshot.mediaUs)
         assertEquals(2.0, snapshot.speed, 0.0)
     }
 

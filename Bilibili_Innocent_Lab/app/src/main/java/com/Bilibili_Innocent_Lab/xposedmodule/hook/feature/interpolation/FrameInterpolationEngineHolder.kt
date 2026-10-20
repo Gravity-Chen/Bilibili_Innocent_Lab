@@ -106,6 +106,17 @@ internal class FrameInterpolationEngineHolder(
 
     fun ready(): Boolean = state == State.READY
 
+    /**
+     * 在当前条件下重新测定能力（在 worker 上执行，与推理串行），等待完成。宿主只在播放进程启动时测一次；
+     * 测试用它在前台 Surface 条件下复现这一判定，而不必重建引擎（原生侧限制同时存在的引擎数）。
+     */
+    fun remeasureCapability(timeoutMs: Long = 30_000L): Boolean {
+        val engine = backend ?: return false
+        val done = java.util.concurrent.CountDownLatch(1)
+        val accepted = runCatching { executor.execute { try { measureCapability(engine) } finally { done.countDown() } } }.isSuccess
+        return accepted && done.await(timeoutMs, TimeUnit.MILLISECONDS) && ready()
+    }
+
     /** 仅能力测量失败时：到期则在 worker 上重测；返回是否已安排重测（调用方可把解码器挂到迟接管）。 */
     @Synchronized fun retryIfDue(nowNs: Long = System.nanoTime()): Boolean {
         val engine = backend ?: return false
@@ -203,12 +214,16 @@ internal class FrameInterpolationEngineHolder(
         fun step(i: Int) = engine.process(frames[i % 4], frames[(i + 1) % 4], out, width, height, 0.5f,
             leftId = base + i * 0x1_0000_0000L, rightId = base + (i + 1) * 0x1_0000_0000L, flowScale = flowScale)
         step(0)
-        val times = List(3) { index ->
+        // 测本机固有速度：5 次取第二快。启动时宿主 UI 或其他 GPU 负载的短暂争用会把 3 次中位数推过上限（真机：1080p
+        // 一次测得 1/4 与 1/6 档全部超限、整个进程退到 720p，另一次 1/4 档 24.8 ms 通过）。播放中的实际负载由
+        // observeLoad 按推理占用降档或缩小处理尺寸，两者分工：启动看能力，运行看负载。
+        val times = List(5) { index ->
             val started = System.nanoTime()
             step(index + 1)
             (System.nanoTime() - started) / 1e6
         }.sorted()
-        log("engine.capability", "${width}x$height flow=1/$flowScale median=%.1fms".format(times[1]))
+        log("engine.capability", "${width}x$height flow=1/$flowScale robust=%.1fms all=%s".format(times[1],
+            times.joinToString("/") { "%.1f".format(it) }))
         return times[1]
     }
 
