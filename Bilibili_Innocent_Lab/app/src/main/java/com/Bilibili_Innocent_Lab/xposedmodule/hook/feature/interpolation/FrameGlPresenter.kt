@@ -31,6 +31,8 @@ internal class FrameGlPresenter(
      * 放在刷新间隔中间后，SurfaceFlinger 总在目标刷新显示，与提交抖动无关（Android Frame Pacing 的做法）。
      */
     private val timestampLeadNs = 1_000_000_000L / targetFps.coerceAtLeast(1) / 2
+    /** 跟随真实 vsync 交付的网格（见 [onVsync]）；须在呈现线程启动前初始化。 */
+    private val vsync = FrameVsyncGrid(1_000_000_000L / targetFps.coerceAtLeast(1))
     @Volatile private var running = true
     private val thread = Thread({ loop() }, "innocent-frame-present").apply {
         priority = Thread.MAX_PRIORITY
@@ -103,10 +105,11 @@ internal class FrameGlPresenter(
                         continue
                     }
                     if (stageUploads && staged !== next) break
-                    if (lastVsyncNs != 0L) {
-                        // vsync 跟随：等到 onVsync 唤醒（或最多一个周期后复查）。
-                        if (releasable(next, System.nanoTime())) break
-                        lock.wait(periodNs / 1_000_000L + 1)
+                    if (vsync.lastNs != 0L) {
+                        // vsync 跟随：等到 onVsync 唤醒，或在下一个外推 vsync 复查（驱动线程可能漏掉回调）。
+                        val now = System.nanoTime()
+                        if (releasable(next, now)) break
+                        lock.wait(vsync.untilNextNs(now) / 1_000_000L + 1)
                         continue
                     }
                     // Object.wait 只有毫秒级唤醒；最后 SPIN_THRESHOLD_NS 改为出锁 parkNanos 精确等待。
@@ -128,7 +131,7 @@ internal class FrameGlPresenter(
                 } else staged = target
                 continue
             }
-            if (lastVsyncNs == 0L) {
+            if (vsync.lastNs == 0L) {
                 val wait = waitNs(target)
                 if (wait > 0L) java.util.concurrent.locks.LockSupport.parkNanos(wait)
             } else if (!releasable(target, System.nanoTime())) continue
@@ -144,8 +147,12 @@ internal class FrameGlPresenter(
         val started = System.nanoTime()
         val next = synchronized(lock) { pending.peek() }
         // 同一刷新已有更新的一帧可交付：本帧作废，保证每个刷新最多提交一帧。
-        if (next != null && (if (lastVsyncNs != 0L) releasable(next, started) else next.dueNs - timestampLeadNs - presentLeadNs <= started)) {
-            runCatching { item.done(FrameInterpolationSession.Outcome.Dropped(started)) }
+        if (next != null && (if (vsync.lastNs != 0L) releasable(next, started) else next.dueNs - timestampLeadNs - presentLeadNs <= started)) {
+            // 面板比目标慢（目标按面板模式定为 90 fps、面板停在 60 Hz）时每几帧必有一帧让位，这是刷新上限而非故障。
+            val slowPanel = !vsync.stale(started) && vsync.slowerThanContent()
+            if (slowPanel) superseded++
+            runCatching { item.done(if (slowPanel) FrameInterpolationSession.Outcome.Superseded(started)
+                else FrameInterpolationSession.Outcome.Dropped(started)) }
             return
         }
         val outcome = runCatching {
@@ -238,6 +245,7 @@ internal class FrameGlPresenter(
     // 诊断：请求的呈现时间戳间隔（应为整周期）与提交时刻相对时间戳的偏差，按统计窗口汇总。
     private var lastTimestampNs = 0L
     @Volatile private var timestampRejected = 0L
+    @Volatile private var superseded = 0L
     private val gpuDone = IntArray(5)
     /** 诊断开关：交付后等待 GPU 完成以统计耗时。 */
     @Volatile var measureGpu = false
@@ -250,18 +258,14 @@ internal class FrameGlPresenter(
      * 提交（开环）时，提交相位与 SurfaceFlinger 取帧时刻的相对漂移与抖动让部分刷新拿到两帧、下一刷新没有新帧（timestats
      * 每秒约 2 次 33 ms 间隔，而本端时间戳与提交都准时）。跟随 vsync 后每个刷新最多提交一帧、相位固定。
      */
-    @Volatile private var lastVsyncNs = 0L
-    private val periodNs = 1_000_000_000L / targetFps.coerceAtLeast(1)
 
     fun onVsync(vsyncNs: Long) = synchronized(lock) {
-        if (vsyncNs > lastVsyncNs) { lastVsyncNs = vsyncNs; lock.notifyAll() }
+        if (vsync.onVsync(vsyncNs)) lock.notifyAll()
     }
 
     /** 已收到 vsync 时，帧在「上一 vsync 起算的下一刷新」到期即可提交；否则沿用时间网格。 */
     private fun releasable(item: Scheduled, nowNs: Long): Boolean {
-        val vsync = lastVsyncNs
-        return if (vsync != 0L && nowNs - vsync < 4 * periodNs) item.dueNs <= vsync + periodNs + periodNs / 2
-            else waitNs(item) <= 0L
+        return if (!vsync.stale(nowNs)) vsync.releasable(item.dueNs, nowNs) else waitNs(item) <= 0L
     }
     private val timestampGaps = IntArray(8)
     private val submitSlack = IntArray(6)
@@ -284,7 +288,7 @@ internal class FrameGlPresenter(
 
     /** 自上次调用以来的时间戳间隔与提交偏差分布（诊断日志用），并清零。 */
     fun timingSummary(): String = synchronized(timestampGaps) {
-        ("tsRejected=$timestampRejected gaps[dup,1,2,3,4,5,6+,off]=${timestampGaps.joinToString(",")} " +
+        ("tsRejected=$timestampRejected superseded=$superseded gaps[dup,1,2,3,4,5,6+,off]=${timestampGaps.joinToString(",")} " +
             "submit[<-8,-8,-4,0,4,>8]=${submitSlack.joinToString(",")} " +
             "gpu[<2,2-5,5-10,10-15,>15ms]=${gpuDone.joinToString(",")}").also {
             timestampGaps.fill(0); submitSlack.fill(0); gpuDone.fill(0)

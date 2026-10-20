@@ -216,6 +216,11 @@ class FrameCaptureBridgeDeviceTest {
             assertTrue("screen surface not ready", activity.ready.await(3, TimeUnit.SECONDS))
             Thread.sleep(1_000)
         }
+        // -e holdRefreshHz N：离屏用例另开一个前台窗口只为把面板保持在 N Hz（复现高刷面板下的行为），输出仍离屏。
+        val holdHz = args.getString("holdRefreshHz")?.toIntOrNull()
+        val holder = if (!onScreen && holdHz != null) (instrumentation.startActivitySync(Intent(context, FrameRateValidationActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("targetFps", holdHz)) as FrameRateValidationActivity)
+            .also { assertTrue("hold surface not ready", it.ready.await(3, TimeUnit.SECONDS)); Thread.sleep(1_000) } else null
 
         // 窗口先进入前台再测能力，与真实宿主播放一致；后台离屏测量单独报告，不能代表前台可持续处理尺寸。
         engine.warmUp()
@@ -354,6 +359,7 @@ class FrameCaptureBridgeDeviceTest {
         display?.close()
         displayThread.quitSafely()
         activity?.let { instrumentation.runOnMainSync { it.finish() } }
+        holder?.let { instrumentation.runOnMainSync { it.finish() } }
 
         // 第二段稳态（跳过 seek 后前 1 s）的显示间隔。
         val steady = (if (onScreen) submitted else displayed).filter { it in (secondStart + 1_000_000_000L)..secondEnd }.sorted()

@@ -50,6 +50,11 @@ internal class FrameInterpolationSession(
         data class Presented(val presentedNs: Long) : Outcome
         data class Dropped(val nowNs: Long) : Outcome
         data class SurfaceLost(val nowNs: Long) : Outcome
+        /**
+         * 面板实际刷新低于目标帧率，同一刷新里更新的一帧取代了本帧：不是管线故障，不计入恢复窗口；
+         * 桥的 vsync 实测随后按真实刷新交回原生、由宿主按该上限重新接管。
+         */
+        data class Superseded(val nowNs: Long) : Outcome
     }
     /**
      * present 返回 true 即接收缓冲的借用，必须在缓冲不再被读取（含 GPU fence）后恰好调用 done 一次；
@@ -385,6 +390,7 @@ internal class FrameInterpolationSession(
             }
             is Outcome.Dropped -> recovery.onDropped(outcome.nowNs)
             is Outcome.SurfaceLost -> { lostSurface = lastEpoch?.surface; recovery.onSurfaceLost(outcome.nowNs) }
+            is Outcome.Superseded -> recovery.report()
         }
         if (!report.pipelinePresents) native()
     }

@@ -232,6 +232,25 @@ class FrameInterpolationSessionTest {
         assertEquals(Phase.CLOSED, session.snapshot().phase)
     }
 
+    @Test fun `frames superseded by a slower panel return their buffers without counting as failures`() {
+        val (session, ledger, _) = playing()
+        session.tick(0L)
+        now = slot1
+        session.tick(now)
+        drain()
+        val before = session.snapshot().recovery
+        screen.shown.forEach { it.done(Outcome.Superseded(now)) }
+        val after = session.snapshot()
+        assertEquals(State.INTERPOLATING, after.recovery.state)
+        assertEquals(before.samples, after.recovery.samples)
+        assertEquals(0, after.recovery.failures)
+        assertTrue(screen.restores.isEmpty())
+        assertTrue(ledger.outstanding(Holder.PRESENTER).isEmpty())
+        session.close()
+        drain()
+        assertTrue(ledger.drained())
+    }
+
     @Test fun `surface loss restores native once, returns queued frames and retries on a later surface epoch`() {
         val (session, ledger, _) = playing()
         session.tick(0L)
