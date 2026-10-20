@@ -131,6 +131,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerCapabilityOptions
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSpeedFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerAiSubtitleFeatureInstaller
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerSubtitleStyleFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.SponsorBlockFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.TeenagersModeFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.VideoRelateFilterFeatureInstaller
@@ -3618,6 +3620,13 @@ class HookEntry : XposedModule() {
                         smallWindow = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW, false),
                         cast = prefs.getBoolean(FeaturePreferences.PLAYER_UNLOCK_CAST, false)
                     )),
+                    PlayerAiSubtitleFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.PLAYER_AI_SUBTITLE, false)
+                    ),
+                    PlayerSubtitleStyleFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.PLAYER_SUBTITLE_STYLE, false),
+                        moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull()
+                    ),
                     PlayerSpeedFeatureInstaller(
                         disableLongPress = prefs.getBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, false),
                         longPressPercent = prefs.getInt(FeaturePreferences.PLAYER_LONG_PRESS_SPEED_PERCENT, 0),

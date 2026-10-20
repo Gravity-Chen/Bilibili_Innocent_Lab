@@ -323,6 +323,11 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(26, listOf(
         ReleaseHighlight("player-frame-status-toast", HighlightKind.NEW, R.string.highlights_player_frame_status_toast,
             HighlightDestination("player.frame_interpolation.status_toast"))
+    )), ReleaseHighlightsBatch(27, listOf(
+        ReleaseHighlight("player-subtitle-style", HighlightKind.NEW, R.string.player_subtitle_style_tip,
+            HighlightDestination("player.subtitle.style.enabled")),
+        ReleaseHighlight("player-ai-subtitle", HighlightKind.NEW, R.string.player_ai_subtitle_tip,
+            HighlightDestination("player.subtitle.ai.enabled"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

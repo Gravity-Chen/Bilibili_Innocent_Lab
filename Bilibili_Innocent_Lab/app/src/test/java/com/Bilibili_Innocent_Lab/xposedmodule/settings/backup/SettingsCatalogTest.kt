@@ -9,10 +9,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsCatalogTest {
+    @Test
+    fun `subtitle controls are independent default off settings and preserve older catalogs`() {
+        val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 62 }
+        assertEquals(setOf("player.subtitle.style.enabled", "player.subtitle.ai.enabled"), added.map { it.id }.toSet())
+        assertTrue(added.all { it.defaultValue == SettingValue.Bool(false) && it.restorePolicy == RestorePolicy.AUTOMATIC })
+        assertTrue(added.all { ImportEffect.RESTART_BILIBILI in it.effects })
+    }
+
     @Test fun `catalog v61 adds a default off frame interpolation status toast switch`() {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v61.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
-        assertEquals(expected, SettingsCatalog.specs.map { it.id }.sorted())
+        assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 61 }.map { it.id }.sorted())
         val added = SettingsCatalog.specs.single { it.introducedCatalogVersion == 61 }
         assertEquals("player.frame_interpolation.status_toast", added.id)
         assertEquals(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST, added.storageKey)
@@ -314,11 +322,11 @@ class SettingsCatalogTest {
     }
 
     @Test
-    fun `catalog is a unique allowlist with 240 settings`() {
-        assertEquals(240, SettingsCatalog.specs.size)
-        assertEquals(240, SettingsCatalog.specs.map { it.id }.distinct().size)
-        assertEquals(240, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
-        assertEquals(235, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
+    fun `catalog is a unique allowlist with 242 settings`() {
+        assertEquals(242, SettingsCatalog.specs.size)
+        assertEquals(242, SettingsCatalog.specs.map { it.id }.distinct().size)
+        assertEquals(242, SettingsCatalog.specs.map { it.storageKey }.distinct().size)
+        assertEquals(237, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.AUTOMATIC })
         assertEquals(5, SettingsCatalog.specs.count { it.restorePolicy == RestorePolicy.MANUAL })
         assertTrue(SettingsCatalog.specs.all { it.accepts(it.defaultValue) })
         assertTrue(SettingsCatalog.specs.all { it.id.matches(Regex("[a-z0-9][a-z0-9._-]{0,127}")) })
@@ -549,7 +557,7 @@ class SettingsCatalogTest {
         val expected = requireNotNull(javaClass.classLoader?.getResourceAsStream("settings-backup/catalog-v13.txt"))
             .bufferedReader().useLines { it.filter(String::isNotBlank).toList() }
         assertEquals(expected, SettingsCatalog.specs.filter { it.introducedCatalogVersion <= 13 }.map { it.id }.sorted())
-        assertEquals(61, SettingsCatalog.CATALOG_VERSION)
+        assertEquals(62, SettingsCatalog.CATALOG_VERSION)
         val added = SettingsCatalog.specs.filter { it.introducedCatalogVersion == 13 }
         assertEquals(6, added.size)
         assertTrue(added.all { it.restorePolicy == RestorePolicy.AUTOMATIC && ImportEffect.RESTART_BILIBILI in it.effects })
@@ -848,7 +856,7 @@ class SettingsCatalogTest {
 
     @Test
     fun `catalog types and manual roaming boundary are explicit`() {
-        assertEquals(144, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
+        assertEquals(146, SettingsCatalog.specs.count { it.type == SettingValueType.BOOLEAN })
         assertEquals(24, SettingsCatalog.specs.count { it.type == SettingValueType.INTEGER })
         assertEquals(72, SettingsCatalog.specs.count { it.type == SettingValueType.STRING })
 

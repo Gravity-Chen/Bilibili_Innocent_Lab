@@ -620,6 +620,44 @@ internal fun MainActivity.enhancePlaybackCategory(
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
+    TextView(lparams = LayoutParams(widthMatchParent = true) {
+        topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
+        bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
+    }) {
+        text = stringResource(R.string.player_subtitle_title)
+        applyAdvancedSubsectionStyle()
+    }
+    listOf(
+        Triple(FeaturePreferences.PLAYER_SUBTITLE_STYLE, R.string.player_subtitle_style, R.string.player_subtitle_style_tip),
+        Triple(FeaturePreferences.PLAYER_AI_SUBTITLE, R.string.player_ai_subtitle, R.string.player_ai_subtitle_tip)
+    ).forEach { (key, label, tip) ->
+        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
+            bindFavoriteSwitch(this, key)
+            text = stringResource(label)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = uiSettings.bool(key)
+            var savedChecked = isChecked
+            setOnCheckedChangeListener { _, checked ->
+                if (checked != savedChecked) {
+                    runCatching { prefs().edit { putBoolean(key, checked) } }
+                        .onSuccess { savedChecked = checked }
+                        .onFailure {
+                            Log.e("BilibiliInnocentLab", "write subtitle prefs failed", it)
+                            isChecked = savedChecked
+                        }
+                }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            text = stringResource(tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+            setLineSpacing(6f, 1f)
+        }
+    }
     TextView(
         lparams = LayoutParams(widthMatchParent = true) {
             topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
