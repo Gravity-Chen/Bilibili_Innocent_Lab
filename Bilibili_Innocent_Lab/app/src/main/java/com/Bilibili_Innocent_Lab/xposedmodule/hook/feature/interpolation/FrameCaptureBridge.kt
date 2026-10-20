@@ -295,7 +295,7 @@ internal class FrameCaptureBridge private constructor(
             val state = session.updateClock(measured)
             if (state == FrameTimeline.ClockState.RESTART_REQUIRED || state == FrameTimeline.ClockState.NO_CLOCK) {
                 host.log("bridge.clock-restart", "$state uncertaintyUs=${measured.uncertaintyUs} " +
-                    "mediaUs=${snapshot.mediaUs} arrivalAgeMs=${(now - lastArrivalNs) / 1_000_000}")
+                    "mediaUs=${snapshot.mediaUs} arrivalAgeMs=${(now - lastArrivalNs) / 1_000_000} audioDelayUs=$audioDelayUs window=${clock.describe()}")
                 if (!session.onClockRejected(now)) return
                 discontinuityCount.incrementAndGet()
                 clock.reset()
