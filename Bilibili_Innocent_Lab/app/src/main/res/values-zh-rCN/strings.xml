@@ -946,6 +946,9 @@
     <string name="player_frame_max_fps_value">%1$d fps</string>
     <string name="player_frame_max_fps_current">最高 %1$d fps。实际目标跟随系统真实输出的刷新率与本机可持续的性能：上限设 185 而系统只给 120 Hz 时，只补到 120。</string>
     <string name="highlights_player_frame_max_fps">视频插帧可超过 60 fps：设置帧率上限，模块按系统实际提供的刷新率补帧。</string>
+    <string name="player_frame_status_toast">插帧状态提示</string>
+    <string name="player_frame_status_toast_summary">每次播放视频时弹出提示，说明插帧是否生效以及当前的补帧目标帧率。重启哔哩哔哩后生效。</string>
+    <string name="highlights_player_frame_status_toast">新增插帧状态提示：每次播放视频时提示插帧是否生效及补帧目标帧率。</string>
     <string name="player_frame_model">插帧模型</string>
     <string name="player_frame_model_checking">正在检查…</string>
     <string name="player_frame_model_ready">RIFE v4.6 已下载并校验</string>

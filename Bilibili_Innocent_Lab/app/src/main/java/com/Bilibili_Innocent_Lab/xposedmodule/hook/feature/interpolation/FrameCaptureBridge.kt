@@ -61,6 +61,8 @@ internal class FrameCaptureBridge private constructor(
         fun presentLeadOverrideNs(): Long? = null
         /** 仅验证使用：向真实时间线注入不可信时钟，仍走正式的有界恢复与 Surface 交还路径。 */
         fun rejectClockForVerification(): Boolean = false
+        /** 插帧状态提示：不接管、首个插值帧已呈现、或播放中回到原生。可在任意线程调用。 */
+        fun onStatus(status: FrameStatus) = Unit
     }
 
     /**
@@ -82,7 +84,9 @@ internal class FrameCaptureBridge private constructor(
         /** 播放中实测 vsync，系统实际刷新低于目标时降档重建（显式验证档位关闭）。 */
         val measureVsync: Boolean = true,
         /** 正式播放：源帧率已达目标时回原生（验证构建的显式档位可做纯复制测试）。 */
-        val interpolationRequired: Boolean = true
+        val interpolationRequired: Boolean = true,
+        /** 宿主格式给出的源帧率，仅用于状态提示。 */
+        val sourceFps: Float? = null
     )
 
     private val presenter = FrameGlPresenter(display, config.targetFps, config.stageUploads) { onNativeRestored(it) }.apply {
@@ -309,6 +313,7 @@ internal class FrameCaptureBridge private constructor(
             if (headroom >= THERMAL_LIMIT) { returnToNative("thermal:%.2f".format(headroom)); return }
         }
         session.tick(now)
+        announceActive()
         // 音频只跟随大幅变化：相位跟踪每次对齐都会让视频延迟摆动数毫秒，若音频逐次跟随，就要在 ijk 的
         // 音频线程上频繁阻塞写静音或丢字节，宿主内真机出现音频卡顿与视频顿挫。小幅偏差（< 20 ms）不影响口型。
         val target = session.effectiveDelayUs()
@@ -338,9 +343,24 @@ internal class FrameCaptureBridge private constructor(
         }
     }
 
+    private var announced = false
+    private var announceTicks = 0
+
+    /** 状态提示：首个插值帧实际呈现后报告一次生效（准入通过不代表已经在插帧）。只在驱动线程调用。 */
+    private fun announceActive() {
+        if (announced || ++announceTicks < ANNOUNCE_TICKS) return
+        announceTicks = 0
+        if (session.snapshot().interpolated == 0L) return
+        announced = true
+        host.onStatus(FrameStatus.Active(config.sourceFps, config.targetFps))
+    }
+
+    @Volatile private var nativeReason: String? = null
+
     /** 管线主动放弃（准入失败、驱动异常）：经 Presenter 断开 EGL 后切回原生。 */
     private fun returnToNative(reason: String) {
         if (native.get()) return
+        nativeReason = reason
         host.log("bridge.native", reason)
         presenter.restoreNative(recovery.report())
     }
@@ -358,9 +378,23 @@ internal class FrameCaptureBridge private constructor(
         val limit = limitedHz
         if (switched && limit != null) host.onDisplayLimited(codec, limit)
         else if (switched && rebuild) host.onRebuild(codec)
+        // 降档与重建会按新目标重新接管并另报生效；其余回原生（本回调只在交还原生时发生）如实提示原因。
+        else host.onStatus(FrameStatus.Inactive(nativeStatusReason(nativeReason)))
     }
 
     companion object {
+        /** 约每 0.25 s（60 Hz）检查一次是否已有插值帧呈现。 */
+        private const val ANNOUNCE_TICKS = 15
+
+        /** 回原生原因（returnToNative 的前缀）→ 面向用户的状态原因；会话恢复闭环触发的回退没有前缀。 */
+        internal fun nativeStatusReason(reason: String?): FrameStatus.Reason = when {
+            reason == null -> FrameStatus.Reason.FALLBACK
+            reason.startsWith("media:") -> FrameStatus.Reason.MEDIA
+            reason.startsWith("cadence:") -> FrameStatus.Reason.RATE
+            reason.startsWith("thermal:") -> FrameStatus.Reason.THERMAL
+            else -> FrameStatus.Reason.FALLBACK
+        }
+
         private const val STALL_NS = 200_000_000L
         private const val MAX_HOST_CLOCK_UNCERTAINTY_US = 8_000L
         private const val WARMUP_SAMPLES = 20
@@ -389,17 +423,27 @@ internal class FrameCaptureBridge private constructor(
         fun create(config: Config, codec: MediaCodec, format: MediaFormat, display: Surface, crypto: Any?,
                    engine: FrameInterpolationEngineHolder, host: Host, requestedTargetFps: Int? = null,
                    attach: ((Surface) -> Boolean)? = null): FrameCaptureBridge? {
-            if (!engine.ready()) { host.log("bridge.skip", "engine:${engine.state}"); return null }
+            if (!engine.ready()) {
+                host.log("bridge.skip", "engine:${engine.state}")
+                host.onStatus(FrameStatus.Inactive(if (engine.state == FrameInterpolationEngineHolder.State.FAILED)
+                    FrameStatus.Reason.ENGINE else FrameStatus.Reason.LOADING))
+                return null
+            }
             val width = runCatching { format.getInteger(MediaFormat.KEY_WIDTH) }.getOrNull() ?: return null
             val height = runCatching { format.getInteger(MediaFormat.KEY_HEIGHT) }.getOrNull() ?: return null
             if (width <= 0 || height <= 0 || width.toLong() * height > config.maxSourcePixels || crypto != null) {
                 host.log("bridge.skip", "format:${width}x$height:crypto=${crypto != null}")
+                host.onStatus(FrameStatus.Inactive(if (crypto != null) FrameStatus.Reason.MEDIA else FrameStatus.Reason.FORMAT))
                 return null
             }
             // 处理尺寸：不超过屏幕与本机实测能力；4K 源在捕获时一次缩到此尺寸。
             val (displayLong, displayShort) = displaySize(host.context())
             val processing = FrameProcessingSize.choose(width, height, engine.capability, displayLong, displayShort)
-                ?: run { host.log("bridge.skip", "capability:${width}x$height"); return null }
+                ?: run {
+                    host.log("bridge.skip", "capability:${width}x$height")
+                    host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.CAPABILITY))
+                    return null
+                }
             host.log("bridge.size", "${width}x$height->${processing.width}x${processing.height} display=${displayLong}x$displayShort")
             val name = runCatching { codec.name }.getOrDefault("")
             val tunneled = runCatching { format.getFeatureEnabled(TUNNELED) }.getOrDefault(false) ||
@@ -412,6 +456,7 @@ internal class FrameCaptureBridge private constructor(
             val target = requestedTargetFps ?: FrameRateTarget.choose(hint, host.maxFps(), modes, host.displayLimitHz(),
                 engine.inferenceMsFor(processing.pixels)) ?: run {
                     host.log("bridge.skip", "rate:hint=$hint max=${host.maxFps()} limit=${host.displayLimitHz()}")
+                    host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.RATE))
                     return null
                 }
             host.log("bridge.target", "${target}fps hint=$hint max=${host.maxFps()} limit=${host.displayLimitHz()}")
@@ -435,11 +480,17 @@ internal class FrameCaptureBridge private constructor(
                     frameWindow = window,
                     maxBuffers = if (target >= 120 || deep || window > config.frameWindow) 16 else config.maxBuffers,
                     interpolationRequired = config.interpolationRequired && requestedTargetFps == null,
-                    measureVsync = config.measureVsync && requestedTargetFps == null)
+                    measureVsync = config.measureVsync && requestedTargetFps == null,
+                    sourceFps = hint)
                 FrameCaptureBridge(selected, codec, display, processing.width, processing.height, width, height,
                     values(format), name.endsWith(".secure"), tunneled, engine, host)
-            }.getOrNull() ?: return null
-            if (!bridge.start(attach)) { bridge.close(); host.log("bridge.skip", "presenter"); return null }
+            }.getOrNull() ?: run { host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.ENGINE)); return null }
+            if (!bridge.start(attach)) {
+                bridge.close()
+                host.log("bridge.skip", "presenter")
+                host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.ENGINE))
+                return null
+            }
             return bridge
         }
 

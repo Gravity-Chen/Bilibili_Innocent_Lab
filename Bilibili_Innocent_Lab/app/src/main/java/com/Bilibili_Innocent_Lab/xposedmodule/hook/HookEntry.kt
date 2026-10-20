@@ -3452,7 +3452,8 @@ class HookEntry : XposedModule() {
                         moduleApk = runCatching { java.io.File(moduleApplicationInfo.sourceDir) }.getOrNull(),
                         remoteFile = { name -> runCatching { openRemoteFile(name) }.getOrNull() },
                         maxFps = prefs.getInt(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS, 60)
-                            .takeIf { it in FrameRateTarget.CEILINGS } ?: 60
+                            .takeIf { it in FrameRateTarget.CEILINGS } ?: 60,
+                        statusToast = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST, false)
                     )
                 )
             )

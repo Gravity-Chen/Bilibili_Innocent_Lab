@@ -91,6 +91,33 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 refreshMaxFps()
             }
         }
+        val statusKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
+                topMargin = 8.dp
+                bottomMargin = 2.dp
+            }
+        ) {
+            bindFavoriteSwitch(this, statusKey)
+            bindSettingDestination(this, statusKey)
+            text = stringResource(R.string.player_frame_status_toast)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = uiSettings.bool(statusKey)
+            setOnCheckedChangeListener { _, checked ->
+                runCatching { prefs().edit { putBoolean(statusKey, checked) } }.onFailure {
+                    Log.e("BilibiliInnocentLab", "write frame status toast prefs failed", it)
+                }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.player_frame_status_toast_summary)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
         var summary: NativeTextView? = null
         var busy = false
         fun show(text: String) = runOnUiThread { if (!isDestroyed) summary?.text = text }

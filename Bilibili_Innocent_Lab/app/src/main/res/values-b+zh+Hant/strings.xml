@@ -946,6 +946,9 @@
     <string name="player_frame_max_fps_value">%1$d fps</string>
     <string name="player_frame_max_fps_current">最高 %1$d fps。實際目標跟隨系統真實輸出的更新率與本機可持續的效能：上限設 185 而系統只給 120 Hz 時，只補到 120。</string>
     <string name="highlights_player_frame_max_fps">影片插幀可超過 60 fps：設定幀率上限，模組依系統實際提供的更新率補幀。</string>
+    <string name="player_frame_status_toast">插幀狀態提示</string>
+    <string name="player_frame_status_toast_summary">每次播放影片時彈出提示，說明插幀是否生效以及目前的補幀目標幀率。重新啟動 Bilibili 後生效。</string>
+    <string name="highlights_player_frame_status_toast">新增插幀狀態提示：每次播放影片時提示插幀是否生效及補幀目標幀率。</string>
     <string name="player_frame_model">插幀模型</string>
     <string name="player_frame_model_checking">正在檢查…</string>
     <string name="player_frame_model_ready">RIFE v4.6 已下載並驗證</string>

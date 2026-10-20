@@ -12,6 +12,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import java.io.File
 import java.util.Collections
 import java.util.WeakHashMap
@@ -38,7 +40,9 @@ internal class FrameInterpolationFeatureInstaller(
     /** 打开模块写入的 LSPosed 远程文件（模型）；null 时只能使用调试验证目录。 */
     private val remoteFile: ((String) -> android.os.ParcelFileDescriptor?)? = null,
     /** 用户设置的补帧帧率上限；实际目标还受系统实际刷新与本机能力约束（[FrameRateTarget]）。 */
-    private val maxFps: Int = 60
+    private val maxFps: Int = 60,
+    /** 「插帧状态提示」：每个视频提示插帧是否生效与补帧目标帧率。 */
+    private val statusToast: Boolean = false
 ) : FeatureInstaller {
     override val id: String = ID
 
@@ -233,8 +237,10 @@ internal class FrameInterpolationFeatureInstaller(
                         // 冷启动：模型仍在后台加载。保持原生播放，就绪后迟接管（见 attachPending），不阻塞解码线程。
                         // 启动时能力测量因 GPU 被短暂占满而失败的，到期在此重测，成功后同样迟接管。
                         holder.retryIfDue()
-                        if (holder.state != FrameInterpolationEngineHolder.State.FAILED)
+                        if (holder.state != FrameInterpolationEngineHolder.State.FAILED) {
                             pending[codec] = PendingDecoder(format, display, args[2])
+                            showStatus(FrameStatus.Inactive(FrameStatus.Reason.LOADING))
+                        } else showStatus(FrameStatus.Inactive(FrameStatus.Reason.ENGINE))
                         return@before
                     }
                     val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, format, display, args[2],
@@ -480,6 +486,7 @@ internal class FrameInterpolationFeatureInstaller(
             reattach(codec, "limit=%.0fHz".format(hz))
         }
         override fun onRebuild(codec: MediaCodec) = reattach(codec, "overload")
+        override fun onStatus(status: FrameStatus) = showStatus(status)
 
         /** 解码器此时已回到显示 Surface（原生播放）；在独立线程按当前上限与能力重新接管，不占用呈现或解码线程。 */
         private fun reattach(codec: MediaCodec, reason: String) {
@@ -493,6 +500,32 @@ internal class FrameInterpolationFeatureInstaller(
                 if (bridge != null) bridges[codec] = bridge
                 log("bridge.retarget", "$reason attached=${bridge != null}")
             }, "innocent-frame-retarget").start()
+        }
+    }
+
+    @Volatile private var lastStatusText: String? = null
+    @Volatile private var lastStatusNs = 0L
+
+    /**
+     * 插帧状态提示（开关打开时）：在宿主主线程弹出短 Toast。同一文案 [STATUS_REPEAT_NS] 内只弹一次
+     * （同一视频的 configure 重试、降档重建不会连弹）。专用播放进程没有 Activity，用普通文字 Toast。
+     */
+    private fun showStatus(status: FrameStatus) {
+        log("status", status.toString())
+        if (!statusToast) return
+        val context = ReflectAccess.currentApplication() ?: return
+        val text = runCatching { FrameStatus.text(status, if (playerProcess) InjectedUiLocale.messagesForSecondaryProcess(context) else InjectedUiLocale.messages(context)) }.getOrNull() ?: return
+        val now = System.nanoTime()
+        synchronized(this) {
+            if (text == lastStatusText && now - lastStatusNs < STATUS_REPEAT_NS) return
+            lastStatusText = text
+            lastStatusNs = now
+        }
+        runCatching {
+            android.os.Handler(android.os.Looper.getMainLooper()).post(HostThreadGuard.runnable("frame.status") {
+                //noinspection ReplaceWithToastExtension
+                android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
+            })
         }
     }
 
@@ -523,5 +556,6 @@ internal class FrameInterpolationFeatureInstaller(
         private const val VERIFY_TAG = "InnocentFrame"
         private const val REQUIRED_HOOKS = 8
         private const val DROPPED = "innocent.frame.audio.dropped"
+        private const val STATUS_REPEAT_NS = 4_000_000_000L
     }
 }
