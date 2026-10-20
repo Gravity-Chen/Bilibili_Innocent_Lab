@@ -1,6 +1,8 @@
 # 凝光稳定版接入
 
-默认使用上游 [1.5.0 Stable Release](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.5.0)，`lumen-engine` 与 `lumen-motion` 在 `gradle/libs.versions.toml` 中共用同一个版本。普通构建直接从 JitPack 解析官方 Maven 产物，不下载源码归档，也不修改依赖缓存。
+默认使用上游 [1.5.1 Stable Release](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.5.1)，`lumen-engine` 与 `lumen-motion` 在 `gradle/libs.versions.toml` 中共用同一个版本。普通构建直接从 JitPack 解析官方 Maven 产物，不下载源码归档，也不修改依赖缓存。
+
+1.5.1 修复顶层回弹视口过早锁住触摸事件导致横向分页失效的问题；模块设置使用正式依赖即可取得修复，不需要启用本地源码覆盖。
 
 跨工程修复验证时，可以显式传入 `-Plumen.sourceDir=/绝对路径/LumenCoacervationEngine`：复合构建同时替换 engine/motion，契约测试从同一份本地源码生成独立的源码 JAR。该选项默认关闭，不把本机路径写进工程配置。引擎修复发布后应统一升级 catalog，普通构建才会取得该修复。
 
