@@ -187,6 +187,28 @@ class FrameHostClockTest {
         assertEquals(locked.mediaUs + (now / 1_000L - (32 * periodUs + 1_000L)), snapshot.mediaUs)
     }
 
+    /**
+     * 宿主真机窗口：锁定在晚一档（33 ms）后 ijk 丢帧追回，一个过渡样本（早 22 ms）后三个样本回到原映射。
+     * 无论映射锁在哪一档，过渡样本都不能把误差上界推过门限。
+     */
+    @Test fun `a catch up with one in between sample stays under the gate`() {
+        for (lockedLate in listOf(true, false)) {
+            val clock = FrameHostClock()
+            val late = 33_300L
+            clock.feedFrames(0, 32, 0L) { if (lockedLate) late + (it % 3) * 100L else (it % 3) * 100L }
+            clock.snapshot((32 * periodUs + 40_000L) * 1_000L, 1L)!!
+            if (!lockedLate) clock.feedFrames(32, 60, 0L) { late + (it % 3) * 100L }
+            val from = if (lockedLate) 32 else 60
+            clock.feed(from * periodUs, (from * periodUs + late - 22_000L) * 1_000L)
+            for (i in from + 1 until from + 4) {
+                clock.feed(i * periodUs, (i * periodUs + 200L) * 1_000L)
+                // 锁在晚档时早 33 ms 触发突发重置：窗口重新积累期间不发布快照（不会被拒）。
+                val snapshot = clock.snapshot((i * periodUs + 40_000L) * 1_000L, 1L) ?: continue
+                assertTrue("lockedLate=$lockedLate bound at $i: ${snapshot.uncertaintyUs}", snapshot.uncertaintyUs <= 8_000L)
+            }
+        }
+    }
+
     @Test fun `after lock an unconfirmed early sample is ignored`() {
         val clock = FrameHostClock()
         clock.feedFrames(0, 32, 0L) { 10_000L + (it % 2) * 300L }

@@ -103,13 +103,13 @@ internal class FrameHostClock(
             }
             previous == null || best - previous > jumpUs && spread <= jumpUs -> { offset = best; instability = spread }
             // 锁定后出现未经确认的早到样本：保持映射。
-            best - previous > jumpUs -> { offset = previous; instability = minOf(tight(samples), tight(recent)) }
+            best - previous > jumpUs -> { offset = previous; instability = heldStability(samples, previous, spread) }
             best >= previous - jumpUs -> {
                 offset = previous + (best - previous).coerceIn(-maxSlewUs.toDouble(), maxSlewUs.toDouble())
-                instability = minOf(tight(samples), tight(recent)) + kotlin.math.abs(best - offset)
+                instability = heldStability(samples, previous, spread) + kotlin.math.abs(best - offset)
             }
             // 窗口内全部样本都比已信任映射晚：映射整体变晚，限度内保持。
-            previous - recentBest <= maxHoldUs -> { offset = previous; instability = minOf(tight(samples), tight(recent)) }
+            previous - recentBest <= maxHoldUs -> { offset = previous; instability = heldStability(samples, previous, spread) }
             else -> { offset = recentBest; instability = recentSpread }
         }
         applied = offset
@@ -135,7 +135,18 @@ internal class FrameHostClock(
     }
 
     /**
-     * 锁定后的稳定度：去掉至多 envelopeRank − 1 个最早的离群样本后，最紧的 envelopeRank 个相邻样本的跨度。
+     * 锁定后的稳定度：按已信任映射把样本分成「贴近映射」与「整体晚到」两簇（更早的未确认样本不计），
+     * 取较紧的一簇。锯齿追回时夹在两档之间的过渡样本只落进其中一簇，不会把两档之差算作误差；
+     * 两簇都不足 envelopeRank 个样本时退回全窗口跨度。
+     */
+    private fun heldStability(sorted: DoubleArray, previous: Double, spread: Double): Double {
+        val near = sorted.filter { it >= previous - jumpUs && it <= previous + jumpUs }.toDoubleArray()
+        val late = sorted.filter { it < previous - jumpUs }.toDoubleArray()
+        return minOf(tight(near), tight(late)).takeIf { it.isFinite() } ?: spread
+    }
+
+    /**
+     * 簇内稳定度：去掉至多 envelopeRank − 1 个最早的离群样本后，最紧的 envelopeRank 个相邻样本的跨度。
      * 锯齿两档之间、或部分追回的过渡样本不会把两档之差当作误差；没有任何紧凑样本簇时仍然很大。
      */
     private fun tight(sorted: DoubleArray): Double {
