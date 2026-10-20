@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
+import com.highcapable.kavaref.extension.classOf
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
@@ -29,8 +30,8 @@ internal class StoryQualityPreferenceAccess private constructor(
         private val ROUND_TRIP_QNS = listOf(16, 80, 127)
 
         fun resolve(loader: ClassLoader, base: Class<*>): StoryQualityPreferenceAccess? = runCatching {
-            if (base.isInterface || !Modifier.isAbstract(base.modifiers) ||
-                Lookup.classOrNull(loader, base.name) !== base) return null
+            // 9.16 R8 会将无状态 sealed 基类改成接口；Auto/Fixed 仍须通过完整结构和往返校验。
+            if (!Modifier.isAbstract(base.modifiers) || Lookup.classOrNull(loader, base.name) !== base) return null
             if (Lookup.declaredFields(base).any { !Modifier.isStatic(it.modifiers) }) return null
             // R8 匿名子类可能不在 MemberClasses；后缀只是补全候选，语义仍按 ABI 判定。
             val declared = base.declaredClasses.toList()
@@ -41,7 +42,8 @@ internal class StoryQualityPreferenceAccess private constructor(
             }
             val children = (declared + named).distinct().filter { it != base && base.isAssignableFrom(it) }
             if (children.size != 2 || children.any {
-                    it.superclass != base || !Modifier.isFinal(it.modifiers) ||
+                    (if (base.isInterface) it.superclass != classOf<Any>() || base !in it.interfaces
+                     else it.superclass != base) || !Modifier.isFinal(it.modifiers) ||
                         Lookup.classOrNull(loader, it.name) !== it
                 }) return null
             val marker = Lookup.classOrNull(loader, MARKER)

@@ -69,11 +69,12 @@ internal object FollowFeedAdapter {
     private const val HOME = "com.bilibili.bplus.followinglist.home."
     private const val PERSONAL = "com.bilibili.bplus.followinglist.quick.consume."
     private const val PERSONAL_PAGE = PERSONAL + "VideoQuickConsumeFragment"
-    private val painterOwners = listOf("gv1.c", "iU.d")
-    // z0 是已核旧家族，T/Q 是双 9.15.0 的真实 home 装饰器；不把其它页面拼成 home 候选。
-    private val homeDecorations = listOf(HOME + "z0", HOME + "T", HOME + "Q")
-    private val personalDecorations = listOf(PERSONAL + "F", PERSONAL + "E")
-    private val personalSeparators = listOf(PERSONAL + "y0", PERSONAL + "U", PERSONAL + "S")
+    private val painterOwners = listOf("mU.d", "gv1.c", "iU.d")
+    // 9.16.0：mU.d + home.U / quick.I / quick.W；模型和父类仍须完整复核。
+    // z0 是旧家族，T/Q 是双 9.15.0 的 home 装饰器，不跨页面拼接。
+    private val homeDecorations = listOf(HOME + "U", HOME + "z0", HOME + "T", HOME + "Q")
+    private val personalDecorations = listOf(PERSONAL + "I", PERSONAL + "F", PERSONAL + "E")
+    private val personalSeparators = listOf(PERSONAL + "W", PERSONAL + "y0", PERSONAL + "U", PERSONAL + "S")
 
     data class Resolved(val points: FollowFeedPoints, val host: FollowFeedHostAccess, val paint: Method,
         val homeDecoration: Class<*>, val personalDecoration: Class<*>?, val separator: Method?, val header: Method?)

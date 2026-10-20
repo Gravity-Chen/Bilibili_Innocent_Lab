@@ -4,6 +4,19 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PgcAutoActivityPopupLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.BrandSplashDecoderAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.CommentClassicStyleLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.FollowFeedAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.KotlinDefaultWordsLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerPopupPromotionAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.SponsorPlayerLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityPreferenceAccess
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.StoryQualityLocator
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistQuery
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistResult
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexAssistSession
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.dex.DexKitAssistEngine
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PgcAutoActivityPopupPolicy
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import dalvik.system.DexClassLoader
@@ -147,8 +160,96 @@ class HostApkCompatibilityInstrumentedTest {
         val resolvedMembers = verifyMembers(snapshot, loader)
         assertTrue("Empty member coverage", resolvedMembers > 0)
         report.put("resolved_members", resolvedMembers)
+        if (arguments.getString("optionalAdapters") == "true") {
+            verifyOptionalAdapters(apk, loader, report, reportFile)
+        }
         report.put("passed", true)
         reportFile.writeText(report.toString(2))
+    }
+
+    /** 显式 opt-in：关闭中的功能也复核其真实成员，全部查询共享一次原生 DEX 会话。 */
+    private fun verifyOptionalAdapters(apk: File, loader: ClassLoader, report: JSONObject, file: File) {
+        val storyPlan = StoryQualityLocator.planned(loader, null, true, false)
+        val popupPlan = PlayerPopupPromotionAdapter.planned(loader, null, emptySet(), true)
+        val classicPlan = CommentClassicStyleLocator.missing(loader)
+        val brandPlanned = BrandSplashDecoderAdapter.needsQuery(loader, null, true, false)
+        val speedPlanned = PlayerSpeedMenuAdapter.needsQuery(loader, null, true, false)
+        val followPlanned = FollowFeedAdapter.needsQuery(loader, null, true, false)
+        val words = KotlinDefaultWordsLocator.direct(loader)
+        val sponsor = SponsorPlayerLocator.direct(loader)
+        val queries = buildSet {
+            addAll(storyPlan)
+            addAll(popupPlan.map { it.query })
+            addAll(classicPlan.map { it.query })
+            if (brandPlanned) add(BrandSplashDecoderAdapter.query)
+            if (speedPlanned) add(PlayerSpeedMenuAdapter.query)
+            if (followPlanned) add(DexAssistQuery.FOLLOW_FEED_STYLE)
+            if (words == null && KotlinDefaultWordsLocator.applicable(loader)) add(DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN)
+            if (sponsor == null && SponsorPlayerLocator.applicable(loader)) addAll(SponsorPlayerLocator.queries)
+        }
+        val session = DexAssistSession(DexKitAssistEngine, listOf(apk.path), loader, queries)
+        val entries = JSONObject()
+        val missing = ArrayList<String>()
+        fun check(id: String, test: () -> Boolean) {
+            val result = runCatching(test)
+            val passed = result.getOrDefault(false)
+            entries.put(id, JSONObject().put("passed", passed).put("error", result.exceptionOrNull()?.toString()))
+            if (!passed) missing += id
+        }
+        check("search.kotlin_default_words") {
+            val point = words ?: KotlinDefaultWordsLocator.select(
+                (session.result(DexAssistQuery.SEARCH_DEFAULT_WORDS_KOTLIN) as? DexAssistResult.Candidates)?.methods.orEmpty())
+            point != null
+        }
+        check("player.sponsor") { sponsor != null || SponsorPlayerLocator.assisted(loader, session) != null }
+        check("comment.classic_style") {
+            val points = CommentClassicStyleLocator.locate(loader, session, true)
+            CommentClassicStyleLocator.missing(loader, points).isEmpty()
+        }
+        check("player.popup_promotion") {
+            val points = PlayerPopupPromotionAdapter.locate(loader, session, true, null, popupPlan)
+            PlayerPopupPromotionAdapter.missing(loader, points).isEmpty()
+        }
+        check("brand_splash.decoder") {
+            val point = BrandSplashDecoderAdapter.locate(loader, session, true, null, brandPlanned)
+            BrandSplashDecoderAdapter.resolve(loader, point) != null
+        }
+        check("dynamic.follow_feed") {
+            val point = FollowFeedAdapter.locate(loader, session, true, null, followPlanned)
+            val access = FollowFeedAdapter.resolve(loader, point)
+            access != null && access.personalDecoration != null && access.separator != null
+        }
+        check("player.story_quality") {
+            val points = StoryQualityLocator.locate(loader, session, null, storyPlan)
+            report.put("story_points", points?.toJson())
+            val preference = points?.preferenceClassName?.let { KavaMemberLookup.classOrNull(loader, it) }
+            report.put("story_preference_valid", preference?.let { StoryQualityPreferenceAccess.resolve(loader, it) } != null)
+                .put("story_points_valid", StoryQualityLocator.validated(loader, points) != null)
+            report.put("story_preference_shape", JSONArray(listOfNotNull(preference).flatMap { listOf(it) + it.declaredClasses }.map { type ->
+                JSONObject().put("class", type.name).put("modifiers", type.modifiers)
+                    .put("fields", JSONArray(type.declaredFields.map { it.toGenericString() }))
+                    .put("constructors", JSONArray(type.declaredConstructors.map { it.toGenericString() }))
+            }))
+            val setting = KavaMemberLookup.classOrNull(loader, StoryQualityLocator.SETTING_COMPANION)
+            report.put("story_setting_readers", JSONArray(setting?.declaredMethods?.filter { it.name == "getInt" }?.map { it.toGenericString() }.orEmpty()))
+            StoryQualityLocator.resolve(loader, points) != null && points?.policyMethod != null &&
+                points.resourceSelectionMethod != null && points.matchPreferenceMethod != null
+        }
+        check("player.speed_menu") {
+            val points = PlayerSpeedMenuAdapter.locate(loader, session, null, true, speedPlanned)
+            PlayerSpeedMenuAdapter.complete(loader, PlayerSpeedMenuAdapter.resolve(loader, points))
+        }
+        val dexResults = JSONObject()
+        queries.forEach { query ->
+            dexResults.put(query.name, when (val result = session.result(query)) {
+                is DexAssistResult.Candidates -> JSONObject().put("methods", JSONArray(result.methods.map { it.toGenericString() }))
+                is DexAssistResult.Unavailable -> JSONObject().put("unavailable", result.reason.name)
+            })
+        }
+        report.put("optional_adapters", entries).put("dex_queries", JSONArray(queries.map { it.name }))
+            .put("dex_results", dexResults)
+        file.writeText(report.toString(2))
+        assertTrue("Unresolved opt-in host adapters: $missing", missing.isEmpty())
     }
 
     /** 用真实模型和描述器重建，而非模块测试桩，验证半屏置空与其余字段保留。 */
@@ -204,7 +305,10 @@ class HostApkCompatibilityInstrumentedTest {
                 }
                 if (value.has("m")) {
                     val method = value.getString("m")
-                    assertNotNull("${owner.name}#$method", KavaMemberLookup.methodOrNull(owner, method, *types))
+                    val member = if (method == "<init>") {
+                        KavaMemberLookup.constructorOrNull(owner, *types)
+                    } else KavaMemberLookup.methodOrNull(owner, method, *types)
+                    assertNotNull("${owner.name}#$method", member)
                     count++
                 } else if (value.has("list_index")) {
                     assertNotNull("${owner.name} constructor", KavaMemberLookup.constructorOrNull(owner, *types))
