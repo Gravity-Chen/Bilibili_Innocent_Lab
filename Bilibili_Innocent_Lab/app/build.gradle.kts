@@ -348,19 +348,32 @@ androidComponents.onVariants(androidComponents.selector().withBuildType("debug")
     }
 }
 
-// 契约测试读取与正式二进制相同版本的官方 sources JAR，不参与 APK 编译。
+// Contract sources must match the selected binary (official Maven or explicit local build).
 val lumenContractSources = configurations.create("lumenContractSources") {
     isCanBeConsumed = false
     isTransitive = false
 }
+val localLumenSource = providers.gradleProperty("lumen.sourceDir").orNull?.let(rootProject::file)
 for (library in listOf(libs.lumen.engine.get(), libs.lumen.motion.get())) {
-    dependencies.add(lumenContractSources.name, mapOf(
-        "group" to library.module.group,
-        "name" to library.module.name,
-        "version" to library.versionConstraint.requiredVersion,
-        "classifier" to "sources",
-        "ext" to "jar"
-    ))
+    if (localLumenSource != null) {
+        val artifact = library.module.name
+        val sources = tasks.register<org.gradle.api.tasks.bundling.Zip>(
+            "package${artifact.split('-').joinToString("") { it.replaceFirstChar(Char::uppercaseChar) }}ContractSources"
+        ) {
+            from(localLumenSource.resolve("$artifact/src/main/java"))
+            archiveFileName.set("$artifact-local-sources.jar")
+            destinationDirectory.set(layout.buildDirectory.dir("lumen-contract-sources"))
+        }
+        dependencies.add(lumenContractSources.name, files(sources.flatMap { it.archiveFile }))
+    } else {
+        dependencies.add(lumenContractSources.name, mapOf(
+            "group" to library.module.group,
+            "name" to library.module.name,
+            "version" to library.versionConstraint.requiredVersion,
+            "classifier" to "sources",
+            "ext" to "jar"
+        ))
+    }
 }
 
 // 源码护栏读取真实文件，必须把文本也计入 Test 缓存键；仅有测试 classpath 不足以
