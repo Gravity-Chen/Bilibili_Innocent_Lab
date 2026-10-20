@@ -21,11 +21,14 @@ import xml.etree.ElementTree as ET
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PROJECT_DIRECTORY = "Bilibili_Innocent_Lab"
+# Gradle schedules ready work in command-line order. Full lint (Kotlin/Java compile, then
+# ~8 minutes of single-threaded analysis) is the critical path, so it goes first; the release
+# chain and debug packaging (including CMake) fill the remaining workers alongside it.
 TASKS = (
-    "assembleDebug",
+    "lintDebug",
     "compileDebugUnitTestKotlin",
     "testDebugUnitTest",
-    "lintDebug",
+    "assembleDebug",
     "compileReleaseKotlin",
     "compileReleaseJavaWithJavac",
     "minifyReleaseWithR8",
