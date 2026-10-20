@@ -46,6 +46,24 @@ class FrameHostClockTest {
         assertTrue("bound $worstBound must stay under the 8 ms gate", worstBound <= 8_000L)
     }
 
+    @Test fun `a start up burst publishes nothing until the steady cadence has enough samples`() {
+        val clock = FrameHostClock()
+        // 开播突发：前 10 帧每 5 ms 释放一帧（相对 PTS 节奏越来越早），之后按 33.3 ms 节奏、带 2–6 ms 调度延迟。
+        val base = 2_000_000_000L
+        var arrival = base
+        for (i in 0 until 10) { assertNotEquals(Update.REJECTED, clock.feed(i * periodUs, arrival)); arrival += 5_000_000L }
+        // 突发后的稳态：映射 = 第 10 帧到达时刻。
+        val steadyBase = arrival - 10 * periodUs * 1_000L
+        for (i in 10 until 21) {
+            assertNotEquals(Update.REJECTED, clock.feed(i * periodUs, steadyBase + (i * periodUs + 2_000L + (i % 3) * 2_000L) * 1_000L))
+            assertNull("no snapshot from burst samples (frame $i)", clock.snapshot(steadyBase + (i * periodUs + 8_000L) * 1_000L, 1L))
+        }
+        clock.feed(21 * periodUs, steadyBase + (21 * periodUs + 2_000L) * 1_000L)
+        val snapshot = clock.snapshot(steadyBase + (22 * periodUs) * 1_000L, 1L)!!
+        assertTrue("accurate after the burst: ${snapshot.mediaUs}", kotlin.math.abs(snapshot.mediaUs - 22 * periodUs) <= 2_100L)
+        assertTrue("bound under the gate: ${snapshot.uncertaintyUs}", snapshot.uncertaintyUs <= 8_000L)
+    }
+
     @Test fun `an isolated early sample is not trusted until others confirm it`() {
         val clock = FrameHostClock()
         clock.feedFrames(0, 20, 0L) { 6_000L }

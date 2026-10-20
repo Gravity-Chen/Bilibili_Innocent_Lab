@@ -27,7 +27,13 @@ internal class FrameHostClock(
      * 时间线会把超出误差预算的跳变视为目标时刻改变而撤销在途提案；限速后变化平滑，大偏差仍直接跳过去。
      */
     private val maxSlewUs: Long = 200L,
-    private val jumpUs: Long = 8_000L
+    private val jumpUs: Long = 8_000L,
+    /**
+     * 新样本比窗口内最佳样本还早超过此量：说明窗口里的样本全都迟到（开播时 ijk 连续突发释放若干帧，或映射真的跳变），
+     * 下包络假设已不成立。此时从该样本重新积累窗口，样本够 [minSamples] 前不报快照——突发期间不会产出被拒的快照，
+     * 也就不消耗有界回退的预算（宿主真机开播首个快照不确定度 98.8 ms 即由此而来）。
+     */
+    private val resetUs: Long = 20_000L
 ) {
     enum class Update { ACCEPTED, DISCONTINUITY, REJECTED }
 
@@ -41,7 +47,7 @@ internal class FrameHostClock(
 
     init {
         require(window in 8..256 && discontinuityUs > 0L && minSamples in 2..window && minUncertaintyUs >= 0L &&
-            maxSlewUs > 0L && jumpUs > maxSlewUs && envelopeRank in 2..minSamples)
+            maxSlewUs > 0L && jumpUs > maxSlewUs && envelopeRank in 2..minSamples && resetUs > jumpUs)
     }
 
     @Synchronized fun feed(ptsUs: Long, arrivalNs: Long, playbackSpeed: Double = 1.0): Update {
@@ -51,7 +57,11 @@ internal class FrameHostClock(
             predictedUs(arrivalNs)?.let { kotlin.math.abs(ptsUs - it) > discontinuityUs } != false)
         if (restart) reset()
         speed = playbackSpeed
-        offsets[cursor] = ptsUs - arrivalNs / 1_000.0 * speed
+        val offset = ptsUs - arrivalNs / 1_000.0 * speed
+        if (count > 0 && offset - (0 until count).maxOf { offsets[it] } > resetUs) {
+            count = 0; cursor = 0; applied = null
+        }
+        offsets[cursor] = offset
         cursor = (cursor + 1) % window
         if (count < window) count++
         lastPtsUs = ptsUs
