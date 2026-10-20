@@ -24,8 +24,8 @@ class FrameVsyncGridTest {
         grid.feed(1L, 40, period60)
         assertEquals(period60, grid.periodNs)
         assertTrue(grid.slowerThanContent())
-        // 面板随后升到 120 Hz：新的短间隔立即生效。
-        grid.feed(grid.lastNs + display120, 4, display120)
+        // 面板随后升到 120 Hz：约 10 个短间隔（不到 0.1 s）后生效。
+        grid.feed(grid.lastNs + display120, 10, display120)
         assertEquals(display120, grid.periodNs)
         assertFalse(grid.slowerThanContent())
     }
@@ -34,8 +34,9 @@ class FrameVsyncGridTest {
         val grid = FrameVsyncGrid(content90)
         grid.feed(0L + 1, 60, display120)
         val last = grid.lastNs
-        // 驱动线程漏掉下一个回调：外推仍落在真实 vsync 上。
-        assertEquals(last + grid.periodNs, grid.current(last + display120 + 1_000_000L))
+        // 驱动线程漏掉下一个回调：逾期 2 ms 后外推，仍落在真实 vsync 上；逾期前沿用最近一次回调。
+        assertEquals(last + grid.periodNs, grid.current(last + display120 + 2_500_000L))
+        assertEquals(last, grid.current(last + display120 + 1_000_000L))
         assertEquals(last, grid.current(last + 1_000_000L))
     }
 
@@ -53,9 +54,10 @@ class FrameVsyncGridTest {
         var released = 0
         for (k in 1..300) {
             val vsync = base + k * display120
-            // 驱动线程忙：约三分之一的 vsync 没有回调。
-            if (k % 3 != 0) grid.onVsync(vsync)
-            val now = vsync + 500_000L
+            // 驱动线程忙：约三分之一的 vsync 没有回调；呈现线程在回调后 0.5 ms，或逾期外推时刻之后复查。
+            val delivered = k % 3 != 0
+            if (delivered) grid.onVsync(vsync)
+            val now = vsync + if (delivered) 500_000L else 2_500_000L
             val head = dues.firstOrNull() ?: break
             if (!grid.releasable(head, now)) continue
             dues.removeFirst()
@@ -92,6 +94,14 @@ class FrameVsyncGridTest {
         grid60.feed(1L, 40, content)
         val v60 = grid60.lastNs
         assertTrue(grid60.sameRefresh(v60 + 2_000_000L + content, v60 + 500_000L))
+    }
+
+    /** Choreographer 抖动校正偶尔给出偏短的间隔：估计不被拉短，外推的 vsync 不早于真实 vsync。 */
+    @Test fun `occasional short intervals do not shorten the period`() {
+        val grid = FrameVsyncGrid(16_666_666L)
+        var t = 1L
+        for (i in 0 until 64) { t += if (i % 10 == 5) 12_000_000L else if (i % 10 == 6) 21_333_332L else 16_666_666L; grid.onVsync(t) }
+        assertEquals(16_666_666.0, grid.periodNs.toDouble(), 1_000.0)
     }
 
     @Test fun `stops following when callbacks stop`() {

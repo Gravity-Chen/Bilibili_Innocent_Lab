@@ -6,8 +6,10 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
  * 窗口宽于内容周期（90 fps = 11.1 ms）时两帧同时可提交，前一帧被作废，丢帧率越过回退线。
  * 这里按实测显示周期从最近一次回调外推当前 vsync，窗口每个刷新只前移一个显示周期，每个刷新至多放行一帧。
  *
- * 显示周期取最近 [WINDOW] 个回调间隔的最小值（内容周期为初值）：漏回调只会产生更长的整倍数间隔，不会拉长估计；
- * 面板实际刷新低于目标（目标按面板模式定为 90 fps、面板空闲停在 60 Hz）时一个窗口内即跟上真实周期。
+ * 显示周期取最近 [WINDOW] 个回调间隔的下四分位数（内容周期为初值）：漏回调只会产生更长的整倍数间隔，
+ * 不会拉长估计；Choreographer 抖动校正偶尔给出的偏短间隔也不会把估计拉短（取最小值时曾让外推的 vsync 早于真实 vsync，
+ * 帧被提前放行、与上一帧挤进同一刷新，录屏表现为「跳一帧再重复一帧」）。面板实际刷新低于目标时一个窗口内即跟上。
+ * 只有回调逾期超过 [OVERDUE_NS] 才外推：正常情况下真实回调先到（滞后约 0.6 ms），放行时刻始终以真实 vsync 为准。
  * 纯状态，时间由调用方传入。
  */
 internal class FrameVsyncGrid(private val contentPeriodNs: Long) {
@@ -29,9 +31,7 @@ internal class FrameVsyncGrid(private val contentPeriodNs: Long) {
             deltas[cursor] = vsyncNs - lastNs
             cursor = (cursor + 1) % WINDOW
             if (count < WINDOW) count++
-            var shortest = Long.MAX_VALUE
-            for (i in 0 until count) if (deltas[i] < shortest) shortest = deltas[i]
-            periodNs = shortest
+            periodNs = deltas.copyOf(count).also { it.sort() }[count / 4]
         }
         lastNs = vsyncNs
         return true
@@ -40,8 +40,12 @@ internal class FrameVsyncGrid(private val contentPeriodNs: Long) {
     /** 没有回调或回调已停（暂停、窗口不可见）：调用方改用时间网格。 */
     fun stale(nowNs: Long): Boolean = lastNs == 0L || nowNs - lastNs >= STALE_PERIODS * contentPeriodNs
 
-    /** 不晚于 nowNs 的最近一个（可能外推的）vsync。 */
-    fun current(nowNs: Long): Long = if (nowNs <= lastNs) lastNs else lastNs + (nowNs - lastNs) / periodNs * periodNs
+    /** 当前所处的 vsync：最近一次回调；回调逾期超过 [OVERDUE_NS] 时按显示周期外推。 */
+    fun current(nowNs: Long): Long {
+        val elapsed = nowNs - lastNs
+        if (elapsed < periodNs + OVERDUE_NS) return lastNs
+        return lastNs + (elapsed - OVERDUE_NS) / periodNs * periodNs
+    }
 
     /**
      * 帧在当前 vsync 后的提前量内到期即可提交。提前量沿用内容周期（60 Hz 实测的相位），
@@ -60,10 +64,11 @@ internal class FrameVsyncGrid(private val contentPeriodNs: Long) {
     fun slowerThanContent(): Boolean = periodNs * 20 > contentPeriodNs * 21
 
     /** 距下一个（外推）vsync 的纳秒数，供呈现线程定时复查。 */
-    fun untilNextNs(nowNs: Long): Long = current(nowNs) + periodNs - nowNs
+    fun untilNextNs(nowNs: Long): Long = current(nowNs) + periodNs + OVERDUE_NS - nowNs
 
     private companion object {
         const val STALE_PERIODS = 4L
         const val WINDOW = 32
+        const val OVERDUE_NS = 2_000_000L
     }
 }
