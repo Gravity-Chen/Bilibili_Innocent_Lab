@@ -323,6 +323,9 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(26, listOf(
         ReleaseHighlight("player-frame-status-toast", HighlightKind.NEW, R.string.highlights_player_frame_status_toast,
             HighlightDestination("player.frame_interpolation.status_toast"))
+    )), ReleaseHighlightsBatch(27, listOf(
+        ReleaseHighlight("live-home-promotion", HighlightKind.NEW, R.string.highlights_live_home_promotion,
+            HighlightDestination("home.live.promotion.hidden"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }

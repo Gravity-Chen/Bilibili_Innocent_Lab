@@ -180,6 +180,7 @@ The sections below describe capabilities by feature topic. Developer-facing cate
 
 | Feature | Description |
 | --- | --- |
+| Hide promoted live cards on the Live tab | Removes the top promoted live carousel without leaving a gap; preserves followed streamers and the normal live list. Off by default; restart Bilibili after changing it |
 | Hide the home large-card carousel | Handles the carousel cards that take up a lot of space at the top of the home page or in the recommendation area, completing the carousel cleanup in environments where it previously failed |
 | Filter recommended ads | Filters recognised ads before the home recommendation data reaches the UI; ordinary video recommendations are unaffected |
 | Filter recommended image-text posts | Filters image-text cards in the home recommendation feed by adapted data type |

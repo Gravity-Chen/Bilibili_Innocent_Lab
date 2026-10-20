@@ -20,7 +20,7 @@ internal object DiagnosticCapabilityCatalog {
      * 客户端是按 "比我已知的版本更新" 做增量的，
      * VERSION 涨了却没有任何条目标在新版本上，增量就是空集（有测试钉住）。
      */
-    const val VERSION = 29
+    const val VERSION = 30
     val definitions = listOf(
         DiagnosticCapabilityDefinition("player_buffer_strategy", "player_buffer", R.string.player_buffer_mode,
             setOf("player.buffer.mode", "player.buffer.seconds", "player.buffer.memory_mb"),
@@ -58,6 +58,7 @@ internal object DiagnosticCapabilityCatalog {
         DiagnosticCapabilityDefinition("detail_promotion_hd", "detail_app_promotion", R.string.diag_cap_detail_promotion_hd, setOf("ads.video_detail.app_promotion.hidden")),
         DiagnosticCapabilityDefinition("detail_promotion_related_ad", "detail_app_promotion", R.string.diag_cap_detail_promotion_related_ad, setOf("ads.video_detail.app_promotion.hidden", "video.related.matching_enhancement.enabled", "video.related.strong_mode.enabled")),
         DiagnosticCapabilityDefinition("detail_promotion_related_game", "detail_app_promotion", R.string.diag_cap_detail_promotion_related_game, setOf("ads.video_detail.app_promotion.hidden", "video.related.matching_enhancement.enabled", "video.related.strong_mode.enabled")),
+        DiagnosticCapabilityDefinition("live_home_promotion", "live_home_promotion", R.string.hide_live_home_promotion, setOf("home.live.promotion.hidden"), introducedCatalogVersion = 30),
         DiagnosticCapabilityDefinition("home_banner_view", "home_banner", R.string.diag_cap_home_banner_view, setOf("ads.home_banner.hidden")),
         DiagnosticCapabilityDefinition("home_banner_feed", "home_banner", R.string.diag_cap_home_banner_feed, setOf("ads.home_banner.hidden")),
         DiagnosticCapabilityDefinition("merchandise", "merchandise", R.string.merch_ad_enable, setOf("ads.merchandise.hidden")),
@@ -264,6 +265,7 @@ internal object DiagnosticCapabilityCatalog {
     val splitParents = definitions.filter { it.id != it.parentId }.mapTo(linkedSetOf()) { it.parentId }
     val leafIds = byId.keys
     private val verifiedRuntimeIds = setOf(
+        "live_home_promotion",
         "search_home_recommend_hidden",
         "dynamic_frequent_visits_hidden",
         "home_recommend_pgc_removed",
