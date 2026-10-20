@@ -5,6 +5,7 @@ internal object FeaturePreferences {
     const val PLAYER_SUBTITLE_STYLE = "player_subtitle_style"
     const val PLAYER_AI_SUBTITLE = "player_ai_subtitle"
     const val HIDE_VIDEO_DETAIL_APP_PROMOTION = "hide_video_detail_app_promotion"
+    const val HIDE_LIVE_HOME_PROMOTION = "hide_live_home_promotion"
     const val HIDE_HOME_GAME_MENU = "hide_home_game_menu"
     const val HIDE_HOME_SEARCH_DEFAULT_WORD = "hide_home_search_default_word"
     const val HOME_VERTICAL_OPEN_DETAIL = "home_vertical_open_detail"

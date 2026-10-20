@@ -2903,6 +2903,34 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
+    MaterialSwitch(
+        lparams = LayoutParams(widthMatchParent = true) {
+            topMargin = 12.dp
+            bottomMargin = 5.dp
+        }
+    ) {
+        bindFavoriteSwitch(this, FeaturePreferences.HIDE_LIVE_HOME_PROMOTION, directToggle = true)
+        text = stringResource(R.string.hide_live_home_promotion)
+        isAllCaps = false
+        textColor = colorResource(R.color.colorTextGray)
+        textSize = 15f
+        isChecked = hideLiveHomePromotion
+        setOnCheckedChangeListener { _, checked ->
+            hideLiveHomePromotion = checked
+            runCatching {
+                prefs().edit { putBoolean(FeaturePreferences.HIDE_LIVE_HOME_PROMOTION, checked) }
+            }.onFailure { throwable ->
+                Log.e("BilibiliInnocentLab", "write live home promotion prefs failed", throwable)
+            }
+        }
+    }
+    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        alpha = 0.6f
+        setLineSpacing(6f, 1f)
+        text = stringResource(R.string.hide_live_home_promotion_tip)
+        textColor = colorResource(R.color.colorTextDark)
+        textSize = 12f
+    }
     TextView(
         lparams = LayoutParams(widthMatchParent = true) {
             topMargin = 12.dp

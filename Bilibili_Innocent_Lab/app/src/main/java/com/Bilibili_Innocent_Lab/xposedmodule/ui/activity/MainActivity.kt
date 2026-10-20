@@ -296,6 +296,7 @@ class MainActivity : SkinnedActivity() {
     internal var hideVideoDetailAppPromotion = false
     internal var bannerAdEnabled = true
     internal var merchAdEnabled = true
+    internal var hideLiveHomePromotion = false
     internal var hideHomeGameMenu = false
     internal var hideHomeSearchDefaultWord = false
     internal var homeVerticalOpenDetail = false
@@ -4345,6 +4346,7 @@ class MainActivity : SkinnedActivity() {
         gamecardAdEnabled = uiSettings.bool(HookEntry.PREF_GAMECARD_ENABLED)
         hideVideoDetailAppPromotion = uiSettings.bool(FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION)
         bannerAdEnabled = uiSettings.bool(HookEntry.PREF_BANNER_ENABLED)
+        hideLiveHomePromotion = uiSettings.bool(FeaturePreferences.HIDE_LIVE_HOME_PROMOTION)
         hideHomeGameMenu = uiSettings.bool(FeaturePreferences.HIDE_HOME_GAME_MENU)
         hideHomeSearchDefaultWord = uiSettings.bool(FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD)
         homeVerticalOpenDetail = uiSettings.bool(FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL)

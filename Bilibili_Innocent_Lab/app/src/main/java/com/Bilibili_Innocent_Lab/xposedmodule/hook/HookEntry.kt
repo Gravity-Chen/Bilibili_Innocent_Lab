@@ -94,6 +94,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeTabFilterFeatureI
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HomeComponentFilterFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookRegistrar
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.LiveHomePromotionFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.LiveRoomWidgetFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MerchandiseFeatureInstaller
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.MineVipFeatureInstaller
@@ -2749,6 +2750,9 @@ class HookEntry : XposedModule() {
 
             featureInstallCoordinator.installAll(
                 listOf(
+                    LiveHomePromotionFeatureInstaller(
+                        enabled = prefs.getBoolean(FeaturePreferences.HIDE_LIVE_HOME_PROMOTION, false)
+                    ),
                     HomeBannerFeatureInstaller(
                         enabled = prefs.getBoolean(PREF_BANNER_ENABLED, true),
                         point = hostAdaptResult?.banner,
