@@ -41,6 +41,9 @@ class FrameCaptureBridgeDeviceTest {
     private var sfPeriodNs = 0L
     /** 编码时每 5 帧重复 1 帧画面（24 fps 动画嵌在 30 fps 流中的下拉）。 */
     private var pulldown = false
+    private var requireNativeSize = false
+    @Volatile private var rejectClock = false
+    private var verifyClockFallback = false
     /** 呈现帧的内容指纹（移动亮块所在行的抽样和），用于统计重复帧。 */
     private val signatures = Collections.synchronizedList(ArrayList<Long>())
     @After fun detachDiagnostics() { logSink = null; workSink = null }
@@ -79,6 +82,19 @@ class FrameCaptureBridgeDeviceTest {
         width = 1920; height = 1080
         run(sourceFps = 30, expectedFps = 60,
             seconds = InstrumentationRegistry.getArguments().getString("seconds", "3").toDouble().coerceIn(3.0, 120.0))
+    }
+
+    /** 必须全链路处理原尺寸；降到 720p 即失败，不能计作原尺寸 1080p 通过。 */
+    @Test fun nativeResolution1080pIsInterpolatedTo60() {
+        requireNativeSize = true
+        width = 1920; height = 1080
+        run(sourceFps = 30, expectedFps = 60, onScreen = true,
+            seconds = InstrumentationRegistry.getArguments().getString("seconds", "12").toDouble().coerceIn(3.0, 120.0))
+    }
+
+    @Test fun rejectedClockRestoresNativeSurfaceAndContinuesPlayback() {
+        verifyClockFallback = true
+        run(sourceFps = 30, expectedFps = 60, seconds = 4.0)
     }
 
     @Test fun realDecoder1440pIsInterpolatedTo60() { width = 2560; height = 1440; run(sourceFps = 30, expectedFps = 60) }
@@ -165,12 +181,6 @@ class FrameCaptureBridgeDeviceTest {
         val engine = engine(log = { e, d ->
             logs += "$e $d"; Log.i(TAG, "$e $d")
         }, observer = if (diagnostic) ({ sample -> work += sample }) else null)
-        engine.warmUp()
-        val deadline = System.nanoTime() + 30_000_000_000L
-        while (!engine.ready() && engine.state != FrameInterpolationEngineHolder.State.FAILED && System.nanoTime() < deadline) Thread.sleep(50)
-        assertTrue("engine ${engine.state} $logs", engine.ready())
-        sendStatus("engine", "capability=${engine.capability}")
-
         val args = InstrumentationRegistry.getArguments()
         val motion = if (args.getString("highMotion") == "true") "-pan" else ""
         val clip = File(context.cacheDir, "frame-e2e-${width}x$height-$sourceFps-${seconds.toInt()}$motion${if (pulldown) "-pulldown" else ""}.mp4")
@@ -201,6 +211,14 @@ class FrameCaptureBridgeDeviceTest {
             assertTrue("screen surface not ready", activity.ready.await(3, TimeUnit.SECONDS))
             Thread.sleep(1_000)
         }
+
+        // 窗口先进入前台再测能力，与真实宿主播放一致；后台离屏测量单独报告，不能代表前台可持续处理尺寸。
+        engine.warmUp()
+        val deadline = System.nanoTime() + 30_000_000_000L
+        while (!engine.ready() && engine.state != FrameInterpolationEngineHolder.State.FAILED && System.nanoTime() < deadline) Thread.sleep(50)
+        if (!engine.ready()) activity?.let { instrumentation.runOnMainSync { it.finish() } }
+        assertTrue("engine ${engine.state} $logs", engine.ready())
+        sendStatus("engine", "capability=${engine.capability} foreground=$onScreen")
 
         val displayThread = HandlerThread("frame-e2e-display").apply { start() }
         val displayed = Collections.synchronizedList(ArrayList<Long>())
@@ -245,12 +263,14 @@ class FrameCaptureBridgeDeviceTest {
             }
         }
         val delays = Collections.synchronizedList(ArrayList<Long>())
+        val lastAudioDelay = java.util.concurrent.atomic.AtomicLong(-1L)
         val limited = Collections.synchronizedList(ArrayList<Float>())
         val host = object : FrameCaptureBridge.Host {
             override fun maxFps(): Int = maxFps
             override fun onDisplayLimited(codec: MediaCodec, hz: Float) { limited += hz }
-            override fun setAudioDelayUs(delayUs: Long) { if (delayUs > 0) delays += delayUs }
+            override fun setAudioDelayUs(delayUs: Long) { lastAudioDelay.set(delayUs); if (delayUs > 0) delays += delayUs }
             override fun playbackSpeed() = 1.0
+            override fun rejectClockForVerification() = rejectClock
             override fun audio() = FrameMediaPolicy.Audio(output = FrameMediaPolicy.AudioOutput.PCM,
                 offloaded = FrameMediaPolicy.Evidence.NO, tunneled = FrameMediaPolicy.Evidence.NO)
             override fun log(event: String, detail: String) { logs += "$event $detail"; Log.i(TAG, "$event $detail") }
@@ -280,6 +300,7 @@ class FrameCaptureBridgeDeviceTest {
         val beforeSeek: FrameInterpolationSession.Snapshot
         val afterSeek: FrameInterpolationSession.Snapshot
         val native: Boolean
+        val audioAfterSeek: Long
         val secondStart: Long
         val secondEnd: Long
         try {
@@ -290,11 +311,13 @@ class FrameCaptureBridgeDeviceTest {
             decoder.flush()
             extractor.seekTo(0L, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
             secondStart = System.nanoTime()
+            rejectClock = verifyClockFallback
             play(decoder, extractor, seconds = seconds)
             secondEnd = System.nanoTime()
             val diagnostics = bridge.diagnostics()
             afterSeek = diagnostics.first
             native = diagnostics.second
+            audioAfterSeek = lastAudioDelay.get()
         } finally {
             resourceThread.shutdown()
             check(resourceThread.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) { "resource probe did not stop" }
@@ -340,6 +363,23 @@ class FrameCaptureBridgeDeviceTest {
             "maxGapMs=%.1f delayUs=${delays.minOrNull()}..${delays.maxOrNull()}".format(intervals.maxOrNull() ?: 0.0)
         Log.i(TAG, summary)
         InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply { putString("e2e", summary) })
+        if (onScreen) sendStatus("renderEvidence", "submitFps=%.2f textureFps=%.2f physicalFps=%s".format(
+            fps, textureFps, if (uniquePhysical.size > 1) "%.2f".format(physicalFps) else "unavailable"))
+
+        if (requireNativeSize) assertTrue("native processing required: $logs",
+            logs.any { it.startsWith("bridge.size ${width}x$height->${width}x$height ") })
+        if (verifyClockFallback) {
+            assertTrue("interpolation must have run before injection: $summary", beforeSeek.interpolated > 0)
+            assertTrue("native handoff missing: $logs", logs.any {
+                it == "bridge.restored FALLBACK:UNVERIFIED_CLOCK:switched=true" })
+            assertTrue("must stay native", native)
+            assertEquals("fallback must close itself", FrameInterpolationSession.Phase.CLOSED, afterSeek.phase)
+            assertEquals("fallback must release holders before test cleanup", 0, afterSeek.ledger.live)
+            assertEquals("all RGB holders released", 0, closed.ledger.live)
+            assertTrue("decoder must continue on native Surface: $fps fps, $summary", fps in 27.0..33.0)
+            assertEquals("audio delay must reset before test cleanup", 0L, audioAfterSeek)
+            return
+        }
 
         if (diagnostic) {
             val samples = synchronized(work) { work.toList() }

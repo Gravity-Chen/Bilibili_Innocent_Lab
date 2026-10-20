@@ -110,4 +110,18 @@ class FrameInterpolationEntryContractTest {
         assertTrue(excludes.contains("\"lib/arm64-v8a/libinnocent_frame_interpolation.so\""))
         assertTrue(excludes.contains("\"lib/armeabi-v7a/libinnocent_frame_interpolation.so\""))
     }
+
+    @Test fun `clock probes and fault injection require debug verification and never become a trusted clock`() {
+        val installer = SourceContract.read("$dir/FrameInterpolationFeatureInstaller.kt")
+        val probe = installer.after("private fun clockProbeEnabled()").before("private fun skipped(")
+        assertTrue(probe.contains("verificationAllowed &&"))
+        assertTrue(probe.contains("clock-probe"))
+        val fault = installer.after("override fun rejectClockForVerification()").before("override fun setAudioDelayUs(")
+        assertTrue(fault.contains("if (!verificationAllowed) return false"))
+        assertTrue(fault.contains("reject-clock"))
+        val source = SourceContract.read("$dir/FramePlayerClockProbe.kt")
+        assertFalse(source.contains("ClockSnapshot"))
+        assertFalse(source.contains("updateClock("))
+        assertTrue(source.contains("WeakReference(target)"))
+    }
 }

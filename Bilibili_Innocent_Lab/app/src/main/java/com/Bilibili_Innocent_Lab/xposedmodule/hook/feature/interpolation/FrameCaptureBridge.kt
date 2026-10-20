@@ -59,6 +59,8 @@ internal class FrameCaptureBridge private constructor(
         fun diagnostics(): Boolean = false
         /** 仅 debug 验证构建：在线调整提交提前量（测定取帧相位）；null 用默认。 */
         fun presentLeadOverrideNs(): Long? = null
+        /** 仅验证使用：向真实时间线注入不可信时钟，仍走正式的有界恢复与 Surface 交还路径。 */
+        fun rejectClockForVerification(): Boolean = false
     }
 
     /**
@@ -96,7 +98,7 @@ internal class FrameCaptureBridge private constructor(
     private val recovery = FramePresentationRecovery(maxConsecutiveFailures = 6, warmupSamples = WARMUP_SAMPLES)
     private val timeline = FrameTimeline(config.targetFps, presentationDelayNs = config.presentationDelayNs,
         maxLeadNs = config.maxLeadNs, minLeadNs = config.minLeadNs, originalToleranceUs = 1_000_000L / config.targetFps / 4, phaseLock = true,
-        maxClockUncertaintyUs = 8_000L, frameWindow = config.frameWindow)
+        maxClockUncertaintyUs = MAX_HOST_CLOCK_UNCERTAINTY_US, frameWindow = config.frameWindow)
     private val session = FrameInterpolationSession(config.targetFps, ledger, engine.synthesizer(), engine.worker(),
         presenter, System::nanoTime, recovery, timeline = timeline,
         // 只认近乎完全相同的画面：宿主真机慢速摇镜被宽松的「基本静止」判为重复后连丢两帧，100 ms 间隔里每个槽位
@@ -288,9 +290,11 @@ internal class FrameCaptureBridge private constructor(
         // 时钟快照取在 vsync 时刻：时间线以首个快照为锚，槽位网格因此与显示 vsync 对齐，
         // 每个槽位恰好落在一个 vsync 上，不会因抖动两帧挤进同一 vsync、下一 vsync 却没有新帧。
         clock.snapshot(minOf(vsyncNs, now), discontinuity)?.let { snapshot ->
-            val state = session.updateClock(snapshot)
+            val measured = if (host.rejectClockForVerification())
+                snapshot.copy(uncertaintyUs = maxOf(snapshot.uncertaintyUs, MAX_HOST_CLOCK_UNCERTAINTY_US + 1L)) else snapshot
+            val state = session.updateClock(measured)
             if (state == FrameTimeline.ClockState.RESTART_REQUIRED || state == FrameTimeline.ClockState.NO_CLOCK) {
-                host.log("bridge.clock-restart", "$state uncertaintyUs=${snapshot.uncertaintyUs} " +
+                host.log("bridge.clock-restart", "$state uncertaintyUs=${measured.uncertaintyUs} " +
                     "mediaUs=${snapshot.mediaUs} arrivalAgeMs=${(now - lastArrivalNs) / 1_000_000}")
                 if (!session.onClockRejected(now)) return
                 discontinuityCount.incrementAndGet()
@@ -358,6 +362,7 @@ internal class FrameCaptureBridge private constructor(
 
     companion object {
         private const val STALL_NS = 200_000_000L
+        private const val MAX_HOST_CLOCK_UNCERTAINTY_US = 8_000L
         private const val WARMUP_SAMPLES = 20
         private const val REPORT_INTERVAL_NS = 5_000_000_000L
         private const val AUDIO_HYSTERESIS_US = 20_000L

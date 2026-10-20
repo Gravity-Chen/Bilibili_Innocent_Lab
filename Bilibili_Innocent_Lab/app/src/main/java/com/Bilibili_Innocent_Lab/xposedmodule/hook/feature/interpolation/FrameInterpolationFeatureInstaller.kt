@@ -6,6 +6,7 @@ import android.media.MediaCodec
 import android.media.MediaCrypto
 import android.media.MediaFormat
 import android.app.Activity
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameAudioClockCompensation.Mode as AudioMode
 import android.view.Surface
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstallResult
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeatureInstaller
@@ -47,6 +48,7 @@ internal class FrameInterpolationFeatureInstaller(
     private val inMainDisplay = ThreadLocal<Boolean>()
     private val inMainOp = ThreadLocal<Boolean>()
     private val writingSilence = ThreadLocal<Boolean>()
+    private val playerClocks = FramePlayerClockProbe(::log, ::clockProbeEnabled)
     @Volatile private var speed = 1.0
     @Volatile private var audioDelayUs = 0L
     @Volatile private var active: Boolean? = null
@@ -162,6 +164,28 @@ internal class FrameInterpolationFeatureInstaller(
             }
         }
         if (playerProcess) {
+            if (verificationAllowed) hook("clock.client") {
+                val client = Class.forName(CLIENT, false, loader)
+                client.declaredConstructors.forEach { constructor ->
+                    registrar.constructor("$ID.clock.client", constructor) {
+                        after { if (!hasThrowable) instance?.let { if (clockProbeEnabled() && activate(apk)) playerClocks.attach(it) } }
+                    }
+                }
+                registrar.all("$ID.clock.release", CLIENT, "release") {
+                    before { instance?.let(playerClocks::remove) }
+                }
+                registrar.all("$ID.clock.event", CLIENT, "eventHandlerForClient") {
+                    before {
+                        if (args[0] == 300 || args[0] == 1300) {
+                            if (!clockProbeEnabled()) return@before
+                            instance?.let(playerClocks::attach)
+                            log("clock.event", "client=${System.identityHashCode(instance)} what=${args[0]} rate=${args[1]} position=${args[2]} " +
+                                "stamp=${args[3]} elapsed=${android.os.SystemClock.elapsedRealtime()} " +
+                                "uptime=${android.os.SystemClock.uptimeMillis()} nanoMs=${System.nanoTime() / 1_000_000}")
+                        }
+                    }
+                }
+            }
             // setSurface 与外部渲染等路径最终都进入原生 _setVideoSurface；两处都登记，重复登记无副作用。
             for (method in listOf("setSurface", "_setVideoSurface")) hook("client.$method") {
                 registrar.all("$ID.client.$method", CLIENT, method) {
@@ -310,6 +334,9 @@ internal class FrameInterpolationFeatureInstaller(
                     val track = instance as? AudioTrack ?: return@after
                     val rate = audioRates[track] ?: return@after
                     timestampCalls.incrementAndGet()
+                    if (result == true) (args[0] as? AudioTimestamp)?.let {
+                        if (it.framePosition > 0L && it.nanoTime > 0L) timestampSuccesses.incrementAndGet()
+                    }
                     if (audioMode == AudioMode.TIMESTAMP && result == true)
                         (args[0] as? AudioTimestamp)?.let { it.framePosition += shiftFrames(rate) }
                 }
@@ -333,7 +360,7 @@ internal class FrameInterpolationFeatureInstaller(
                     if (audioRates[track] == null) return@after
                     latencyCalls.incrementAndGet()
                     val latency = result as? Int ?: return@after
-                    if (audioMode == AudioMode.LATENCY) result = latency - (audioDelayUs / 1_000L).toInt()
+                    result = FrameAudioClockCompensation.latencyMs(latency, audioDelayUs, audioMode)
                 }
             }
         }.onFailure { log("hook.missing", "audio.getLatency") }
@@ -361,19 +388,15 @@ internal class FrameInterpolationFeatureInstaller(
     /** 首次需要补偿时按 ijk 已调用过的接口选择平移方式；都没有调用过才退回写静音。 */
     private fun chooseAudioMode() {
         if (audioMode != AudioMode.UNDECIDED) return
-        audioMode = when {
-            timestampCalls.get() > 0 -> AudioMode.TIMESTAMP
-            headCalls.get() > 0 -> AudioMode.HEAD
-            latencyCalls.get() > 0 -> AudioMode.LATENCY
-            else -> AudioMode.SILENCE
-        }
-        log("audio.mode", "$audioMode timestamp=${timestampCalls.get()} head=${headCalls.get()} latency=${latencyCalls.get()}")
+        audioMode = FrameAudioClockCompensation.choose(timestampSuccesses.get(), headCalls.get(), latencyCalls.get())
+        log("audio.mode", "$audioMode timestamp=${timestampCalls.get()} valid=${timestampSuccesses.get()} " +
+            "head=${headCalls.get()} latency=${latencyCalls.get()}")
     }
 
-    private enum class AudioMode { UNDECIDED, TIMESTAMP, HEAD, LATENCY, SILENCE }
     @Volatile private var audioMode = AudioMode.UNDECIDED
     private val audioRates = Collections.synchronizedMap(WeakHashMap<AudioTrack, Int>())
     private val timestampCalls = java.util.concurrent.atomic.AtomicInteger()
+    private val timestampSuccesses = java.util.concurrent.atomic.AtomicInteger()
     private val headCalls = java.util.concurrent.atomic.AtomicInteger()
     private val latencyCalls = java.util.concurrent.atomic.AtomicInteger()
 
@@ -418,6 +441,19 @@ internal class FrameInterpolationFeatureInstaller(
     }
 
     private val bridgeHost = object : FrameCaptureBridge.Host {
+        private var faultCheckedNs = 0L
+        private var rejectClock = false
+        @Synchronized override fun rejectClockForVerification(): Boolean {
+            if (!verificationAllowed) return false
+            val now = System.nanoTime()
+            if (now - faultCheckedNs >= 250_000_000L) {
+                faultCheckedNs = now
+                rejectClock = ReflectAccess.currentApplication()?.getExternalFilesDir(null)?.let {
+                    File(it, "$VERIFY_DIR/enable").isFile && File(it, "$VERIFY_DIR/reject-clock").isFile
+                } == true
+            }
+            return rejectClock
+        }
         override fun setAudioDelayUs(delayUs: Long) {
             if (delayUs > 0L) chooseAudioMode()
             // 覆盖时间线允许的最大延迟 250 ms + 相位锁定（≤ 100 ms）；正式播放当前用 150 ms。
@@ -465,6 +501,11 @@ internal class FrameInterpolationFeatureInstaller(
         // 仅 debug 验证构建：模块日志按键去重，真机验证需要逐条事件与周期统计。
         if (verificationAllowed) android.util.Log.i(VERIFY_TAG, "$event $detail")
     }
+
+    private fun clockProbeEnabled(): Boolean = verificationAllowed &&
+        ReflectAccess.currentApplication()?.getExternalFilesDir(null)?.let {
+            File(it, "$VERIFY_DIR/enable").isFile && File(it, "$VERIFY_DIR/clock-probe").isFile
+        } == true
 
     private fun skipped(environment: HookEnvironment, reason: String): FeatureInstallResult {
         environment.reportStatus(STATUS, reason)
