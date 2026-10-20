@@ -76,6 +76,24 @@ class FrameVsyncGridTest {
         assertFalse(grid.releasable(vsync + period + period / 2 + 1_000L, now))
     }
 
+    /** 120 Hz 面板播 60 fps：迟交的本帧与下一帧都可提交时，下一帧属于后一次刷新，本帧不应作废。 */
+    @Test fun `a faster panel leaves a spare refresh before the next frame`() {
+        val content = 16_666_666L
+        val grid = FrameVsyncGrid(content)
+        grid.feed(1L, 40, display120)
+        val v = grid.lastNs
+        val now = v + 500_000L
+        val head = v + 2_000_000L
+        val next = head + content
+        assertTrue(grid.releasable(next, now))
+        assertFalse(grid.sameRefresh(next, now))
+        // 60 Hz 面板：同样的两帧落在同一次刷新，前一帧让位。
+        val grid60 = FrameVsyncGrid(content)
+        grid60.feed(1L, 40, content)
+        val v60 = grid60.lastNs
+        assertTrue(grid60.sameRefresh(v60 + 2_000_000L + content, v60 + 500_000L))
+    }
+
     @Test fun `stops following when callbacks stop`() {
         val grid = FrameVsyncGrid(content90)
         assertTrue(grid.stale(0L))

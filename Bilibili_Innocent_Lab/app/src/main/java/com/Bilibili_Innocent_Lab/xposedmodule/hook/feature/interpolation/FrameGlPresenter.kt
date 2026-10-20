@@ -147,7 +147,9 @@ internal class FrameGlPresenter(
         val started = System.nanoTime()
         val next = synchronized(lock) { pending.peek() }
         // 同一刷新已有更新的一帧可交付：本帧作废，保证每个刷新最多提交一帧。
-        if (next != null && (if (vsync.lastNs != 0L) releasable(next, started) else next.dueNs - timestampLeadNs - presentLeadNs <= started)) {
+        // 只有下一帧也属于即将到来的这次刷新时本帧才作废；面板快于内容（120 Hz 播 60 fps）时本帧照常交付，下一帧留到后一次刷新。
+        if (next != null && (if (!vsync.stale(started)) vsync.sameRefresh(next.dueNs, started)
+                else next.dueNs - timestampLeadNs - presentLeadNs <= started)) {
             // 面板比目标慢（目标按面板模式定为 90 fps、面板停在 60 Hz）时每几帧必有一帧让位，这是刷新上限而非故障。
             val slowPanel = !vsync.stale(started) && vsync.slowerThanContent()
             if (slowPanel) superseded++
@@ -159,6 +161,7 @@ internal class FrameGlPresenter(
             if ((!stageUploads || staged !== item) && !upload(item.buffer, item.format)) false else draw(item.dueNs - timestampLeadNs)
         }.getOrDefault(false)
         staged = null
+        if (outcome && !vsync.stale(started)) releasedVsyncNs = vsync.current(started)
         val submitted = System.nanoTime()
         if (outcome) runCatching { onSubmitted?.invoke(item.dueNs, submitted) }
         item.done(if (outcome) FrameInterpolationSession.Outcome.Presented(submitted)
@@ -259,13 +262,19 @@ internal class FrameGlPresenter(
      * 每秒约 2 次 33 ms 间隔，而本端时间戳与提交都准时）。跟随 vsync 后每个刷新最多提交一帧、相位固定。
      */
 
+    /** 最近一次成功交付所在的（外推）vsync，只在呈现线程读写。 */
+    private var releasedVsyncNs = 0L
+
     fun onVsync(vsyncNs: Long) = synchronized(lock) {
         if (vsync.onVsync(vsyncNs)) lock.notifyAll()
     }
 
     /** 已收到 vsync 时，帧在「上一 vsync 起算的下一刷新」到期即可提交；否则沿用时间网格。 */
     private fun releasable(item: Scheduled, nowNs: Long): Boolean {
-        return if (!vsync.stale(nowNs)) vsync.releasable(item.dueNs, nowNs) else waitNs(item) <= 0L
+        // 面板快于内容时每个刷新至多提交一帧：本刷新已交付过一帧，其余帧等下一个 vsync（等速时由作废规则保证）。
+        return if (!vsync.stale(nowNs)) vsync.releasable(item.dueNs, nowNs) &&
+                !(vsync.fasterThanContent() && vsync.current(nowNs) == releasedVsyncNs)
+            else waitNs(item) <= 0L
     }
     private val timestampGaps = IntArray(8)
     private val submitSlack = IntArray(6)

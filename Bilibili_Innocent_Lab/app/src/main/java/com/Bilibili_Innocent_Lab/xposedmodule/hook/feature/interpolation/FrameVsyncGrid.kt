@@ -50,6 +50,12 @@ internal class FrameVsyncGrid(private val contentPeriodNs: Long) {
     fun releasable(dueNs: Long, nowNs: Long): Boolean =
         dueNs <= current(nowNs) + maxOf(contentPeriodNs, periodNs) + periodNs / 2
 
+    /** 帧属于即将到来的这次刷新（窗口一个显示周期宽）：同一刷新里更早的帧应让位给它。 */
+    fun sameRefresh(dueNs: Long, nowNs: Long): Boolean = dueNs <= current(nowNs) + periodNs + periodNs / 2
+
+    /** 实测显示周期明显短于内容周期（< 95%）：一帧内容跨多个刷新。 */
+    fun fasterThanContent(): Boolean = periodNs * 20 < contentPeriodNs * 19
+
     /** 实测显示周期明显长于内容周期（> 5%）：面板刷新跟不上目标帧率。 */
     fun slowerThanContent(): Boolean = periodNs * 20 > contentPeriodNs * 21
 
