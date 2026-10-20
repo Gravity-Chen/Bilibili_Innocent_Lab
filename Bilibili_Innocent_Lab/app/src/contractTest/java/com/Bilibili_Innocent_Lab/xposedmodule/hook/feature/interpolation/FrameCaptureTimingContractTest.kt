@@ -14,13 +14,18 @@ class FrameCaptureTimingContractTest {
             rejection.contains("if (!session.onClockRejected(now)) return"))
     }
 
-    @Test fun `host clock observation is taken after the potentially blocking texture latch`() {
+    /**
+     * 通知时刻只能经 [FrameArrivalStamp] 使用：它在 PTS 节奏不一致（BufferQueue 顶替、首帧、回跳）时改用锁存之后的时刻，
+     * 因此通知时刻不会描述锁存期间换上的更新的帧；锁存时刻必须在可能阻塞的 updateTexImage 之后测得。
+     */
+    @Test fun `host clock observation never pairs a notification time with a newer latched frame`() {
         val callback = SourceContract.read("hook/feature/interpolation/FrameGlCapture.kt")
             .after("private fun onFrameAvailable(").before("private fun read(")
         val latch = callback.indexOf("runCatching { texture.updateTexImage() }")
-        val observation = callback.indexOf("val arrival = System.nanoTime()")
-        val delivery = callback.indexOf("listener.onFrame(texture.timestamp, arrival)")
-        assertTrue("callback notification time cannot describe a newer frame latched during a wait", latch >= 0 && observation > latch)
-        assertTrue("the completed latch and its timestamp are delivered together", delivery > observation)
+        val observation = callback.indexOf("val latched = System.nanoTime()")
+        val delivery = callback.indexOf("listener.onFrame(timestamp, stamp.arrival(timestamp, notifiedNs, latched))")
+        assertTrue("latch time is measured after the potentially blocking latch", latch >= 0 && observation > latch)
+        assertTrue("notification time is only used through FrameArrivalStamp", delivery > observation)
+        assertFalse("raw notification time must not reach the clock", callback.contains("listener.onFrame(timestamp, notifiedNs"))
     }
 }

@@ -37,6 +37,11 @@ internal class FrameGlCapture(
 
     private val thread = HandlerThread("innocent-frame-capture").apply { start() }
     val handler = Handler(thread.looper)
+    /** 只记录 onFrameAvailable 时刻再转交捕获线程：捕获线程忙于读回时，到达时刻不随它排队（见 [FrameArrivalStamp]）。 */
+    private val timingThread = HandlerThread("innocent-frame-arrival", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
+        .apply { start() }
+    private val timingHandler = Handler(timingThread.looper)
+    private val stamp = FrameArrivalStamp()
     private var egl: FrameGl.Egl? = null
     private var pbuffer: EGLSurface = EGL14.EGL_NO_SURFACE
     private var program = 0
@@ -67,6 +72,7 @@ internal class FrameGlCapture(
     fun close() {
         handler.post { tearDown() }
         thread.quitSafely()
+        timingThread.quitSafely()
     }
 
     private fun setUp(listener: FrameListener): Surface? {
@@ -91,21 +97,24 @@ internal class FrameGlCapture(
         if (!complete || GLES20.glGetError() != GLES20.GL_NO_ERROR) return null
         readback = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
         val texture = SurfaceTexture(oesTexture).apply { setDefaultBufferSize(sourceWidth, sourceHeight) }
-        texture.setOnFrameAvailableListener({ onFrameAvailable(it, listener) }, handler)
+        texture.setOnFrameAvailableListener({ available ->
+            val notified = System.nanoTime()
+            handler.post { onFrameAvailable(available, listener, notified) }
+        }, timingHandler)
         surfaceTexture = texture
         return Surface(texture).also { surface = it }
     }
 
-    private fun onFrameAvailable(texture: SurfaceTexture, listener: FrameListener) {
+    private fun onFrameAvailable(texture: SurfaceTexture, listener: FrameListener, notifiedNs: Long) {
         if (surfaceTexture !== texture) return
         val latchStarted = System.nanoTime()
         runCatching { texture.updateTexImage() }.onFailure { return }
-        // updateTexImage 可能阻塞并锁存比回调通知更新的帧。必须把时间记在锁存之后，否则旧回调时间配上新 PTS，
-        // 会伪造提前到达的时钟样本，放大误差并使整条呈现时间线重启。
-        val arrival = System.nanoTime()
-        maxLatchNs.accumulateAndGet(arrival - latchStarted) { previous, next -> maxOf(previous, next) }
+        val latched = System.nanoTime()
+        maxLatchNs.accumulateAndGet(latched - latchStarted) { previous, next -> maxOf(previous, next) }
         texture.getTransformMatrix(transform)
-        listener.onFrame(texture.timestamp, arrival) { buffer, format -> read(buffer, format) }
+        // 锁存的帧若比通知所属的帧新（BufferQueue 顶替），通知时刻会伪造提前到达；FrameArrivalStamp 按 PTS 间隔识别并改用锁存时刻。
+        val timestamp = texture.timestamp
+        listener.onFrame(timestamp, stamp.arrival(timestamp, notifiedNs, latched)) { buffer, format -> read(buffer, format) }
     }
 
     /** 画 OES 帧到 RGBA 帧缓冲（上下翻转，使读回首行为画面顶部），glReadPixels 后紧凑为 RGB8。 */
