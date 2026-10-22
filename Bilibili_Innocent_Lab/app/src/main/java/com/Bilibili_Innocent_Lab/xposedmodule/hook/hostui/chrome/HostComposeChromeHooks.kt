@@ -42,6 +42,9 @@ internal object HostComposeChromeHooks {
         val resolved = HomeChromeComposeLocator.resolve(loader, points)
         val point = resolved[family] ?: return false
         val method = HomeChromeComposeLocator.method(loader, point) ?: return false
+        val topLayout = if (family == "top") resolved["top_layout"]?.let {
+            HomeChromeComposeLocator.method(loader, it)
+        } else null
         val content = if (family == "bottom") {
             val candidate = resolved["bottom_content"] ?: return false
             HomeChromeComposeLocator.method(loader, candidate) ?: return false
@@ -62,6 +65,8 @@ internal object HostComposeChromeHooks {
                         // Older content may execute synchronously inside its outer container.
                         // Background children never acquire the foreground surface scope.
                         scopes.claimWhere { it.layer == HostChromeLayer.BOTTOM_OUTER }
+                    } else if (current.layer == HostChromeLayer.SURFACE) scopes.claimTogether {
+                        it.layer == HostChromeLayer.SURFACE && it.painter === current.painter
                     } else scopes.claim()
                     invocation ?: return@before
                     val original = argOrNull(1) ?: return@before
@@ -101,6 +106,7 @@ internal object HostComposeChromeHooks {
                             val composer = argOrNull(index) ?: return@runCatching
                             val view = viewAccess.read(composer) ?: return@runCatching
                             val painter = painter(view)
+                            painter.requestBackdropRefresh()
                             if (java.lang.reflect.Modifier.isStatic(content.modifiers)) painter.updateTabs((argOrNull(0) as? List<*>)?.size ?: 1)
                             onObserved()
                             val row = HostChromeRowSelection(content.declaringClass.name, content.name)
@@ -116,31 +122,36 @@ internal object HostComposeChromeHooks {
                     }
                 }
             }
-            val key = "host_chrome.compose.scope.$family"
-            environment.registrar.exact(key, method.declaringClass, method.name, *method.parameterTypes) {
-                before {
-                    val composer = argOrNull(composerIndex) ?: return@before
-                    runCatching {
-                        val view = viewAccess.read(composer) ?: return@runCatching
-                        val painter = painter(view)
-                        if (family == "bottom") painter.updateTabs((argOrNull(1) as? List<*>)?.size ?: 1)
-                        onObserved()
-                        val layer = if (family == "bottom") HostChromeLayer.BOTTOM_OUTER else HostChromeLayer.SURFACE
-                        val entry = HostChromeCompositionScope.Entry(Invocation(painter, layer))
-                        setObjectExtra(key, entry)
-                        // Last operation: after always releases even if the native method throws.
-                        scopes.push(entry)
-                    }.onFailure(onError)
-                }
-                after {
-                    @Suppress("UNCHECKED_CAST")
-                    val entry = getObjectExtra(key) as? HostChromeCompositionScope.Entry<Invocation> ?: return@after
-                    scopes.exit(entry)
-                    setObjectExtra(key, null)
+            val boundaries = listOfNotNull(family to method, topLayout?.let { "top_layout" to it })
+            boundaries.forEach { (boundary, native) ->
+                val key = "host_chrome.compose.scope.$boundary"
+                val index = native.parameterTypes.indexOfFirst { it.name == "androidx.compose.runtime.Composer" }
+                environment.registrar.exact(key, native.declaringClass, native.name, *native.parameterTypes) {
+                    before {
+                        val composer = argOrNull(index) ?: return@before
+                        runCatching {
+                            val view = viewAccess.read(composer) ?: return@runCatching
+                            val painter = painter(view)
+                            painter.requestBackdropRefresh()
+                            if (family == "bottom") painter.updateTabs((argOrNull(1) as? List<*>)?.size ?: 1)
+                            onObserved()
+                            val layer = if (family == "bottom") HostChromeLayer.BOTTOM_OUTER else HostChromeLayer.SURFACE
+                            val entry = HostChromeCompositionScope.Entry(Invocation(painter, layer))
+                            setObjectExtra(key, entry)
+                            // Last operation: after always releases even if the native method throws.
+                            scopes.push(entry)
+                        }.onFailure(onError)
+                    }
+                    after {
+                        @Suppress("UNCHECKED_CAST")
+                        val entry = getObjectExtra(key) as? HostChromeCompositionScope.Entry<Invocation> ?: return@after
+                        scopes.exit(entry)
+                        setObjectExtra(key, null)
+                    }
                 }
             }
             val labelsReady = bottom?.iconOnly != true || HostComposeBottomLabels.install(environment, points, onError, semanticsPoint)
-            touchReady && labelsReady
+            touchReady && labelsReady && (family != "top" || topLayout != null)
         }.onFailure(onError).getOrDefault(false)
     }
 

@@ -4,6 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostChromeCompositionScopeTest {
+    @Test fun `top layout restart shares one root claim and still works without its outer caller`() {
+        val scope = HostChromeCompositionScope<String>()
+        val outer = scope.enter("top")
+        val layout = scope.enter("top")
+        assertEquals("top", scope.claimTogether { it == "top" })
+        scope.exit(layout)
+        assertNull(scope.current()); assertNull(scope.claim())
+        scope.exit(outer)
+        val restart = scope.enter("top")
+        assertEquals("top", scope.claimTogether { it == "top" })
+        scope.exit(restart)
+        assertNull(scope.current())
+    }
     @Test fun `only first root is claimed and outside composition stays untouched`() {
         val scope = HostChromeCompositionScope<String>()
         assertNull(scope.current()); assertNull(scope.claim())

@@ -80,6 +80,8 @@ internal enum class DexAssistQuery {
     PEGASUS_DIVIDER,
     /** khome local chrome trace markers; the full Compose ABI is revalidated before installation. */
     HOME_CHROME_TOP,
+    /** The tab layout has its own restart boundary, independently of HomeTopTabRow. */
+    HOME_CHROME_TOP_LAYOUT,
     HOME_CHROME_TOP_CONTENT,
     HOME_CHROME_TOP_RIGHT_ACTIONS,
     HOME_CHROME_BOTTOM,

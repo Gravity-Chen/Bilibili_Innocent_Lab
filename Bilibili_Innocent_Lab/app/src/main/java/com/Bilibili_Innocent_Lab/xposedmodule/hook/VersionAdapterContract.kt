@@ -59,7 +59,8 @@ internal object VersionAdapterContract {
     /** 74 → 75：Story 清晰度支持 R8 将无状态策略基类优化为接口；旧缓存需重新验证。 */
     /** 75 → 76：Story 读取契约、页面/卡片语义兜底及 Kotlin 播放请求；新增可选缓存键。 */
     /** 76 → 77：我的页保留 getter/旧字段双边界，新增首页语义缓存并修正零参精确查询；旧结果需重定位。 */
-    const val RULE_VERSION = 77
+    /** 77 → 78：新增顶栏独立重组边界；会员 Compose、首页 top 菜单和 sections 协议分层补齐。 */
+    const val RULE_VERSION = 78
 
     /**
      * 51 → 52（2026-09-11，9.11.0(9110400) 适配）：

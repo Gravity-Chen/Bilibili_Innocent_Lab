@@ -23,7 +23,7 @@ public final class AccountMineV2 {
     public static final class Companion { public KSerializer<AccountMineV2> serializer() { return new Serializer(); } }
     public static final class Serializer implements KSerializer<AccountMineV2> {
         private static final SerialDescriptor DESC = descriptor("tv.danmaku.bili.ui.main2.api.AccountMineV2",
-            "game_tips", "live_tip", "section_list_v2", "section_list");
+            "game_tips", "live_tip", "sections_v2", "sections");
         public SerialDescriptor getDescriptor() { return DESC; }
         public void serialize(Encoder encoder, Object instance) {
             AccountMineV2 value = (AccountMineV2)instance;

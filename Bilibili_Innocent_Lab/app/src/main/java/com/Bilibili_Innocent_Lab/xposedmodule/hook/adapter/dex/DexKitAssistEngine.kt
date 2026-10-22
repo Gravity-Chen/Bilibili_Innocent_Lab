@@ -247,9 +247,9 @@ internal object DexKitAssistEngine : DexAssistEngine {
                 usingStrings(listOf(HomeChromeAdapter.marks.getValue(query)), StringMatchType.Contains)
             }
         }
-        DexAssistQuery.HOME_CHROME_TOP, DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS,
+        DexAssistQuery.HOME_CHROME_TOP, DexAssistQuery.HOME_CHROME_TOP_LAYOUT, DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS,
         DexAssistQuery.HOME_CHROME_BOTTOM, DexAssistQuery.HOME_CHROME_BOTTOM_ITEM -> bridge.findMethod {
-            searchPackages(if (query == DexAssistQuery.HOME_CHROME_TOP || query == DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS)
+            searchPackages(if (query in setOf(DexAssistQuery.HOME_CHROME_TOP, DexAssistQuery.HOME_CHROME_TOP_LAYOUT, DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS))
                 "tv.danmaku.bili.khome.widget.topbar" else "tv.danmaku.bili.khome.widget.bottomtab")
             matcher {
                 modifiers(Modifier.STATIC, MatchType.Contains); returnType = "void"; paramCount(4..20)

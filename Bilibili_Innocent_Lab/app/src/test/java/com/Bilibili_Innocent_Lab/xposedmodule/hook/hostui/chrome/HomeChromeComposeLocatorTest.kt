@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HomeChromeComposeLocatorTest {
+    @Test fun `independent tab layout accepts native old and optimized restart ABIs only`() {
+        val owner = "tv.danmaku.bili.khome.widget.topbar.CustomScrollableTabRowKt"
+        val prefix = listOf("int", "androidx.compose.ui.Modifier", "long", "long", "float", "float",
+            "kotlin.jvm.functions.Function1", "kotlin.jvm.functions.Function3", "kotlin.jvm.functions.Function2")
+        val modern = prefix + listOf("androidx.compose.runtime.internal.ComposableLambda", "androidx.compose.runtime.Composer", "int")
+        val old = prefix + listOf("kotlin.jvm.functions.Function2", "androidx.compose.runtime.Composer", "int", "int")
+        assertTrue(HomeChromeComposeLocator.accepts("top_layout", owner, old))
+        assertTrue(HomeChromeComposeLocator.accepts("top_layout", owner.substringBeforeLast('.') + ".f", modern))
+        assertFalse(HomeChromeComposeLocator.accepts("top_layout", "foreign.CustomScrollableTabRowKt", modern))
+        assertFalse(HomeChromeComposeLocator.accepts("top_layout", owner, modern.dropLast(1)))
+    }
     private val modifier = "androidx.compose.ui.Modifier"
     private val composer = "androidx.compose.runtime.Composer"
     private val f1 = "kotlin.jvm.functions.Function1"

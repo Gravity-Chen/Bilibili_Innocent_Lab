@@ -25,5 +25,12 @@ internal class HostChromeCompositionScope<T> {
         entry.claimed = true
         return entry.value
     }
+    /** Two nested restart boundaries may emit the same root; both must consume that one claim. */
+    fun claimTogether(predicate: (T) -> Boolean): T? {
+        val stack = active.get() ?: return null
+        val entry = stack.lastOrNull { !it.claimed && predicate(it.value) } ?: return null
+        stack.forEach { if (predicate(it.value)) it.claimed = true }
+        return entry.value
+    }
     fun current(): T? = active.get()?.lastOrNull()?.takeUnless { it.claimed }?.value
 }

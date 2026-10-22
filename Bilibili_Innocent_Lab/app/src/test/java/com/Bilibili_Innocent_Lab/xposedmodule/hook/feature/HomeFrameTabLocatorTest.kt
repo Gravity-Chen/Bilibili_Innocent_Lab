@@ -57,6 +57,30 @@ class HomeFrameTabLocatorTest {
         assertSame(HomeFrameTabLocator.Resolution.Absent, HomeFrameTabLocator.resolve(withoutFrame))
     }
 
+    @Test fun `game menu filters the independent top slot and permits zero menu entries`() {
+        val registrar = PlayerPortTestRegistrar()
+        HomeTopBarFeatureInstaller(true, false, null).install(environment(registrar))
+        assertEquals("a", model().slot(HomeFrameTabLocator.ELEMENT_TOP)!!.field.name)
+        assertFalse(evidence.any { it.second == FeatureRuntimeStage.APPLIED })
+        val tabs = listOf(tab("recommend", "推荐", "bilibili://pegasus/promo", defaultSelected = 1))
+        val bottom = listOf(tab("home", "首页", "bilibili://main/home", defaultSelected = 1))
+        val scan = tab("scan", "扫一扫", "bilibili://scan")
+        val game = tab("game", "游戏", "action://game_center/home/menu?from=home")
+        val data = k(listOf(game, scan), tabs, bottom, emptyList(), null)
+        registrar.construct("home.top_bar.game_frame.", data)
+        assertEquals(listOf(scan), data.a)
+        assertSame(tabs, data.b); assertSame(bottom, data.c)
+        val onlyGame = k(listOf(game), tabs, bottom, emptyList(), null)
+        registrar.construct("home.top_bar.game_frame.", onlyGame)
+        assertTrue(onlyGame.a.isEmpty())
+        assertTrue("home_game_menu_frame" to "applied" in statuses)
+        val lookalike = tab("other", "游戏攻略", "action://game_center/home/menu_extra")
+        val untouched = listOf(lookalike, scan)
+        val other = k(untouched, tabs, bottom, emptyList(), null)
+        registrar.construct("home.top_bar.game_frame.", other)
+        assertSame(untouched, other.a)
+    }
+
     @Test
     fun `field order follows dex sorting by name then type descriptor`() {
         assertEquals(listOf("a", "b", "c", "d", "e"), HomeFrameTabLocator.orderedInstanceFields(k::class.java).map { it.name })

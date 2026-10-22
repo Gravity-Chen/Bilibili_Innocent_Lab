@@ -17,6 +17,9 @@ class HostChromeInstallerRefreshTest {
         val updated = point("newTop")
         assertTrue(installer.updateChromePoints(mapOf("top" to updated)))
         assertFalse(installer.updateChromePoints(mapOf("top" to updated)))
+        val layout = point("independentLayout")
+        assertTrue(installer.updateChromePoints(mapOf("top_layout" to layout)))
+        assertFalse(installer.updateChromePoints(mapOf("top" to updated, "top_layout" to layout)))
     }
     @Test fun `bottom refresh merges new leaf without forgetting root and ignores top`() {
         val bottom = point("bottom")

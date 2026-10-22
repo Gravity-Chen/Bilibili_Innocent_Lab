@@ -145,7 +145,7 @@ class MineComponentModelBoundaryTest {
     }
 
     @Test fun `many default models cannot exhaust later renamed field discovery`() {
-        val locator = MineSerializedFields(AccountMineV2::class.java, setOf("sectionlist", "sectionlistv2", "livetip"))
+        val locator = MineSerializedFields(AccountMineV2::class.java, setOf("sections", "sectionsv2", "livetip"))
         val empty = emptyList<MenuGroupV2>()
         repeat(12) { assertTrue(locator.resolve(AccountMineV2(empty, empty, empty, null)).isEmpty()) }
         assertEquals(0, locator.attempts())
@@ -153,13 +153,13 @@ class MineComponentModelBoundaryTest {
         val modern = arrayListOf(group("modern", item("modern", 82)))
         val value = AccountMineV2(old, modern, arrayListOf("unrelated"), null)
         val slots = locator.resolve(value)
-        assertSame(modern, slots.getValue("sectionlistv2").get(value))
-        assertSame(old, slots.getValue("sectionlist").get(value))
+        assertSame(modern, slots.getValue("sectionsv2").get(value))
+        assertSame(old, slots.getValue("sections").get(value))
         assertEquals(1, locator.attempts())
     }
 
     @Test fun `ambiguous nonempty shared lists are never guessed and retries are bounded`() {
-        val locator = MineSerializedFields(AccountMineV2::class.java, setOf("sectionlistv2"))
+        val locator = MineSerializedFields(AccountMineV2::class.java, setOf("sectionsv2"))
         val shared = arrayListOf(group("shared", item("x", 1)))
         repeat(20) { assertTrue(locator.resolve(AccountMineV2(shared, shared, shared, null)).isEmpty()) }
         assertEquals(4, locator.attempts())

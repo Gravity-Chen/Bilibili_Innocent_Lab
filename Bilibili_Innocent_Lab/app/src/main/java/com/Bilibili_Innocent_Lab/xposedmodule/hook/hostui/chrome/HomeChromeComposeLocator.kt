@@ -34,6 +34,11 @@ internal object HomeChromeComposeLocator {
                     p.subList(7, 12) == listOf(F1, F1, COMPOSER, "int", "int"))
             "top_right_actions" -> owner.startsWith(TOP.substringBeforeLast('.') + ".") && p.size in 5..6 && model(p[0]) &&
                 p.subList(1, 4) == listOf(MODIFIER, F1, COMPOSER) && p.drop(4).all { it == "int" }
+            "top_layout" -> owner.startsWith(TOP.substringBeforeLast('.') + ".") && p.size in 12..13 &&
+                p.take(9) == listOf("int", MODIFIER, "long", "long", "float", "float", F1,
+                    "kotlin.jvm.functions.Function3", "kotlin.jvm.functions.Function2") &&
+                p[9] in setOf("androidx.compose.runtime.internal.ComposableLambda", "kotlin.jvm.functions.Function2") &&
+                p[10] == COMPOSER && p.drop(11).all { it == "int" }
             "bottom_item" -> owner.startsWith(BOTTOM) && '$' !in owner && p.size in 8..9 &&
                 p[0] == "int" && model(p[1]) && p[2].startsWith(BOTTOM) &&
                 p[3] == MODIFIER && p[4] == "boolean" && p[5] == "kotlin.jvm.functions.Function3" &&
@@ -118,7 +123,8 @@ internal object HomeChromeComposeLocator {
 
     fun direct(loader: ClassLoader): Map<String, HookPoint> {
         val result = linkedMapOf<String, HookPoint>()
-        listOf("top" to TOP, "bottom" to "${BOTTOM}HomeBottomTabContainerKt").forEach { (family, name) ->
+        listOf("top" to TOP, "top_layout" to TOP.substringBeforeLast('.') + ".CustomScrollableTabRowKt",
+            "bottom" to "${BOTTOM}HomeBottomTabContainerKt").forEach { (family, name) ->
             val owner = Lookup.classOrNull(loader, name) ?: return@forEach
             Lookup.declaredMethods(owner).filter { verified(loader, family, it) }.singleOrNull()?.let {
                 result[family] = HookPoint(it.declaringClass.name, it.name, it.parameterTypes.map { type -> type.name })

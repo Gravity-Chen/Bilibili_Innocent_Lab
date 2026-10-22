@@ -18,7 +18,8 @@ internal class MineModelFilter(
     private val environment: HookEnvironment,
     private val path: String = "model"
 ) {
-    private val slots = MineSerializedFields(owner, setOf("sectionlist", "sectionlistv2", "livetip"))
+    private val slots = MineSerializedFields(owner,
+        setOf("sections", "sectionsv2", "sectionlist", "sectionlistv2", "livetip"))
     private val groups = GROUPS.mapNotNull { name -> Lookup.classOrNull(owner.classLoader, name)?.let(Group::resolve) }
     private val tips = HashMap<Class<*>, MineSerializedFields>()
     private val buttons = HashMap<Class<*>, Button>()
@@ -55,7 +56,8 @@ internal class MineModelFilter(
     }
 
     private fun processFields(value: Any, fields: Map<String, Field>): Int {
-        val sectionFields = listOfNotNull(fields["sectionlist"], fields["sectionlistv2"])
+        val sectionFields = listOfNotNull(fields["sections"], fields["sectionsv2"],
+            fields["sectionlist"], fields["sectionlistv2"]).distinct()
             .filter { List::class.java.isAssignableFrom(it.type) }
         if (sectionFields.isEmpty()) {
             if (unknown.compareAndSet(false, true)) environment.logInfo(

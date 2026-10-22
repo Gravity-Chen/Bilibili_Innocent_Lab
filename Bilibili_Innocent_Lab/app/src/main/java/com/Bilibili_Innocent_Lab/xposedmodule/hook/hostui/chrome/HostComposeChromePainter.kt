@@ -6,6 +6,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Rect
 import android.os.Build
+import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -17,6 +18,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeViewp
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostDockLayer
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostGlowView
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostSurfaceStyle
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostViewVisibility
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 import com.lumen.coacervation.engine.host.LumenPrismGlass
@@ -37,7 +40,7 @@ internal class HostComposeChromePainter(
     private class Target(owner: View) : View(owner.context), HostDockLayer {
         private val owner = WeakReference(owner)
         var wake: (() -> Unit)? = null
-        override fun isShown() = visibility == VISIBLE && owner.get()?.let { it.isShown && it.alpha > 0f } == true
+        override fun isShown() = visibility == VISIBLE && owner.get()?.let(HostViewVisibility::shown) == true
         // It is an engine lifecycle/coordinate target, never a second visible or interactive layer.
         @SuppressLint("MissingSuperCall") // Compose draws this background exactly once in its local canvas.
         override fun draw(canvas: Canvas) = Unit
@@ -55,7 +58,8 @@ internal class HostComposeChromePainter(
     private var rootClipWidth = 0f
     private var rootClipHeight = 0f
     private var tabCount = 1
-    private var layoutKey: Pair<Int, Int>? = null
+    private var layoutWidth = -1
+    private var layoutTabs = -1
     private var x = 0f
     private var y = 0f
     private var width = 0
@@ -76,26 +80,56 @@ internal class HostComposeChromePainter(
     private var observer: ViewTreeObserver? = null
     private var version: Long? = null
     private var paused = false
+    private val backdropRecovery = HostChromeBackdropRecovery<ViewGroup>()
+    private var probeAt: Long? = null
     private val visibleBounds = Rect()
+    private val sourceBounds = Rect()
+    private val recyclerTypes = HostChromeRecyclerTypes()
     private val location = IntArray(2)
+    private val sourceUsable: (ViewGroup) -> Boolean = {
+        it.isAttachedToWindow && HostViewVisibility.visible(it, visibleBounds)
+    }
+    private val locateSource: () -> ViewGroup? = { this.owner.get()?.let(::independentContent) }
+    private val frameWake = Runnable {
+        posted = false
+        HostThreadGuard.run("host.chrome.wake") {
+            runCatching {
+                this.owner.get()?.takeIf { it.isAttachedToWindow }?.let { signal.invalidate(); it.invalidate() }
+            }.onFailure(::failure)
+        }
+    }
+    private val backdropProbe = Runnable {
+        probeAt = null
+        HostThreadGuard.run("host.chrome.backdrop") { runCatching(::wake).onFailure(::failure) }
+    }
+    private val layoutChanged = ViewTreeObserver.OnGlobalLayoutListener {
+        HostThreadGuard.run("host.chrome.layout") { runCatching(::requestBackdropRefresh).onFailure(::failure) }
+    }
+    private val scrollChanged = ViewTreeObserver.OnScrollChangedListener {
+        HostThreadGuard.run("host.chrome.scroll") { runCatching(::requestBackdropRefresh).onFailure(::failure) }
+    }
     private val preDraw = ViewTreeObserver.OnPreDrawListener {
         runCatching {
-            val currentOwner: View? = this.owner.get()
-            val content = source?.coordinateView
-            if (content != null && content !== currentOwner &&
-                (!content.isAttachedToWindow || !content.isShown || content.alpha <= 0f || !content.getGlobalVisibleRect(visibleBounds))) {
-                release()?.let { throw it }
-                wake()
-                return@runCatching
-            }
-            val visible = currentOwner?.let(::actuallyVisible) == true
+            val currentOwner = this.owner.get() ?: return@runCatching
+            val visible = actuallyVisible(currentOwner)
             target?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
             val shouldPause = !visible
             if (paused != shouldPause) {
                 paused = shouldPause
                 if (shouldPause) session?.pause() else session?.resume()
             }
-            if (!visible) return@runCatching
+            if (!visible) {
+                cancelBackdropProbe()
+                return@runCatching
+            }
+            val nextContent = selectContent()
+            val currentContent = source?.coordinateView?.takeUnless { it === currentOwner }
+            if (target != null && nextContent !== currentContent) {
+                release()?.let { throw it }
+                build(currentOwner, nextContent)
+                wake()
+            }
+            scheduleBackdropProbe(currentOwner)
             if (viewport?.sync() == true) session?.notifyPositionChanged()
             val next = viewport?.contentVersion
             if (next != version) { version = next; session?.notifyContentChanged() }
@@ -103,17 +137,48 @@ internal class HostComposeChromePainter(
         true
     }
     private val attach = object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) = wake()
-        override fun onViewDetachedFromWindow(v: View) { release()?.let(::failure); activeTouch = false }
+        override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.chrome.attach") {
+            runCatching(::wake).onFailure(::failure)
+        }
+        override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.chrome.detach") {
+            backdropRecovery.clear(); release()?.let(::failure); activeTouch = false
+        }
     }
 
     init { owner.addOnAttachStateChangeListener(attach) }
 
+    /** No hierarchy search in a Hook callback; the next visible pre-draw performs the bounded probe. */
+    fun requestBackdropRefresh() {
+        if (failed) return
+        if (backdropRecovery.request(SystemClock.uptimeMillis())) {
+            owner.get()?.takeIf { it.isAttachedToWindow }?.let(::scheduleBackdropProbe)
+        }
+    }
+
+    private fun selectContent(): ViewGroup? = backdropRecovery.select(SystemClock.uptimeMillis(), sourceUsable, locateSource)
+
+    private fun cancelBackdropProbe() {
+        if (probeAt == null) return
+        owner.get()?.removeCallbacks(backdropProbe)
+        probeAt = null
+    }
+
+    private fun scheduleBackdropProbe(owner: View) {
+        val now = SystemClock.uptimeMillis()
+        val delay = backdropRecovery.retryAfter(now) ?: run { cancelBackdropProbe(); return }
+        val due = now + delay
+        if (probeAt?.let { it <= due } == true) return
+        cancelBackdropProbe()
+        if (owner.postDelayed(backdropProbe, delay)) probeAt = due
+    }
+
     fun updateTabs(count: Int) {
         tabCount = count.coerceAtLeast(1)
         val view = owner.get() ?: return
-        val key = view.width to tabCount
-        if (key != layoutKey) { layoutKey = key; modifiers.values.forEach { it.clear() } }
+        if (view.width != layoutWidth || tabCount != layoutTabs) {
+            layoutWidth = view.width; layoutTabs = tabCount
+            modifiers.values.forEach { it.clear() }
+        }
     }
 
     fun layout(): Pair<Float, Float>? {
@@ -240,7 +305,7 @@ internal class HostComposeChromePainter(
     }
 
     private fun actuallyVisible(owner: View): Boolean {
-        if (!owner.isAttachedToWindow || !owner.isShown || owner.alpha <= 0f || !owner.getLocalVisibleRect(visibleBounds)) return false
+        if (!owner.isAttachedToWindow || !HostViewVisibility.shown(owner) || !owner.getLocalVisibleRect(visibleBounds)) return false
         owner.getLocationInWindow(location)
         visibleBounds.offset(location[0], location[1])
         return x < visibleBounds.right && x + width > visibleBounds.left &&
@@ -249,14 +314,13 @@ internal class HostComposeChromePainter(
 
     private fun radiusDp(owner: View) = (height / owner.resources.displayMetrics.density / 2f).coerceIn(0f, 128f)
 
-    private fun build(owner: View) {
+    private fun build(owner: View, content: ViewGroup? = selectContent()) {
         val root = owner.rootView as? ViewGroup ?: return
         val target = Target(owner).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO; isClickable = false }
         this.target = target; overlay = root
         try {
             root.overlay.add(target)
             syncTarget()
-            val content = independentContent(owner)
             source = HostChromeContentSource(content ?: owner, colors.palette().background, includeViewContent = content != null)
             viewport = HostChromeViewportSource(requireNotNull(source), compositeView = appearance.material == HostGlassMaterial.PRISM) {
                 it(target, 0f, 0f, 72f * owner.resources.displayMetrics.density)
@@ -269,7 +333,11 @@ internal class HostComposeChromePainter(
                 binding = active.bindSource(target, HostSurfaceStyle.floating(colors.dark, radiusDp(owner), appearance.compatible(Build.VERSION.SDK_INT)), viewport)
             }
             target.wake = ::wake
-            observer = owner.viewTreeObserver.takeIf { it.isAlive }?.also { it.addOnPreDrawListener(preDraw) }
+            observer = owner.viewTreeObserver.takeIf { it.isAlive }?.also {
+                it.addOnPreDrawListener(preDraw); it.addOnGlobalLayoutListener(layoutChanged)
+                it.addOnScrollChangedListener(scrollChanged)
+            }
+            scheduleBackdropProbe(owner)
         } catch (failure: Throwable) { release()?.takeUnless { it === failure }?.let(failure::addSuppressed); throw failure }
     }
 
@@ -287,16 +355,13 @@ internal class HostComposeChromePainter(
     /** An independently drawn feed can be sampled; a full-screen Compose ancestor never can. */
     private fun independentContent(owner: View): ViewGroup? {
         val root = owner.rootView as? ViewGroup ?: return null
-        val bounds = Rect()
         val halo = (72f * owner.resources.displayMetrics.density).roundToInt()
         var seen = 0
         fun visit(group: ViewGroup, depth: Int): ViewGroup? {
-            if (depth > 24 || ++seen > 2048 || !group.isShown || group is HostDockLayer) return null
+            if (depth > 24 || ++seen > 2048 || !group.isShown || group.alpha <= 0f || group is HostDockLayer) return null
             val name = group.javaClass.name
             if (name.contains("biliplayer", true) || name.contains("player", true)) return null
-            val recycler = generateSequence(group.javaClass as Class<*>?) { it.superclass }.take(12)
-                .any { it.name == "androidx.recyclerview.widget.RecyclerView" }
-            if (recycler && group.getGlobalVisibleRect(bounds)) {
+            if (recyclerTypes.matches(group.javaClass) && HostViewVisibility.visible(group, sourceBounds)) {
                 group.getLocationInWindow(location)
                 if (location[0] < x + width + halo && location[0] + group.width > x - halo &&
                     location[1] < y + height + halo && location[1] + group.height > y - halo) return group
@@ -311,15 +376,13 @@ internal class HostComposeChromePainter(
         if (posted) return
         val owner = owner.get()?.takeIf { it.isAttachedToWindow } ?: return
         posted = true
-        owner.postOnAnimation {
-            posted = false
-            if (owner.isAttachedToWindow) { runCatching { signal.invalidate(); owner.invalidate() }.onFailure(::failure) }
-        }
+        owner.postOnAnimation(frameWake)
     }
 
     internal fun failure(error: Throwable) {
         if (failed) return
         failed = true
+        backdropRecovery.clear()
         release()?.takeUnless { it === error }?.let { runCatching { error.addSuppressed(it) } }
         val owned = nativeOwners.values.mapNotNull { entry ->
             val node = entry.node.get(); val modifier = entry.modifier.get()
@@ -327,13 +390,20 @@ internal class HostComposeChromePainter(
         }
         // Both outer geometry and foreground Row must restore; each keeps its own identity lease.
         if (owned.isNotEmpty()) runCatching {
-            owner.get()?.post { owned.forEach { (node, expected, original) -> runCatching { api.restore(node, expected, original) } } }
+            owner.get()?.post {
+                HostThreadGuard.run("host.chrome.restore") {
+                    owned.forEach { (node, expected, original) -> runCatching { api.restore(node, expected, original) } }
+                }
+            }
         }
         runCatching { onError(error) }
     }
 
     /** Clear ownership first, then release every resource even when one close operation fails. */
     private fun release(): Throwable? {
+        val currentOwner = owner.get()
+        val hadProbe = probeAt != null
+        probeAt = null; posted = false
         val oldObserver = observer; observer = null
         val oldTarget = target; target = null
         val oldOverlay = overlay; overlay = null
@@ -350,7 +420,11 @@ internal class HostComposeChromePainter(
                 if (previous == null) failure = error else if (previous !== error) runCatching { previous.addSuppressed(error) }
             }
         }
+        if (hadProbe) close { currentOwner?.removeCallbacks(backdropProbe) }
+        close { currentOwner?.removeCallbacks(frameWake) }
         close { oldObserver?.takeIf { it.isAlive }?.removeOnPreDrawListener(preDraw) }
+        close { oldObserver?.takeIf { it.isAlive }?.removeOnGlobalLayoutListener(layoutChanged) }
+        close { oldObserver?.takeIf { it.isAlive }?.removeOnScrollChangedListener(scrollChanged) }
         close { oldPrism?.close() }
         close { oldBinding?.close() }
         close { oldSession?.close() }
