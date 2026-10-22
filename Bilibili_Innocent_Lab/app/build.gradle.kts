@@ -203,8 +203,13 @@ tasks.register("lintFast") {
 
 android {
     namespace = gropify.project.app.packageName
-    compileSdk = gropify.project.android.compileSdk
-    ndkVersion = "29.0.14206865"
+    compileSdk {
+        version = release(gropify.project.android.compileSdk) {
+            minorApiLevel = 2
+        }
+    }
+    buildToolsVersion = "37.0.0"
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         applicationId = gropify.project.app.packageName
@@ -234,7 +239,7 @@ android {
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.31.5"
+            version = "4.1.2"
             // Keep generated native/dependency paths below Windows' tool path limits, per checkout.
             val checkoutKey = MessageDigest.getInstance("SHA-256").digest(projectDir.canonicalPath.toByteArray())
                 .take(8).joinToString("") { "%02x".format(it.toInt() and 0xff) }
