@@ -103,8 +103,14 @@ internal class FrameInterpolationEngineHolder(
             task.run()
         }, "innocent-frame-infer").apply { isDaemon = true }
     }.apply { allowCoreThreadTimeOut(false) }
+    private val preparationRetry = FramePreparationRetry(maxAttempts = CAPABILITY_RETRIES, capabilityDelayNs = CAPABILITY_RETRY_NS)
+    private val recoveryExecutor = java.util.concurrent.ScheduledThreadPoolExecutor(1) { task ->
+        Thread(task, "innocent-frame-recover").apply { isDaemon = true }
+    }.apply { removeOnCancelPolicy = true }
+    private var recoveryTask: java.util.concurrent.ScheduledFuture<*>? = null
 
     fun ready(): Boolean = state == State.READY
+    fun recoveryPending(): Boolean = state == State.FAILED && preparationRetry.canSchedule()
 
     /**
      * 在当前条件下重新测定能力（在 worker 上执行，与推理串行），等待完成。宿主只在播放进程启动时测一次；
@@ -117,29 +123,47 @@ internal class FrameInterpolationEngineHolder(
         return accepted && done.await(timeoutMs, TimeUnit.MILLISECONDS) && ready()
     }
 
-    /** 仅能力测量失败时：到期则在 worker 上重测；返回是否已安排重测（调用方可把解码器挂到迟接管）。 */
-    @Synchronized fun retryIfDue(nowNs: Long = System.nanoTime()): Boolean {
-        val engine = backend ?: return false
-        if (state != State.FAILED || capabilityFailedAtNs == 0L || capabilityRetries >= CAPABILITY_RETRIES ||
-            nowNs - capabilityFailedAtNs < CAPABILITY_RETRY_NS) return false
-        capabilityRetries++
+    /** No I/O here: enqueue one due recovery on the existing bounded inference worker. */
+    @Synchronized fun retryIfDue(nowNs: Long = System.nanoTime(), newPlayback: Boolean = true): Boolean {
+        if (state != State.FAILED) return false
+        val work = preparationRetry.take(nowNs, newPlayback) ?: return false
         state = State.PREPARING
-        val accepted = runCatching { executor.execute { measureCapability(engine) } }.isSuccess
-        if (!accepted) state = State.FAILED
-        else log("engine.retry", "capability #$capabilityRetries")
+        val accepted = runCatching { executor.execute { prepareOnWorker(work) } }.isSuccess
+        if (!accepted) fail("queue", work)
+        else log("engine.retry", work.name.lowercase())
         return accepted
     }
 
     @Synchronized fun warmUp() {
         if (state != State.IDLE) return
         state = State.PREPARING
-        val accepted = runCatching { executor.execute { load() } }.isSuccess
-        if (!accepted) state = State.FAILED
+        val accepted = runCatching { executor.execute { prepareOnWorker(FramePreparationRetry.Work.LOAD) } }.isSuccess
+        if (!accepted) fail("queue")
+    }
+
+    private fun prepareOnWorker(work: FramePreparationRetry.Work) {
+        try {
+            if (work == FramePreparationRetry.Work.CAPABILITY && backend != null) measureCapability(backend!!)
+            else {
+                backend?.close()
+                backend = null
+                warmed.clear()
+                measuredMs.clear()
+                load()
+            }
+        } catch (failure: Throwable) {
+            runCatching { backend?.close() }
+            backend = null
+            fail("prepare:${failure.javaClass.simpleName}")
+        }
     }
 
     private fun load() {
         val native = runCatching { FrameInterpolationNative.prepare(moduleApk, hostCodeCache) }
             .getOrDefault(FrameNativeLoader.Status.FAILED)
+        if (native == FrameNativeLoader.Status.UNSUPPORTED_ABI || native == FrameNativeLoader.Status.RESTART_REQUIRED) {
+            fail("native:$native", null); return
+        }
         if (native != FrameNativeLoader.Status.READY) { fail("native:$native"); return }
         // fp16、GPU RGB8 转换、自适应光流（≤1080p 用 1/4，以上用 1/8，光流输入约 480×270）。
         // 2026-10-19 真机（Adreno 840，宿主稳态）：720p 11 ms、1080p 21 ms、1440p 16 ms、4K 32 ms。
@@ -149,7 +173,11 @@ internal class FrameInterpolationEngineHolder(
             1, fp16 = true, flowScale = 4, gpuIo = true, protectStaticDetails = protectStaticDetails,
             maxPixels = maxOf(FrameInterpolationBackend.MAX_PIXELS, largest), adaptiveFlow = true)
         val engine = opened.engine
-        if (opened.status != FrameInterpolationBackend.Status.OK || engine == null) { fail("model:${opened.status}"); return }
+        if (opened.status != FrameInterpolationBackend.Status.OK || engine == null) {
+            val terminal = opened.status in setOf(FrameInterpolationBackend.Status.UNSUPPORTED_BACKEND,
+                FrameInterpolationBackend.Status.INVALID_ARGUMENT, FrameInterpolationBackend.Status.MODEL_TOO_LARGE)
+            fail("model:${opened.status}", if (terminal) null else FramePreparationRetry.Work.LOAD); return
+        }
         backend = engine
         // 真机：首次推理某分辨率时分配显存与编译着色器，远超槽位预算；先在各尺寸上各跑一次。
         for ((width, height) in WARM_SIZES + capabilitySizes) warm(engine, width, height)
@@ -158,15 +186,13 @@ internal class FrameInterpolationEngineHolder(
     }
 
     @Volatile private var modelName = ""
-    @Volatile private var capabilityFailedAtNs = 0L
-    private var capabilityRetries = 0
 
     /**
      * 能力测量。启动时 GPU 可能被短暂占满（宿主冷启动、另一插帧实例），测得的耗时远高于平时而判为不可用；
-     * 失败后由 [retryIfDue] 在之后的解码器 configure 时重测（间隔 ≥ [CAPABILITY_RETRY_NS]，最多 [CAPABILITY_RETRIES] 次），
-     * 不必重启宿主。
+     * 后台有限重试保持 ≥ [CAPABILITY_RETRY_NS] 的间隔；耗尽后，仅较晚的新播放可重启恢复窗口。
      */
     private fun measureCapability(engine: FrameInterpolationBackend) {
+        measuredMs.clear()
         val passing = capabilitySizes.filter { (width, height) ->
             val pixels = width.toLong() * height
             val tiers = if (pixels > 1280L * 720L && pixels <= FrameProcessingSize.STANDARD_FLOW_PIXELS) STANDARD_TIERS
@@ -181,7 +207,9 @@ internal class FrameInterpolationEngineHolder(
         capability = FrameProcessingSize.Capability(
             standard = passing.filter { it <= FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L,
             high = passing.filter { it > FrameProcessingSize.STANDARD_FLOW_PIXELS }.maxOrNull() ?: 0L)
-        if (maxPixels == 0L) { capabilityFailedAtNs = System.nanoTime(); fail("capability"); return }
+        if (maxPixels == 0L) { fail("capability", FramePreparationRetry.Work.CAPABILITY); return }
+        preparationRetry.ready()
+        recoveryTask?.cancel(false)
         state = State.READY
         log("engine.ready", "$modelName standard=${capability.standard} high=${capability.high} tier=1/$standardFlowScale")
         runCatching { onReady?.invoke() }.onFailure { log("engine.onReady", it.javaClass.simpleName) }
@@ -227,9 +255,13 @@ internal class FrameInterpolationEngineHolder(
         return times[1]
     }
 
-    private fun fail(reason: String) {
+    @Synchronized private fun fail(reason: String, work: FramePreparationRetry.Work? = FramePreparationRetry.Work.LOAD) {
+        preparationRetry.failed(work, System.nanoTime())
         state = State.FAILED
         log("engine.failed", reason)
+        recoveryTask?.cancel(false)
+        if (work != null && preparationRetry.canSchedule()) recoveryTask = recoveryExecutor.schedule(
+            { retryIfDue(newPlayback = false) }, preparationRetry.delayFor(work), TimeUnit.NANOSECONDS)
     }
 
     companion object {

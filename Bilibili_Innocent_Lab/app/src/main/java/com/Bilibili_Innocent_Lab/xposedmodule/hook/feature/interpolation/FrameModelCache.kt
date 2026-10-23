@@ -2,6 +2,9 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 
 import java.io.File
 import java.io.InputStream
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * 宿主进程侧的模型落地：从 LSPosed 远程文件（模块设置中下载并校验后写入）复制到宿主私有
@@ -16,25 +19,38 @@ internal object FrameModelCache {
     }
 
     /** [openRemote] 按远程文件名打开输入流（宿主侧包装 LSPosed 远程文件描述符），没有则返回 null。 */
-    fun materialize(hostPrivateRoot: File, openRemote: (String) -> InputStream?): Result {
+    fun materialize(hostPrivateRoot: File, parts: List<FrameModelSpec.Part> = FrameModelSpec.PARTS,
+                    openRemote: (String) -> InputStream?): Result {
         val directory = File(hostPrivateRoot, "innocent-frame-model/${FrameModelSpec.NAME}")
-        if (!directory.isDirectory && !directory.mkdirs()) return Result.Invalid("directory")
-        for (part in FrameModelSpec.PARTS) {
+        if (!directory.isDirectory && !directory.mkdirs() && !directory.isDirectory) return Result.Invalid("directory")
+        for (part in parts) {
             val target = File(directory, part.fileName)
             if (FrameModelSpec.matches(part, target)) continue
             val source = runCatching { openRemote(part.remoteName) }.getOrNull() ?: return Result.Missing(part.fileName)
-            val temporary = File(directory, part.fileName + ".tmp")
             val valid = runCatching {
                 source.buffered().use { input ->
-                    temporary.outputStream().buffered().use { output ->
-                        FrameModelSpec.matches(part, input) { bytes, count -> output.write(bytes, 0, count) }
+                    val temporary = File.createTempFile(part.fileName + ".", ".tmp", directory)
+                    try {
+                        val matches = FileOutputStream(temporary).use { file ->
+                            val output = file.buffered()
+                            val checked = FrameModelSpec.matches(part, input) { bytes, count -> output.write(bytes, 0, count) }
+                            output.flush()
+                            file.fd.sync()
+                            checked
+                        }
+                        if (!matches) false
+                        else {
+                            Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE,
+                                StandardCopyOption.REPLACE_EXISTING)
+                            true
+                        }
+                    } finally {
+                        temporary.delete()
                     }
                 }
             }.getOrDefault(false)
-            if (!valid || !temporary.renameTo(target)) {
-                temporary.delete()
-                return Result.Invalid(part.fileName)
-            }
+            // Another process may have atomically published the same pinned content first.
+            if (!valid && !FrameModelSpec.matches(part, target)) return Result.Invalid(part.fileName)
         }
         return Result.Ready(directory)
     }

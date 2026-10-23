@@ -957,9 +957,15 @@
     <string name="player_frame_model_checking">正在检查…</string>
     <string name="player_frame_model_ready">RIFE v4.6 已下载并校验</string>
     <string name="player_frame_model_missing">未下载。点按从 GitHub 的 nihui/rife-ncnn-vulkan 下载 RIFE v4.6（约 10 MB）。</string>
-    <string name="player_frame_model_framework_unavailable">LSPosed 服务不可用，请先在 LSPosed 中启用模块。</string>
+    <string name="player_frame_model_framework_unavailable">框架服务暂不可用，重连后将自动重新检查。点按重试。</string>
+    <string name="player_frame_model_framework_pending">正在等待框架连接或确认能力，随后会自动重新检查模型。</string>
+    <string name="player_frame_model_framework_unsupported">当前框架不提供发布模型所需的远程文件能力。</string>
+    <string name="player_frame_model_invalid">远程模型不完整或校验失败，点按修复。</string>
+    <string name="player_frame_model_remote_failed">框架已连接，但模型文件读写失败。点按重试。</string>
+    <string name="player_frame_model_local_failed">本地存储中的模型检查失败，点按重试。</string>
     <string name="player_frame_model_downloading">正在下载 %1$s… %2$d%%</string>
     <string name="player_frame_model_publishing">正在校验…</string>
+    <string name="player_frame_model_download_failed">下载失败，已完成的模型文件已保留。点按重试。</string>
     <string name="player_frame_model_failed">下载失败（%1$s），点按重试。</string>
     <string name="player_speed_title">播放速度</string>
     <string name="player_disable_long_press">禁用长按加速</string>

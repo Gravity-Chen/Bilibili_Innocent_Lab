@@ -7,6 +7,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FrameCaptureTimingContractTest {
+    @Test fun `revoked bridges cannot restore codec output or reset a replacement audio clock`() {
+        val source = SourceContract.read("hook/feature/interpolation/FrameCaptureBridge.kt")
+        val restore = source.after("private fun onNativeRestored(").before("companion object")
+        val guard = restore.indexOf("if (closed.get() || !isCurrent())")
+        val switch = restore.indexOf("decoder.setOutputSurface(display)")
+        assertTrue(guard >= 0 && switch > guard)
+        val close = source.after("fun close()").before("private fun onFrame(")
+        assertTrue(close.contains("if (isCurrent()) host.setAudioDelayUs(0L)"))
+        val installer = SourceContract.read("hook/feature/interpolation/FrameInterpolationFeatureInstaller.kt")
+        assertTrue(installer.contains("isCurrent = decoder.ticket::isActive"))
+        assertTrue(installer.contains("pending.await(codec, decoder, { engine?.ready() == true }"))
+    }
     @Test fun `clock rejection enters recovery before its observation window is reset`() {
         val rejection = SourceContract.read("hook/feature/interpolation/FrameCaptureBridge.kt")
             .after("if (state == FrameTimeline.ClockState.RESTART_REQUIRED").before("clock.reset()")

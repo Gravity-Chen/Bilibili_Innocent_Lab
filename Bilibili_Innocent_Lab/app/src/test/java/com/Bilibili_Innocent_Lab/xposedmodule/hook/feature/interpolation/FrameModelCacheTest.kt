@@ -59,4 +59,25 @@ class FrameModelCacheTest {
         val result = FrameModelCache.materialize(root) { error("service gone") }
         assertTrue(result is FrameModelCache.Result.Missing)
     }
+
+    @Test fun concurrentPlaybackProcessesPublishTheirOwnTemporaryFilesAndReuseACompleteCache() {
+        val payload = "verified model".toByteArray()
+        val part = FrameModelSpec.Part("small.bin", payload.size, sha256(payload))
+        val barrier = java.util.concurrent.CyclicBarrier(2)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
+        try {
+            val results = (1..2).map {
+                pool.submit<Result<FrameModelCache.Result>> {
+                    runCatching { FrameModelCache.materialize(root, listOf(part)) {
+                        barrier.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                        ByteArrayInputStream(payload)
+                    } }
+                }
+            }.map { it.get(10, java.util.concurrent.TimeUnit.SECONDS).getOrThrow() }
+            assertTrue("concurrent outcomes: $results", results.all { it is FrameModelCache.Result.Ready })
+            val cached = FrameModelCache.materialize(root, listOf(part)) { error("must reuse verified cache") }
+            assertTrue(cached is FrameModelCache.Result.Ready)
+            assertEquals(listOf(part.fileName), (cached as FrameModelCache.Result.Ready).directory.list()!!.toList())
+        } finally { pool.shutdownNow() }
+    }
 }

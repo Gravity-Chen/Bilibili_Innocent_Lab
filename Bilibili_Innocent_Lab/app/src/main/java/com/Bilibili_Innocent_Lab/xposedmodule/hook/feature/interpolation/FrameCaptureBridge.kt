@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 internal class FrameCaptureBridge private constructor(
     private val config: Config,
-    private val codec: MediaCodec,
+    codec: MediaCodec,
     private val display: Surface,
     /** 处理尺寸（[FrameProcessingSize]）：捕获缩放后的尺寸，推理、账本与呈现都用它。 */
     private val width: Int,
@@ -32,8 +32,11 @@ internal class FrameCaptureBridge private constructor(
     private val secureDecoder: Boolean,
     private val tunneled: Boolean,
     private val engine: FrameInterpolationEngineHolder,
-    private val host: Host
+    private val host: Host,
+    private val isCurrent: () -> Boolean
 ) {
+    private val codecReference = java.lang.ref.WeakReference(codec)
+    private val codecId = System.identityHashCode(codec).toLong()
     /** 宿主侧回调：音频补偿目标、倍速与音频输出证据、诊断日志。 */
     interface Host {
         fun setAudioDelayUs(delayUs: Long)
@@ -139,6 +142,7 @@ internal class FrameCaptureBridge private constructor(
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
             if (closed.get() || native.get()) return
+            if (codecReference.get() == null || !isCurrent()) { close(); return }
             runCatching { drive(frameTimeNanos) }.onFailure { returnToNative("drive:${it.javaClass.simpleName}") }
             Choreographer.getInstance().postFrameCallback(this)
         }
@@ -155,9 +159,11 @@ internal class FrameCaptureBridge private constructor(
         val listener = FrameGlCapture.FrameListener { timestamp, arrival, read -> onFrame(timestamp, arrival, read) }
         val surface = capture.start(listener) ?: return false
         captureSurface = surface
+        if (!isCurrent()) return false
         if (attach != null && !attach(surface)) return false
+        if (!isCurrent()) return false
         if (!presenter.start()) {
-            if (attach != null) runCatching { codec.setOutputSurface(display) }
+            if (attach != null && isCurrent()) runCatching { codecReference.get()?.setOutputSurface(display) }
             return false
         }
         driveHandler.post { Choreographer.getInstance().postFrameCallback(frameCallback) }
@@ -184,7 +190,7 @@ internal class FrameCaptureBridge private constructor(
     fun close() {
         if (!closed.compareAndSet(false, true)) return
         capture.handler.post {
-            host.setAudioDelayUs(0L)
+            if (isCurrent()) host.setAudioDelayUs(0L)
             session.close()
             host.log("bridge.close", session.snapshot().recovery.cause.name)
         }
@@ -196,6 +202,7 @@ internal class FrameCaptureBridge private constructor(
 
     private fun onFrame(timestampNs: Long, arrivalNs: Long, read: (ByteBuffer, FrameBufferLedger.Format) -> Boolean) {
         if (native.get() || closed.get()) return
+        if (!isCurrent()) { close(); return }
         if (!admitted && !admit()) return
         val pts = timestampNs / 1_000L
         if (clock.feed(pts, arrivalNs, host.playbackSpeed()) == FrameHostClock.Update.DISCONTINUITY) {
@@ -233,9 +240,9 @@ internal class FrameCaptureBridge private constructor(
     private fun admit(): Boolean {
         // 真机：宿主 configure 格式不带 profile，解码器输出格式（video/raw）也不带；解码器解析序列头后把
         // profile 填进其输入格式（AV1 profile 1 = Main8）。缺失项依次由输入格式、输出格式补齐。
-        val input = runCatching { codec.inputFormat }.getOrNull()?.let(::values)
+        val input = runCatching { codecReference.get()?.inputFormat }.getOrNull()?.let(::values)
         val source = input?.let(this.source::fillFrom) ?: this.source
-        val decoded = runCatching { codec.outputFormat }.getOrNull()?.let(::values) ?: FrameHostMediaSignals.Values(source.mime)
+        val decoded = runCatching { codecReference.get()?.outputFormat }.getOrNull()?.let(::values) ?: FrameHostMediaSignals.Values(source.mime)
         // GPU 采样 OES 时由驱动按流色彩空间完成 YUV→RGB；只对已知的 SDR BT.601/709 声称捕获已验证。
         val decodedSignal = FrameHostMediaSignals.signal(decoded.fillFrom(source), 8)
         val capture = if (FrameHostMediaSignals.converterStandard(decodedSignal.standard) != null)
@@ -255,7 +262,7 @@ internal class FrameCaptureBridge private constructor(
         return true
     }
 
-    private fun epoch() = FrameTimeline.Epoch(System.identityHashCode(codec).toLong(), epochCount,
+    private fun epoch() = FrameTimeline.Epoch(codecId, epochCount,
         System.identityHashCode(display).toLong(), (sourceWidth.toLong() shl 32) or sourceHeight.toLong(), discontinuity)
 
     private fun beginEpoch(reason: String) {
@@ -367,17 +374,20 @@ internal class FrameCaptureBridge private constructor(
 
     /** 由呈现线程在显示 EGL 断开后回调；只切换一次。 */
     private fun onNativeRestored(report: FramePresentationRecovery.Report) {
+        if (closed.get() || !isCurrent()) { close(); return }
         if (!native.compareAndSet(false, true)) return
         audioDelayUs = 0L
         host.setAudioDelayUs(0L)
-        val switched = runCatching { codec.setOutputSurface(display) }.isSuccess
+        val decoder = codecReference.get()
+        val switched = decoder != null && runCatching { decoder.setOutputSurface(display) }.isSuccess
         host.log("bridge.restored", "${report.state}:${report.cause}:switched=$switched")
         // 温控/准入回退后本实例不会再恢复插帧；归还 RGB 账本、GL 线程与读回内存，避免闲置资源常驻。
-        if (switched) close()
+        if (switched || decoder == null) close()
         // 系统实际刷新低于目标：解码器已回到显示 Surface，交给宿主按实测上限重新接管。
         val limit = limitedHz
-        if (switched && limit != null) host.onDisplayLimited(codec, limit)
-        else if (switched && rebuild) host.onRebuild(codec)
+        if (!isCurrent()) return
+        if (switched && decoder != null && limit != null) host.onDisplayLimited(decoder, limit)
+        else if (switched && decoder != null && rebuild) host.onRebuild(decoder)
         // 降档与重建会按新目标重新接管并另报生效；其余回原生（本回调只在交还原生时发生）如实提示原因。
         else host.onStatus(FrameStatus.Inactive(nativeStatusReason(nativeReason)))
     }
@@ -422,15 +432,18 @@ internal class FrameCaptureBridge private constructor(
          */
         fun create(config: Config, codec: MediaCodec, format: MediaFormat, display: Surface, crypto: Any?,
                    engine: FrameInterpolationEngineHolder, host: Host, requestedTargetFps: Int? = null,
-                   attach: ((Surface) -> Boolean)? = null): FrameCaptureBridge? {
+                   attach: ((Surface) -> Boolean)? = null,
+                   isCurrent: () -> Boolean = { true }): FrameCaptureBridge? {
             if (!engine.ready()) {
                 host.log("bridge.skip", "engine:${engine.state}")
                 host.onStatus(FrameStatus.Inactive(if (engine.state == FrameInterpolationEngineHolder.State.FAILED)
                     FrameStatus.Reason.ENGINE else FrameStatus.Reason.LOADING))
                 return null
             }
-            val width = runCatching { format.getInteger(MediaFormat.KEY_WIDTH) }.getOrNull() ?: return null
-            val height = runCatching { format.getInteger(MediaFormat.KEY_HEIGHT) }.getOrNull() ?: return null
+            val width = runCatching { format.getInteger(MediaFormat.KEY_WIDTH) }.getOrNull()
+                ?: run { host.log("bridge.skip", "width_unknown"); host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.FORMAT)); return null }
+            val height = runCatching { format.getInteger(MediaFormat.KEY_HEIGHT) }.getOrNull()
+                ?: run { host.log("bridge.skip", "height_unknown"); host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.FORMAT)); return null }
             if (width <= 0 || height <= 0 || width.toLong() * height > config.maxSourcePixels || crypto != null) {
                 host.log("bridge.skip", "format:${width}x$height:crypto=${crypto != null}")
                 host.onStatus(FrameStatus.Inactive(if (crypto != null) FrameStatus.Reason.MEDIA else FrameStatus.Reason.FORMAT))
@@ -483,7 +496,7 @@ internal class FrameCaptureBridge private constructor(
                     measureVsync = config.measureVsync && requestedTargetFps == null,
                     sourceFps = hint)
                 FrameCaptureBridge(selected, codec, display, processing.width, processing.height, width, height,
-                    values(format), name.endsWith(".secure"), tunneled, engine, host)
+                    values(format), name.endsWith(".secure"), tunneled, engine, host, isCurrent)
             }.getOrNull() ?: run { host.onStatus(FrameStatus.Inactive(FrameStatus.Reason.ENGINE)); return null }
             if (!bridge.start(attach)) {
                 bridge.close()
