@@ -25,7 +25,6 @@ import android.os.SystemClock
 import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.PublicationIdentity
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
-import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigDecodeResult
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigSnapshot
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -67,14 +66,24 @@ internal class AdmissionResponseCoordinator {
 /** 启动窗口内完成新鲜许可；工作线程只读取，不在迟到回调中安装 Hook。 */
 internal object HostAdmissionClient {
     data class Grant(val snapshot: RemoteHookConfigSnapshot, val source: String, val identity: PublicationIdentity? = null)
-    data class Result(val grant: Grant? = null, val reason: String = "admission_unavailable")
+    data class Result(
+        val grant: Grant? = null,
+        val reason: String = HostAdmissionRouteClassifier.REASON_UNAVAILABLE,
+        val diagnostics: List<HostAdmissionDiagnostic> = emptyList()
+    )
     private data class Routed(val route: String, val result: Result)
     private val boundWorker = HostReceiptWire.executor("bil-bound-admission")
     private val worker = HostReceiptWire.executor("bil-host-admission")
     private val broadcastWorker = HostReceiptWire.executor("bil-broadcast-admission")
     private val localWorker = HostReceiptWire.executor("bil-local-admission")
+    private val fallbackState = HostAdmissionFallbackState()
 
     private const val TAG = "BilibiliInnocentLab"
+
+    private fun log(priority: Int, message: String) { runCatching { Log.println(priority, TAG, message) } }
+
+    private fun transportFailure(route: String, status: String, reason: String = HostAdmissionRouteClassifier.REASON_UNAVAILABLE) =
+        Result(reason = reason, diagnostics = listOf(HostAdmissionDiagnostic(route, "transport", status)))
 
     fun admit(context: Context, normal: RemoteHookConfigSnapshot?, normalFailure: String?): Result {
         val app = context.applicationContext ?: context
@@ -86,18 +95,18 @@ internal object HostAdmissionClient {
                 val result = try { exchange(app, normal, normalFailure, deadline, bound = bound) }
                 catch (error: SecurityException) {
                     // 平台拒绝跨包绑定/查询，不是条款或来源上的权威拒绝。
-                    Log.w(TAG, "[BIL] 启动授权通道异常(route=$route, type=security)")
-                    Result()
+                    log(Log.WARN, "[BIL] 启动授权通道异常(route=$route, type=security)")
+                    transportFailure(route, "security")
                 }
                 catch (error: TimeoutException) {
-                    Log.w(TAG, "[BIL] 启动授权通道异常(route=$route, type=timeout)")
-                    Result(reason = "admission_timeout")
+                    log(Log.WARN, "[BIL] 启动授权通道异常(route=$route, type=timeout)")
+                    transportFailure(route, "timeout", HostAdmissionRouteClassifier.REASON_TIMEOUT)
                 }
                 catch (error: Exception) {
-                    Log.w(TAG, "[BIL] 启动授权通道异常(route=$route, type=${error.javaClass.simpleName})")
-                    Result()
+                    log(Log.WARN, "[BIL] 启动授权通道异常(route=$route, type=${error.javaClass.simpleName})")
+                    transportFailure(route, "exception")
                 }
-                Log.i(TAG, "[BIL] 启动授权通道结果(route=$route, reason=${result.reason})")
+                log(Log.INFO, "[BIL] 启动授权通道结果(route=$route, reason=${result.reason})")
                 responses.offer(Routed(route, result))
             }
         }.getOrNull()
@@ -105,18 +114,18 @@ internal object HostAdmissionClient {
             broadcastWorker.submit {
                 val result = try { exchange(app, normal, normalFailure, deadline, broadcast = true) }
                 catch (error: SecurityException) {
-                    Log.w(TAG, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.BROADCAST}, type=security)")
-                    Result()
+                    log(Log.WARN, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.BROADCAST}, type=security)")
+                    transportFailure(HostAdmissionRoutePlan.BROADCAST, "security")
                 }
                 catch (error: TimeoutException) {
-                    Log.w(TAG, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.BROADCAST}, type=timeout)")
-                    Result(reason = "admission_timeout")
+                    log(Log.WARN, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.BROADCAST}, type=timeout)")
+                    transportFailure(HostAdmissionRoutePlan.BROADCAST, "timeout", HostAdmissionRouteClassifier.REASON_TIMEOUT)
                 }
                 catch (error: Exception) {
-                    Log.w(TAG, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.BROADCAST}, type=${error.javaClass.simpleName})")
-                    Result()
+                    log(Log.WARN, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.BROADCAST}, type=${error.javaClass.simpleName})")
+                    transportFailure(HostAdmissionRoutePlan.BROADCAST, "exception")
                 }
-                Log.i(TAG, "[BIL] 启动授权通道结果(route=${HostAdmissionRoutePlan.BROADCAST}, reason=${result.reason})")
+                log(Log.INFO, "[BIL] 启动授权通道结果(route=${HostAdmissionRoutePlan.BROADCAST}, reason=${result.reason})")
                 responses.offer(Routed(HostAdmissionRoutePlan.BROADCAST, result))
             }
         }.getOrNull()
@@ -124,18 +133,18 @@ internal object HostAdmissionClient {
             localWorker.submit {
                 val result = try { exchange(app, normal, normalFailure, deadline, local = true) }
                 catch (error: SecurityException) {
-                    Log.w(TAG, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.LOCAL}, type=security)")
-                    Result()
+                    log(Log.WARN, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.LOCAL}, type=security)")
+                    transportFailure(HostAdmissionRoutePlan.LOCAL, "security")
                 }
                 catch (error: TimeoutException) {
-                    Log.w(TAG, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.LOCAL}, type=timeout)")
-                    Result(reason = "admission_timeout")
+                    log(Log.WARN, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.LOCAL}, type=timeout)")
+                    transportFailure(HostAdmissionRoutePlan.LOCAL, "timeout", HostAdmissionRouteClassifier.REASON_TIMEOUT)
                 }
                 catch (error: Exception) {
-                    Log.w(TAG, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.LOCAL}, type=${error.javaClass.simpleName})")
-                    Result()
+                    log(Log.WARN, "[BIL] 启动授权通道异常(route=${HostAdmissionRoutePlan.LOCAL}, type=${error.javaClass.simpleName})")
+                    transportFailure(HostAdmissionRoutePlan.LOCAL, "exception")
                 }
-                Log.i(TAG, "[BIL] 启动授权通道结果(route=${HostAdmissionRoutePlan.LOCAL}, reason=${result.reason})")
+                log(Log.INFO, "[BIL] 启动授权通道结果(route=${HostAdmissionRoutePlan.LOCAL}, reason=${result.reason})")
                 responses.offer(Routed(HostAdmissionRoutePlan.LOCAL, result))
             }
         }.getOrNull()
@@ -156,7 +165,7 @@ internal object HostAdmissionClient {
         remember(localCall)
         if (localCall == null) startBroadcast()
         if (calls.isEmpty()) return Result()
-        var collect = HostAdmissionCollect()
+        var collect = fallbackState.newAttempt()
         try {
             var completed = 0
             while (completed < calls.size) {
@@ -167,12 +176,17 @@ internal object HostAdmissionClient {
                 val routed = responses.poll(remaining, TimeUnit.MILLISECONDS)
                 if (routed == null) {
                     val timedOut = drainRouted(collect, responses, acceptGrant = false)
-                    val failure = if (timedOut.sawDenied) timedOut.failure else Result(reason = "admission_timeout")
-                    return remoteConfigFallback(normal, normalFailure, timedOut.sawDenied, failure)
+                    val failure = if (timedOut.fallbackBlocked) timedOut.failure else Result(reason = HostAdmissionRouteClassifier.REASON_TIMEOUT)
+                    return remoteConfigFallback(normal, normalFailure, timedOut.sawDenied, timedOut.fallbackBlocked,
+                        failure.copy(diagnostics = timedOut.diagnostics))
                 }
                 completed += 1
                 collect = collect.accept(routed.result, acceptGrant = true)
-                collect.grant?.let { return it }
+                fallbackState.observe(routed.result)
+                if (collect.grant != null) {
+                    // 不等待其他通道，但不能跳过已经到达的真实拒绝。
+                    return finishAdmit(normal, normalFailure, drainRouted(collect, responses, acceptGrant = false))
+                }
                 if (collect.sawDenied) {
                     return finishAdmit(normal, normalFailure, drainRouted(collect, responses, acceptGrant = false))
                 }
@@ -217,55 +231,32 @@ internal object HostAdmissionClient {
             putLong("normalNoRootRevision", normal?.noRootRevision ?: 0L)
             normal?.takeIf { it.authorized }?.let { putString("normalFingerprint", RemoteHookConfigContract.contentFingerprint(it)) }
         }
-        fun outcomeResult(outcome: HostAdmissionRouteClassifier.Outcome): Result = when (outcome) {
-            HostAdmissionRouteClassifier.Outcome.CONTINUE -> error("continue")
-            HostAdmissionRouteClassifier.Outcome.AUTHORITY_DENIED -> Result(reason = HostAdmissionRouteClassifier.REASON_DENIED)
-            HostAdmissionRouteClassifier.Outcome.UNAVAILABLE ->
-                Result(reason = HostAdmissionRouteClassifier.REASON_UNAVAILABLE)
+        val route = when {
+            broadcast -> HostAdmissionRoutePlan.BROADCAST
+            local -> HostAdmissionRoutePlan.LOCAL
+            bound -> HostAdmissionRoutePlan.BINDER
+            else -> HostAdmissionRoutePlan.PROVIDER
         }
-        fun exchangeUsing(call: (String, Bundle) -> Bundle?): Result {
-            if (SystemClock.elapsedRealtime() >= deadline) return Result(reason = "admission_timeout")
-            val prepared = call(HostAdmissionContract.METHOD_PREPARE, request) ?: return Result()
-            val prepareOutcome = HostAdmissionRouteClassifier.prepare(
-                prepared.getString("status"),
-                valid(prepared, nonce)
-            )
-            if (prepareOutcome != HostAdmissionRouteClassifier.Outcome.CONTINUE) return outcomeResult(prepareOutcome)
-            val identity = HostAdmissionContract.identity(prepared) ?: return Result(reason = HostAdmissionRouteClassifier.REASON_DENIED)
-            val source = prepared.getString("source")
-            val snapshot = when (source) {
-                HostAdmissionContract.NORMAL -> normal ?: return Result(reason = HostAdmissionRouteClassifier.REASON_DENIED)
-                HostAdmissionContract.DIRECT -> {
-                    if (!directFallback) return Result(reason = HostAdmissionRouteClassifier.REASON_DENIED)
-                    val document = HostAdmissionContract.decode(prepared.getString("document").orEmpty())
-                        ?: return Result(reason = HostAdmissionRouteClassifier.REASON_DENIED)
-                    (RemoteHookConfigContract.decode(document) as? RemoteHookConfigDecodeResult.Ready)?.snapshot
-                        ?: return Result(reason = HostAdmissionRouteClassifier.REASON_DENIED)
+        fun reply(value: Bundle) = HostAdmissionHandshake.Reply(
+            version = value.getInt("version"), moduleVersion = value.getLong("moduleVersion"),
+            nonce = value.getString("nonce"), status = value.getString("status"),
+            identity = HostAdmissionContract.identity(value), source = value.getString("source"),
+            challenge = value.getString("challenge"), document = value.getString("document")
+        )
+        fun exchangeUsing(call: (String, Bundle) -> Bundle?): Result = HostAdmissionHandshake.exchange(
+            route, nonce, normal, directFallback, deadline, SystemClock::elapsedRealtime,
+            prepare = { call(HostAdmissionContract.METHOD_PREPARE, request)?.let(::reply) },
+            confirm = { challenge, identity ->
+                val confirmation = Bundle().apply {
+                    putInt("version", HostAdmissionContract.VERSION)
+                    putString("nonce", nonce)
+                    putString("challenge", challenge)
+                    HostAdmissionContract.putIdentity(this, identity)
                 }
-                else -> return Result(reason = HostAdmissionRouteClassifier.REASON_DENIED)
+                call(HostAdmissionContract.METHOD_CONFIRM, confirmation)?.let(::reply)
             }
-            if (!snapshot.authorized || RemoteHookConfigContract.contentFingerprint(snapshot) != identity.fingerprint) {
-                return Result(reason = HostAdmissionRouteClassifier.REASON_DENIED)
-            }
-            if (SystemClock.elapsedRealtime() >= deadline) return Result(reason = "admission_timeout")
-            val confirmation = Bundle().apply {
-                putInt("version", HostAdmissionContract.VERSION)
-                putString("nonce", nonce)
-                putString("challenge", prepared.getString("challenge"))
-                HostAdmissionContract.putIdentity(this, identity)
-            }
-            val granted = call(HostAdmissionContract.METHOD_CONFIRM, confirmation) ?: return Result()
-            if (SystemClock.elapsedRealtime() >= deadline) return Result(reason = "admission_timeout")
-            val confirmOutcome = HostAdmissionRouteClassifier.confirm(
-                granted.getString("status"),
-                valid(granted, nonce) &&
-                    granted.getString("source") == source &&
-                    HostAdmissionContract.identity(granted) == identity
-            )
-            if (confirmOutcome != HostAdmissionRouteClassifier.Outcome.CONTINUE) return outcomeResult(confirmOutcome)
-            return Result(Grant(snapshot, source, identity), reason = "")
-        }
-        if (SystemClock.elapsedRealtime() >= deadline) return Result(reason = "admission_timeout")
+        )
+        if (SystemClock.elapsedRealtime() >= deadline) return transportFailure(route, "timeout", HostAdmissionRouteClassifier.REASON_TIMEOUT)
         return when {
             broadcast -> broadcastExchange(context, deadline, ::exchangeUsing)
             local -> localExchange(context, deadline, ::exchangeUsing)
@@ -273,6 +264,9 @@ internal object HostAdmissionClient {
             else -> context.contentResolver.acquireUnstableContentProviderClient(authority)?.use { client ->
                 exchangeUsing { method, extras -> client.call(method, null, extras) }
             } ?: Result()
+        }.let { result ->
+            if (result.diagnostics.isEmpty()) result.copy(diagnostics = listOf(HostAdmissionDiagnostic(route, "transport", null)))
+            else result
         }
     }
 
@@ -285,6 +279,7 @@ internal object HostAdmissionClient {
         while (true) {
             val extra = queue.poll() ?: break
             next = next.accept(extra.result, acceptGrant)
+            if (acceptGrant || extra.result.grant == null) fallbackState.observe(extra.result)
         }
         return next
     }
@@ -294,8 +289,9 @@ internal object HostAdmissionClient {
         normalFailure: String?,
         collect: HostAdmissionCollect,
     ): Result {
-        collect.grant?.takeIf { !collect.sawDenied }?.let { return it }
-        return remoteConfigFallback(normal, normalFailure, collect.sawDenied, collect.failure)
+        collect.grant?.takeIf { !collect.sawDenied }?.let { return it.copy(diagnostics = collect.diagnostics) }
+        return remoteConfigFallback(normal, normalFailure, collect.sawDenied, collect.fallbackBlocked,
+            collect.failure.copy(diagnostics = collect.diagnostics))
     }
 
     /**
@@ -307,6 +303,7 @@ internal object HostAdmissionClient {
         normal: RemoteHookConfigSnapshot?,
         normalFailure: String?,
         sawDenied: Boolean,
+        fallbackBlocked: Boolean,
         failure: Result
     ): Result {
         val snapshot = normal ?: return failure
@@ -315,13 +312,15 @@ internal object HostAdmissionClient {
                 normalFailure,
                 snapshot.authorized,
                 snapshot.moduleVersionCode == BuildConfig.VERSION_CODE.toLong(),
-                snapshot.generation
+                snapshot.generation,
+                fallbackBlocked
             )
         ) {
-            Log.w(TAG, "[BIL] 启动授权传输不可达，采用已校验 Remote Preferences 回退")
+            log(Log.WARN, "[BIL] 启动授权传输不可达，采用已校验 Remote Preferences 回退")
             return Result(
                 Grant(snapshot = snapshot, source = "remote_config_transport_fallback"),
-                reason = ""
+                reason = "",
+                diagnostics = failure.diagnostics
             )
         }
         return failure
@@ -396,9 +395,7 @@ internal object HostAdmissionClient {
                         intent.getBundleExtra(RoamingOpenReceiver.EXTRA_ADMISSION_RESPONSE)
                     }
                 }.onFailure {
-                    Log.w(
-                        TAG,
-                        "[BIL] 启动授权私有回执解析失败(type=${it.javaClass.simpleName})"
+                    log(Log.WARN, "[BIL] 启动授权私有回执解析失败(type=${it.javaClass.simpleName})"
                     )
                 }
             }
@@ -455,9 +452,7 @@ internal object HostAdmissionClient {
                                     }
                                 }
                             }.onFailure {
-                                Log.w(
-                                    TAG,
-                                    "[BIL] 启动授权 ordered 回执解析失败(type=${it.javaClass.simpleName})"
+                                log(Log.WARN, "[BIL] 启动授权 ordered 回执解析失败(type=${it.javaClass.simpleName})"
                                 )
                             }
                         }
@@ -469,22 +464,22 @@ internal object HostAdmissionClient {
                             resultReceiver,
                             callbackHandler
                         )
-                        Log.i(TAG, "[BIL] 启动授权广播已发送(method=$method)")
+                        log(Log.INFO, "[BIL] 启动授权广播已发送(method=$method)")
                         runCatching {
                             // MIUI 某些版本会丢弃后台有序广播，但允许同一显式组件的普通广播；
                             // 两路共用 nonce，由接收端短时去重并回送同一结果，保留有序回执作为首选。
                             CrossAppBroadcastCompat.sendBroadcast(context, Intent(intent))
-                            Log.i(TAG, "[BIL] 启动授权广播回退已发送(method=$method)")
+                            log(Log.INFO, "[BIL] 启动授权广播回退已发送(method=$method)")
                         }.onFailure {
-                            Log.w(TAG, "[BIL] 启动授权广播回退发送失败(method=$method, type=${it.javaClass.simpleName})")
+                            log(Log.WARN, "[BIL] 启动授权广播回退发送失败(method=$method, type=${it.javaClass.simpleName})")
                         }
                         runCatching {
                             // 部分 MIUI 构建只在 sendBroadcastAsUser 路径保留显式跨包投递；
                             // 该路仍受模块端 PendingIntent、UID、nonce 和租约校验保护。
                             context.sendBroadcastAsUser(Intent(intent), android.os.Process.myUserHandle())
-                            Log.i(TAG, "[BIL] 启动授权广播用户回退已发送(method=$method)")
+                            log(Log.INFO, "[BIL] 启动授权广播用户回退已发送(method=$method)")
                         }.onFailure {
-                            Log.w(TAG, "[BIL] 启动授权广播用户回退发送失败(method=$method, type=${it.javaClass.simpleName})")
+                            log(Log.WARN, "[BIL] 启动授权广播用户回退发送失败(method=$method, type=${it.javaClass.simpleName})")
                         }
                         runCatching {
                             // PendingIntent 由宿主 UID 创建后交给系统调度，可绕过 MIUI 对普通
@@ -500,9 +495,9 @@ internal object HostAdmissionClient {
                             } finally {
                                 requestToken.cancel()
                             }
-                            Log.i(TAG, "[BIL] 启动授权 PendingIntent 回退已发送(method=$method)")
+                            log(Log.INFO, "[BIL] 启动授权 PendingIntent 回退已发送(method=$method)")
                         }.onFailure {
-                            Log.w(TAG, "[BIL] 启动授权 PendingIntent 回退发送失败(method=$method, type=${it.javaClass.simpleName})")
+                            log(Log.WARN, "[BIL] 启动授权 PendingIntent 回退发送失败(method=$method, type=${it.javaClass.simpleName})")
                         }
                         runCatching {
                             response.get(
@@ -510,7 +505,7 @@ internal object HostAdmissionClient {
                                 TimeUnit.MILLISECONDS
                             )
                         }.getOrNull().also {
-                            if (it != null) Log.i(TAG, "[BIL] 启动授权广播收到回执(method=$method)")
+                            if (it != null) log(Log.INFO, "[BIL] 启动授权广播收到回执(method=$method)")
                         }
                     } finally {
                         responseCoordinator.clear(awaiter)
@@ -557,9 +552,6 @@ internal object HostAdmissionClient {
             runCatching { context.unbindService(connection) }
         }
     }
-
-    private fun valid(value: Bundle, nonce: String): Boolean = value.getInt("version") == HostAdmissionContract.VERSION &&
-        value.getLong("moduleVersion") == BuildConfig.VERSION_CODE.toLong() && value.getString("nonce") == nonce
 
     // Hidden framework flag (Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND), stable since API 26.
     private const val FLAG_RECEIVER_INCLUDE_BACKGROUND = 0x01000000

@@ -2454,7 +2454,6 @@ class HookEntry : XposedModule() {
             val applicationOnCreateCompleted = java.util.concurrent.atomic.AtomicBoolean(false)
             val scanResultReported = java.util.concurrent.atomic.AtomicBoolean(false)
             val authorizationRetryScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
-            val authorizationRetryConsumed = java.util.concurrent.atomic.AtomicBoolean(false)
             val authorizationRetryPending = java.util.concurrent.atomic.AtomicBoolean(false)
             val authorizedInstallerRef =
                 java.util.concurrent.atomic.AtomicReference<((Context) -> Unit)?>(null)
@@ -5051,25 +5050,7 @@ class HookEntry : XposedModule() {
                 }
             }
 
-            fun authorizeAndInstall(context: Context?, applicationHint: android.app.Application? = null) {
-                if (context == null || !authorizationAttempted.compareAndSet(false, true)) return
-                val appContext = context.applicationContext ?: context
-                if (processName == TARGET_PACKAGE) {
-                    runCatching {
-                        HostRuntimeDiagnosticsBridge.initialize(
-                            context = appContext,
-                            processName = processName,
-                            logError = { message ->
-                                logError("host_runtime_diagnostics_receiver", "[BIL] $message")
-                            }
-                        )
-                    }.onFailure { throwable ->
-                        logError(
-                            "host_runtime_diagnostics_initialize",
-                            "[BIL] 宿主诊断桥初始化失败，继续校验 Hook 配置: $throwable"
-                        )
-                    }
-                }
+            fun requestAdmission(appContext: Context): com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionClient.Result {
                 val bootstrapStartedAtMs = android.os.SystemClock.elapsedRealtime()
                 val remoteConfigStartedAtMs = android.os.SystemClock.elapsedRealtime()
                 val outcome = queryRemoteHookConfig()
@@ -5089,23 +5070,22 @@ class HookEntry : XposedModule() {
                         "[BIL] 启动授权阶段耗时(remote_config=${remoteConfigElapsedMs}ms," +
                             " admission=${admissionElapsedMs}ms," +
                             " total=${android.os.SystemClock.elapsedRealtime() - bootstrapStartedAtMs}ms," +
+                            " config=${reason ?: "ready"}," +
                             " result=${if (admission.grant != null) "granted" else admission.reason})"
                     )
+                    admission.diagnostics.forEach {
+                        frameworkLog("[BIL] 启动授权通道诊断(${it.summary()})")
+                    }
                 }
+                return admission
+            }
+
+            fun applyAdmission(appContext: Context, admission: com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionClient.Result): Boolean {
                 val grant = admission.grant
                 if (grant == null) {
                     if (processName == TARGET_PACKAGE) HostRuntimeDiagnosticsBridge.recordConfigRejected(admission.reason)
-                    if (processName == TARGET_PACKAGE) {
-                        // attach 阶段可能仍处在后台启动窗口，MIUI 会暂时丢弃发往模块 App 的
-                        // 跨包回退广播；保留安装闭包，等首个宿主 Activity 可见后再尝试一次。
-                        authorizationRetryPending.set(true)
-                        frameworkLog("[BIL] 前台授权重试排队(reason=${admission.reason})")
-                        scheduleAuthorizationRetry(appContext, applicationHint)
-                    } else {
-                        authorizedInstallerRef.set(null)
-                    }
                     frameworkLog("[BIL] 启动授权未完成，当前进程不安装功能(reason=${admission.reason})")
-                    return
+                    return false
                 }
                 val config = grant.snapshot
                 if (processName == TARGET_PACKAGE) {
@@ -5117,6 +5097,33 @@ class HookEntry : XposedModule() {
                 }
                 frameworkLog("[BIL] 已获得新鲜启动许可(source=${grant.source}, generation=${config.generation})")
                 performAuthorizationAndInstall(appContext, config)
+                return authorizedHooksInstalled.get()
+            }
+
+            fun authorizeAndInstall(context: Context?, applicationHint: android.app.Application? = null) {
+                if (context == null || !authorizationAttempted.compareAndSet(false, true)) return
+                val appContext = context.applicationContext ?: context
+                if (processName == TARGET_PACKAGE) {
+                    runCatching {
+                        HostRuntimeDiagnosticsBridge.initialize(
+                            context = appContext,
+                            processName = processName,
+                            logError = { message -> logError("host_runtime_diagnostics_receiver", "[BIL] $message") }
+                        )
+                    }.onFailure { throwable ->
+                        logError("host_runtime_diagnostics_initialize", "[BIL] 宿主诊断桥初始化失败，继续校验 Hook 配置: $throwable")
+                    }
+                }
+                val admission = requestAdmission(appContext)
+                if (!applyAdmission(appContext, admission) && admission.grant == null) {
+                    if (processName == TARGET_PACKAGE) {
+                        authorizationRetryPending.set(true)
+                        frameworkLog("[BIL] 前台授权重试排队(reason=${admission.reason})")
+                        scheduleAuthorizationRetry(appContext, applicationHint)
+                    } else {
+                        authorizedInstallerRef.set(null)
+                    }
+                }
             }
 
             scheduleAuthorizationRetry = retry@{ context, applicationHint ->
@@ -5131,33 +5138,25 @@ class HookEntry : XposedModule() {
                     return@retry
                 }
                 runCatching {
-                    application.registerActivityLifecycleCallbacks(
-                        object : android.app.Application.ActivityLifecycleCallbacks {
-                            private fun retry(activity: android.app.Activity) {
-                                if (!authorizationRetryConsumed.compareAndSet(false, true)) return
-                                application.unregisterActivityLifecycleCallbacks(this)
-                                if (authorizedHooksInstalled.get()) return
-                                authorizationRetryPending.set(false)
-                                authorizationAttempted.set(false)
-                                frameworkLog("[BIL] 宿主 Activity 已恢复，执行前台授权重试")
-                                authorizeAndInstall(activity.applicationContext, application)
-                                if (authorizedHooksInstalled.get()) {
-                                    HostThreadGuard.run("roaming.lifecycle-retry") {
-                                        com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher
-                                            .initializeHost(activity)
-                                    }
+                    com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostAdmissionRecovery(
+                        application = application,
+                        admit = { requestAdmission(application) },
+                        accept = { result, activity ->
+                            val installed = applyAdmission(application, result)
+                            if (installed) {
+                                HostThreadGuard.run("roaming.lifecycle-retry") {
+                                    com.Bilibili_Innocent_Lab.xposedmodule.runtime.RoamingSettingsLauncher
+                                        .initializeHost(activity)
                                 }
                             }
-
-                            override fun onActivityResumed(activity: android.app.Activity) = retry(activity)
-                            override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) = Unit
-                            override fun onActivityStarted(activity: android.app.Activity) = Unit
-                            override fun onActivityPaused(activity: android.app.Activity) = Unit
-                            override fun onActivityStopped(activity: android.app.Activity) = Unit
-                            override fun onActivitySaveInstanceState(activity: android.app.Activity, state: android.os.Bundle) = Unit
-                            override fun onActivityDestroyed(activity: android.app.Activity) = Unit
+                            installed
+                        },
+                        log = { frameworkLog(it) },
+                        finished = {
+                            authorizationRetryPending.set(false)
+                            if (!authorizedHooksInstalled.get()) authorizedInstallerRef.set(null)
                         }
-                    )
+                    ).start()
                     frameworkLog("[BIL] 前台授权重试监听已注册")
                 }.onFailure {
                     authorizationRetryScheduled.set(false)
@@ -5167,7 +5166,7 @@ class HookEntry : XposedModule() {
 
             // 未授权前只保留两个宿主生命周期 bootstrap。attach.before 同步读取 API 102
             // Remote Preferences；Instrumentation 仅作为 Application.attach 被改写时的兜底。
-            // 每个进程只尝试一次，且只有明确授权才安装完整 Hook。
+            // 同步 bootstrap 每进程一次；失败后的前台恢复独立限次，只有明确授权才安装完整 Hook。
             runCatching {
                 hookExactMethod(
                     classOf<android.app.Application>(),

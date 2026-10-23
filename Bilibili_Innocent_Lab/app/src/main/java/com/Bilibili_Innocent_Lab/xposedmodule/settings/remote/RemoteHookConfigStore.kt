@@ -163,10 +163,24 @@ internal object RemoteHookConfigStore {
         return publishSnapshotAndNotify(appContext, decision)
     }
 
-    /**
-     * 更新最终用户意图并交给既有单线程发布器合并。条款等待同步、设置变化和服务重连
-     * 都经过同一个队列，避免 Binder/SharedPreferences 并发写入同一远端分组。
-     */
+    /** 握手发现旧快照时请求模块权威源重发；不使用宿主传入的决定或配置。 */
+    fun requestAuthorityRefresh(context: Context) {
+        val app = context.applicationContext ?: context
+        if (app.packageName != com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig.APPLICATION_ID ||
+            app.applicationInfo.uid != android.os.Process.myUid()) return
+        val requested = UserTermsConsentStore.withAuthorityLock {
+            val decision = UserTermsConsentStore.readStateOrInitialize(app).requestedRemoteDecision
+            if (!decision.isAuthorized) false else {
+                requestDecisionPublish(app, decision)
+                true
+            }
+        }
+        if (!requested) return
+        com.Bilibili_Innocent_Lab.xposedmodule.runtime.noroot.NoRootSupportController
+            .requestSyncAfterSettingsChange(app, app.modulePreferences())
+    }
+
+    /** 条款决定、设置变更与连接恢复均交给同一发布队列合并。 */
     fun requestDecisionPublish(context: Context, decision: UserTermsDecision) {
         val appContext = context.applicationContext ?: context
         applicationContext = appContext
