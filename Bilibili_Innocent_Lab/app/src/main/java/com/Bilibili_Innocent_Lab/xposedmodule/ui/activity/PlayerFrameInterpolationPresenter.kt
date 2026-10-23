@@ -140,6 +140,8 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             FrameModelDownloader.State.LOCAL_FAILED -> R.string.player_frame_model_local_failed
         }))
         var refresh: () -> Unit = {}
+        var queueRetries = 0
+        val retryRefresh = Runnable { refresh() }
         fun runInBackground(work: (Long) -> Unit) {
             val token = checks.begin() ?: return
             val accepted = FrameModelDownloader.execute {
@@ -150,6 +152,9 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             if (!accepted) {
                 showState(token, FrameModelDownloader.State.FRAMEWORK_PENDING)
                 checks.finish(token)
+                if (checks.attached && queueRetries++ < 3) summary?.postDelayed(retryRefresh, 500L)
+            } else {
+                queueRetries = 0
             }
         }
         refresh = { runInBackground { token -> showState(token, FrameModelDownloader.refresh(applicationContext)) } }
@@ -161,12 +166,14 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
         fun stopObserving() {
             if (!checks.attached) return
             checks.attach(false)
+            summary?.removeCallbacks(retryRefresh)
             RemoteHookConfigStore.removeStatusListener(frameworkListener)
         }
         fun startObserving() {
             if (checks.attached || summary?.isAttachedToWindow != true ||
                 !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
             checks.attach(true)
+            queueRetries = 0
             RemoteHookConfigStore.addStatusListener(frameworkListener)
         }
         val lifecycleObserver = LifecycleEventObserver { _, event ->

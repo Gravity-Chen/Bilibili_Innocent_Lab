@@ -110,6 +110,7 @@ internal class FrameInterpolationEngineHolder(
     private var recoveryTask: java.util.concurrent.ScheduledFuture<*>? = null
 
     fun ready(): Boolean = state == State.READY
+    fun recoveryPending(): Boolean = state == State.FAILED && preparationRetry.canSchedule()
 
     /**
      * 在当前条件下重新测定能力（在 worker 上执行，与推理串行），等待完成。宿主只在播放进程启动时测一次；
