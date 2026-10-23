@@ -64,22 +64,39 @@ internal fun readModernFrameworkStatus(
     readName: () -> String,
     readVersion: () -> String,
     readVersionCode: () -> Long
+): ModernFrameworkStatus = readModernFrameworkCapabilities(readApiVersion, readProperties)
+    .withModernFrameworkMetadata(readName, readVersion, readVersionCode)
+
+internal fun readModernFrameworkCapabilities(
+    readApiVersion: () -> Int,
+    readProperties: () -> Long
 ): ModernFrameworkStatus {
     val api = runCatching(readApiVersion)
     val properties = runCatching(readProperties)
-    val name = runCatching(readName)
-    val version = runCatching(readVersion)
-    val versionCode = runCatching(readVersionCode)
     return ModernFrameworkStatus(
         connected = true,
         capable = (api.getOrNull() ?: 0) >= ModernApiSupport.MIN_API &&
             properties.getOrNull()?.let { it and XposedService.PROP_CAP_REMOTE != 0L } == true,
-        name = name.getOrNull().orEmpty().take(128),
+        name = "",
         apiVersion = api.getOrNull()?.coerceAtLeast(0) ?: 0,
+        properties = properties.getOrNull(),
+        failureCode = if (api.isFailure || properties.isFailure) "framework_metadata_unavailable" else null
+    )
+}
+
+internal fun ModernFrameworkStatus.withModernFrameworkMetadata(
+    readName: () -> String,
+    readVersion: () -> String,
+    readVersionCode: () -> Long
+): ModernFrameworkStatus {
+    val name = runCatching(readName)
+    val version = runCatching(readVersion)
+    val versionCode = runCatching(readVersionCode)
+    return copy(
+        name = name.getOrNull().orEmpty().take(128),
         version = version.getOrNull()?.take(128),
         versionCode = versionCode.getOrNull()?.takeIf { it >= 0L },
-        properties = properties.getOrNull(),
-        failureCode = if (listOf(api, properties, name, version, versionCode).any { it.isFailure }) {
+        failureCode = if (failureCode != null || listOf(name, version, versionCode).any { it.isFailure }) {
             "framework_metadata_unavailable"
         } else null
     )

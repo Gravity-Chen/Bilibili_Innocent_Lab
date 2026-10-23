@@ -957,9 +957,15 @@
     <string name="player_frame_model_checking">Checking…</string>
     <string name="player_frame_model_ready">RIFE v4.6 downloaded and verified</string>
     <string name="player_frame_model_missing">Not downloaded. Tap to download RIFE v4.6 (about 10 MB) from nihui/rife-ncnn-vulkan on GitHub.</string>
-    <string name="player_frame_model_framework_unavailable">The LSPosed service is unavailable. Enable the module in LSPosed first.</string>
+    <string name="player_frame_model_framework_unavailable">The framework service is temporarily unavailable. This status will refresh when it reconnects. Tap to retry.</string>
+    <string name="player_frame_model_framework_pending">Waiting for the framework connection or capabilities. The model will be checked again automatically.</string>
+    <string name="player_frame_model_framework_unsupported">This framework does not provide the remote files required to publish the model.</string>
+    <string name="player_frame_model_invalid">The remote model is incomplete or failed verification. Tap to repair it.</string>
+    <string name="player_frame_model_remote_failed">The framework is connected, but its model files could not be read or written. Tap to retry.</string>
+    <string name="player_frame_model_local_failed">The model could not be checked in local storage. Tap to retry.</string>
     <string name="player_frame_model_downloading">Downloading %1$s… %2$d%%</string>
     <string name="player_frame_model_publishing">Verifying…</string>
+    <string name="player_frame_model_download_failed">Download failed. Completed model files have been kept. Tap to retry.</string>
     <string name="player_frame_model_failed">Download failed (%1$s). Tap to retry.</string>
     <string name="player_speed_title">Playback speed</string>
     <string name="player_disable_long_press">Disable long-press acceleration</string>

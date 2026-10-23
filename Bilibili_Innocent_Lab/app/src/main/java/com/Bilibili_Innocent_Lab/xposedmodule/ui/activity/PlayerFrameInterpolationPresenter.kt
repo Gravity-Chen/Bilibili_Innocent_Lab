@@ -1,15 +1,21 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import android.util.Log
+import android.view.View
 import android.widget.TextView as NativeTextView
 import android.widget.LinearLayout as NativeLinearLayout
 import androidx.core.content.edit
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameRateTarget
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.frame.FrameModelDownloader
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.frame.FrameModelCheckGate
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.ModernFrameworkStatusListener
+import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigStore
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
@@ -119,17 +125,56 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             textSize = 12f
         }
         var summary: NativeTextView? = null
-        var busy = false
-        fun show(text: String) = runOnUiThread { if (!isDestroyed) summary?.text = text }
-        fun showState(state: FrameModelDownloader.State) = show(getString(when (state) {
+        val checks = FrameModelCheckGate()
+        fun show(token: Long, text: String) = runOnUiThread {
+            if (!isDestroyed && checks.current(token)) summary?.text = text
+        }
+        fun showState(token: Long, state: FrameModelDownloader.State) = show(token, getString(when (state) {
             FrameModelDownloader.State.READY -> R.string.player_frame_model_ready
             FrameModelDownloader.State.MISSING -> R.string.player_frame_model_missing
             FrameModelDownloader.State.FRAMEWORK_UNAVAILABLE -> R.string.player_frame_model_framework_unavailable
+            FrameModelDownloader.State.FRAMEWORK_PENDING -> R.string.player_frame_model_framework_pending
+            FrameModelDownloader.State.FRAMEWORK_UNSUPPORTED -> R.string.player_frame_model_framework_unsupported
+            FrameModelDownloader.State.INVALID -> R.string.player_frame_model_invalid
+            FrameModelDownloader.State.REMOTE_FAILED -> R.string.player_frame_model_remote_failed
+            FrameModelDownloader.State.LOCAL_FAILED -> R.string.player_frame_model_local_failed
         }))
-        fun runInBackground(name: String, work: () -> Unit) {
-            if (busy) return
-            busy = true
-            Thread({ try { work() } finally { runOnUiThread { busy = false } } }, name).start()
+        var refresh: () -> Unit = {}
+        fun runInBackground(work: (Long) -> Unit) {
+            val token = checks.begin() ?: return
+            val accepted = FrameModelDownloader.execute {
+                try { work(token) }
+                catch (_: Exception) { showState(token, FrameModelDownloader.State.LOCAL_FAILED) }
+                finally { runOnUiThread { if (checks.finish(token)) refresh() } }
+            }
+            if (!accepted) {
+                showState(token, FrameModelDownloader.State.FRAMEWORK_PENDING)
+                checks.finish(token)
+            }
+        }
+        refresh = { runInBackground { token -> showState(token, FrameModelDownloader.refresh(applicationContext)) } }
+        val frameworkListener = ModernFrameworkStatusListener {
+            runOnUiThread {
+                if (checks.attached && !isDestroyed) { checks.invalidate(); refresh() }
+            }
+        }
+        fun stopObserving() {
+            if (!checks.attached) return
+            checks.attach(false)
+            RemoteHookConfigStore.removeStatusListener(frameworkListener)
+        }
+        fun startObserving() {
+            if (checks.attached || summary?.isAttachedToWindow != true ||
+                !lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
+            checks.attach(true)
+            RemoteHookConfigStore.addStatusListener(frameworkListener)
+        }
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> startObserving()
+                Lifecycle.Event.ON_STOP, Lifecycle.Event.ON_DESTROY -> stopObserving()
+                else -> Unit
+            }
         }
         LinearLayout(
             lparams = LayoutParams(widthMatchParent = true) { topMargin = 8.dp },
@@ -142,9 +187,9 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 bindSettingDependency(this, SettingsDependencies.FRAME_MODEL)
                 setOnClickListener {
                     if (!isEnabled) return@setOnClickListener
-                    runInBackground("frame-model-download") {
+                    runInBackground { token ->
                         if (FrameModelDownloader.state() == FrameModelDownloader.State.READY) {
-                            showState(FrameModelDownloader.State.READY); return@runInBackground
+                            showState(token, FrameModelDownloader.State.READY); return@runInBackground
                         }
                         var shown = -1
                         FrameModelDownloader.download(applicationContext) { progress ->
@@ -153,14 +198,15 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                                     val percent = if (progress.total > 0) (progress.downloaded * 100 / progress.total).toInt() else 0
                                     if (percent != shown) {
                                         shown = percent
-                                        show(getString(R.string.player_frame_model_downloading, progress.part, percent))
+                                        show(token, getString(R.string.player_frame_model_downloading, progress.part, percent))
                                     }
                                 }
                                 FrameModelDownloader.Progress.Publishing ->
-                                    show(getString(R.string.player_frame_model_publishing))
-                                FrameModelDownloader.Progress.Done -> showState(FrameModelDownloader.State.READY)
+                                    show(token, getString(R.string.player_frame_model_publishing))
+                                FrameModelDownloader.Progress.Done -> showState(token, FrameModelDownloader.State.READY)
                                 is FrameModelDownloader.Progress.Failed ->
-                                    show(getString(R.string.player_frame_model_failed, progress.reason))
+                                    progress.state?.let { showState(token, it) }
+                                        ?: show(token, getString(R.string.player_frame_model_download_failed))
                             }
                         }
                     }
@@ -178,6 +224,16 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 textSize = 12f
                 text = stringResource(R.string.player_frame_model_checking)
                 summary = this
+                addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(view: View) {
+                        lifecycle.addObserver(lifecycleObserver)
+                        startObserving()
+                    }
+                    override fun onViewDetachedFromWindow(view: View) {
+                        stopObserving()
+                        lifecycle.removeObserver(lifecycleObserver)
+                    }
+                })
             }
         }
         TextView(lparams = LayoutParams(widthMatchParent = true)) {
@@ -187,6 +243,5 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
-        runInBackground("frame-model-state") { showState(FrameModelDownloader.state()) }
     }
 }
