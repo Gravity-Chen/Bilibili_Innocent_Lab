@@ -192,6 +192,7 @@ class DiagnosticsActivity : SkinnedActivity(),
             collapsedStrokeWidthPx = DiagnosticsEntryVisualSpec.STROKE_WIDTH_DP *
                 resources.displayMetrics.density
         )
+        motionHost.followScreenCorners = true
         motionHost.setMotionSurfaceBackground(
             skinMotionSurfaceBackground(
                 collapsedSurfaceColor,

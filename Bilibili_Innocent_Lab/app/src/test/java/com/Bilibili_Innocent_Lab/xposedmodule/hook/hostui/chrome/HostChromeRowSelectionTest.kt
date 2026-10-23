@@ -80,4 +80,19 @@ class HostChromeRowSelectionTest {
         assertEquals(2, reads)
         assertTrue(selection.selected)
     }
+
+    @Test fun `top background box and separator must be direct leaves and never a nested indicator or image`() {
+        val owner = "tv.danmaku.bili.khome.widget.topbar.y"
+        val boundary = frame(owner, "e")
+        for (leaf in listOf("Box", "Spacer")) {
+            val anchor = frame("fixture.generated.Decoration", leaf)
+            assertTrue(HostChromeRowSelection.directCaller(arrayOf(anchor, boundary), leaf, owner, "e"))
+            assertFalse(HostChromeRowSelection.directCaller(arrayOf(anchor,
+                frame("tv.danmaku.bili.khome.widget.topbar.Indicator", "draw"), boundary), leaf, owner, "e"))
+            assertFalse(HostChromeRowSelection.directCaller(arrayOf(anchor,
+                frame("kntr.base.imageloader.Image", "render"), boundary), leaf, owner, "e"))
+            assertFalse(HostChromeRowSelection.directCaller(arrayOf(anchor, frame(owner, "f"), boundary), leaf, owner, "e"))
+            assertFalse(HostChromeRowSelection.directCaller(arrayOf(boundary), leaf, owner, "e"))
+        }
+    }
 }

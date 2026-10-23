@@ -72,4 +72,15 @@ class HomeChromeAdapterTest {
         assertEquals(points, HomeChromeAdapter.fromJson(HomeChromeAdapter.toJson(points)))
         assertFalse(HomeChromeAdapter.validCache(mapOf("top_content" to point.copy(paramClassNames = listOf("java.lang.Object")))))
     }
+
+    @Test fun secondRowBackdropIsOptionalInOldCachesAndRetainedInNewCaches() {
+        val backdrop = HookPoint("tv.danmaku.bili.khome.widget.topbar.y", "e",
+            listOf("Qo1.e", "kotlin.jvm.functions.Function1", "androidx.compose.runtime.Composer", "int"))
+        val points = mapOf("top" to top, "top_backdrop" to backdrop)
+        assertEquals(points, HomeChromeAdapter.fromJson(HomeChromeAdapter.toJson(points)))
+        assertEquals(mapOf("top" to top), HomeChromeAdapter.fromJson(HomeChromeAdapter.toJson(mapOf("top" to top))))
+        assertTrue(HomeChromeAdapter.enabled("top_backdrop", true, false, false))
+        assertFalse(HomeChromeAdapter.enabled("top_backdrop", false, false, true))
+        assertEquals("top_backdrop", HomeChromeAdapter.families[DexAssistQuery.HOME_CHROME_TOP_BACKDROP])
+    }
 }

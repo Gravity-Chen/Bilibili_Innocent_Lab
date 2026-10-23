@@ -34,6 +34,9 @@ internal object HomeChromeComposeLocator {
                     p.subList(7, 12) == listOf(F1, F1, COMPOSER, "int", "int"))
             "top_right_actions" -> owner.startsWith(TOP.substringBeforeLast('.') + ".") && p.size in 5..6 && model(p[0]) &&
                 p.subList(1, 4) == listOf(MODIFIER, F1, COMPOSER) && p.drop(4).all { it == "int" }
+            "top_backdrop" -> owner.startsWith(TOP.substringBeforeLast('.') + ".") && '$' !in owner &&
+                p.size in 4..5 && model(p[0]) && p.subList(1, 3) == listOf(F1, COMPOSER) &&
+                p.drop(3).all { it == "int" }
             "top_layout" -> owner.startsWith(TOP.substringBeforeLast('.') + ".") && p.size in 12..13 &&
                 p.take(9) == listOf("int", MODIFIER, "long", "long", "float", "float", F1,
                     "kotlin.jvm.functions.Function3", "kotlin.jvm.functions.Function2") &&
@@ -124,6 +127,7 @@ internal object HomeChromeComposeLocator {
     fun direct(loader: ClassLoader): Map<String, HookPoint> {
         val result = linkedMapOf<String, HookPoint>()
         listOf("top" to TOP, "top_layout" to TOP.substringBeforeLast('.') + ".CustomScrollableTabRowKt",
+            "top_backdrop" to TOP.substringBeforeLast('.') + ".HomeTopBarKt",
             "bottom" to "${BOTTOM}HomeBottomTabContainerKt").forEach { (family, name) ->
             val owner = Lookup.classOrNull(loader, name) ?: return@forEach
             Lookup.declaredMethods(owner).filter { verified(loader, family, it) }.singleOrNull()?.let {

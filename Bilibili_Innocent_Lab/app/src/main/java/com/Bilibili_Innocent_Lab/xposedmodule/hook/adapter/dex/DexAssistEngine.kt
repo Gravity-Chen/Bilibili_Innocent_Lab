@@ -82,6 +82,8 @@ internal enum class DexAssistQuery {
     HOME_CHROME_TOP,
     /** The tab layout has its own restart boundary, independently of HomeTopTabRow. */
     HOME_CHROME_TOP_LAYOUT,
+    /** Phone second-row decorations live outside the tab Surface. */
+    HOME_CHROME_TOP_BACKDROP,
     HOME_CHROME_TOP_CONTENT,
     HOME_CHROME_TOP_RIGHT_ACTIONS,
     HOME_CHROME_BOTTOM,

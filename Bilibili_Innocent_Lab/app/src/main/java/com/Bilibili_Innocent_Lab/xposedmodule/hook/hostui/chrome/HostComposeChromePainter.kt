@@ -50,10 +50,9 @@ internal class HostComposeChromePainter(
     private val theme = HostChromeTheme(owner.context)
     private val signal = api.signal()
     private data class Original(val value: Any, val layer: HostChromeLayer)
-    private data class Owned(val node: WeakReference<Any>, val modifier: WeakReference<Any>, val original: Any)
     private val modifiers = mutableMapOf<HostChromeLayer, WeakHashMap<Any, WeakReference<Any>>>()
     private val originals = WeakHashMap<Any, Original>()
-    private val nativeOwners = mutableMapOf<HostChromeLayer, Owned>()
+    private val nativeOwners = HostChromeModifierOwnership()
     private val rootClip = Path()
     private var rootClipWidth = 0f
     private var rootClipHeight = 0f
@@ -203,15 +202,16 @@ internal class HostComposeChromePainter(
 
     fun nativeApplied(node: Any, modifier: Any) {
         val original = originals[modifier] ?: return
-        nativeOwners[original.layer] = Owned(WeakReference(node), WeakReference(modifier), original.value)
+        nativeOwners.record(node, modifier, original.value)
     }
 
     /** Clips the original outer content once; the Row draws the material above that content's backdrop. */
-    fun clipRoot(dimensions: () -> Pair<Float, Float>, canvas: () -> Canvas, content: () -> Unit) {
+    fun clipRoot(dimensions: () -> Long, canvas: () -> Canvas, content: () -> Unit) {
         var target: Canvas? = null
         var saved = -1
         if (!failed) runCatching {
-            val (w, h) = dimensions()
+            val packed = dimensions()
+            val w = Float.fromBits((packed ushr 32).toInt()); val h = Float.fromBits(packed.toInt())
             if (w.isFinite() && h.isFinite() && w > 0 && h > 0) {
                 if (rootClipWidth != w || rootClipHeight != h) {
                     rootClipWidth = w; rootClipHeight = h
@@ -239,12 +239,13 @@ internal class HostComposeChromePainter(
         }.onFailure(::failure)
     }
 
-    fun draw(dimensions: () -> Pair<Float, Float>, canvas: () -> Canvas) {
+    fun draw(dimensions: () -> Long, canvas: () -> Canvas) {
         runCatching {
             signal.read()
             val owner = owner.get() ?: return
             if (failed || !owner.isAttachedToWindow || !owner.isShown || !positioned) return
-            val (w, h) = dimensions()
+            val packed = dimensions()
+            val w = Float.fromBits((packed ushr 32).toInt()); val h = Float.fromBits(packed.toInt())
             if (!w.isFinite() || !h.isFinite() || w <= 0 || h <= 0) return
             val nextW = w.roundToInt(); val nextH = h.roundToInt()
             if (width != nextW || height != nextH) {
@@ -384,11 +385,8 @@ internal class HostComposeChromePainter(
         failed = true
         backdropRecovery.clear()
         release()?.takeUnless { it === error }?.let { runCatching { error.addSuppressed(it) } }
-        val owned = nativeOwners.values.mapNotNull { entry ->
-            val node = entry.node.get(); val modifier = entry.modifier.get()
-            if (node != null && modifier != null) Triple(node, modifier, entry.original) else null
-        }
-        // Both outer geometry and foreground Row must restore; each keeps its own identity lease.
+        val owned = nativeOwners.drain()
+        // The surface and every native backdrop keep separate identity leases.
         if (owned.isNotEmpty()) runCatching {
             owner.get()?.post {
                 HostThreadGuard.run("host.chrome.restore") {

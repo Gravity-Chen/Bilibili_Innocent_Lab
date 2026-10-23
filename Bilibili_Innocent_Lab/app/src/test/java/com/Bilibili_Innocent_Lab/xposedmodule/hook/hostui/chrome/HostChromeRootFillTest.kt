@@ -56,4 +56,33 @@ class HostChromeRootFillTest {
         assertFalse(fill.matches(Any()))
         assertEquals(0, Native.calls)
     }
+
+    @Test fun `solid and gradient decorations become fresh transparent native fills without mutating originals`() {
+        Native.calls = 0
+        val fill = recognizer("current")
+        val shape = Shape()
+        val solid = Current(123L, null, 1f, shape, 0)
+        val gradient = Current(456L, Brush(), .6f, shape, 0)
+        val cleared = listOf(solid, gradient).map { fill.transparent(it) as Current }
+        cleared.forEach {
+            assertEquals(0L, it.color)
+            assertNull(it.brush)
+            assertSame(shape, it.shape)
+            assertEquals(1f, it.alpha, 0f)
+        }
+        assertNotSame(cleared[0], cleared[1])
+        assertNotSame(solid, cleared[0])
+        assertEquals(123L, solid.color)
+        assertEquals(456L, gradient.color)
+        assertNotNull(gradient.brush)
+        assertEquals(.6f, gradient.alpha, 0f)
+        assertEquals("one class certification and one factory call per replacement", 3, Native.calls)
+    }
+
+    @Test fun `lookalikes and unrelated layout or pointer modifiers cannot become transparent fills`() {
+        val fill = recognizer("current")
+        assertNull(fill.transparent(Lookalike(123L, null, 1f, Shape())))
+        assertNull(fill.transparent(Merged(123L, null, 1f, Shape(), 1)))
+        assertNull(fill.transparent(Any()))
+    }
 }

@@ -21,6 +21,18 @@ class HomeChromeComposeLocatorTest {
     private val topOwner = "tv.danmaku.bili.khome.widget.topbar.HomeTopTabKt"
     private val prefix = listOf("Qo1.e", modifier, "float", "float", "float", "long", "long")
     private val bottom = listOf(modifier, "java.util.List", f1, f1, "kotlin.jvm.functions.Function4", "No1.b", "boolean", f1, "No1.g", composer, "int")
+    @Test fun `second row backdrop requires its exact model and restart ABI`() {
+        val owner = "tv.danmaku.bili.khome.widget.topbar.y"
+        val p = listOf("Qo1.e", f1, composer, "int")
+        assertTrue(HomeChromeComposeLocator.accepts("top_backdrop", owner, p))
+        assertTrue(HomeChromeComposeLocator.accepts("top_backdrop", owner, p + "int"))
+        assertFalse(HomeChromeComposeLocator.accepts("top_backdrop", owner + "\$Restart", p))
+        assertFalse(HomeChromeComposeLocator.accepts("top_backdrop", "foreign.SecondRow", p))
+        assertFalse(HomeChromeComposeLocator.accepts("top_backdrop", owner, listOf("java.lang.Object") + p.drop(1)))
+        assertFalse(HomeChromeComposeLocator.accepts("top_backdrop", owner, listOf("Qo1.e", modifier, f1, composer, "int")))
+        assertFalse(HomeChromeComposeLocator.accepts("top_backdrop", owner, p.dropLast(1)))
+        assertFalse(HomeChromeComposeLocator.accepts("top_backdrop", owner, p.dropLast(1) + "boolean"))
+    }
     @Test fun `top accepts both verified R8 generations without method letter`() {
         assertTrue(HomeChromeComposeLocator.accepts("top", topOwner, prefix + listOf("boolean", f1, f1, composer, "int")))
         assertTrue(HomeChromeComposeLocator.accepts("top", topOwner, prefix + listOf(f1, f1, composer, "int", "int")))

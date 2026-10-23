@@ -10,6 +10,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.HookEnvironment
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.lang.ref.WeakReference
+import java.lang.reflect.Method
 import java.util.WeakHashMap
 
 /** Semantic containers scope the otherwise global Updater hook to one real chrome LayoutNode. */
@@ -32,6 +33,8 @@ internal object HostComposeChromeHooks {
         decorated[System.identityHashCode(modifier)]?.firstOrNull { it.modifier.get() === modifier }?.painter?.get()
 
     private val scopes = HostChromeCompositionScope<Invocation>()
+    private data class BackdropInvocation(val painter: HostComposeChromePainter, val boundary: Method)
+    private val backdrops = HostChromeCompositionScope<BackdropInvocation>()
     private val painters = WeakHashMap<View, MutableMap<String, WeakReference<HostComposeChromePainter>>>()
 
     fun install(environment: HookEnvironment, family: String, points: Map<String, HookPoint>,
@@ -43,6 +46,9 @@ internal object HostComposeChromeHooks {
         val point = resolved[family] ?: return false
         val method = HomeChromeComposeLocator.method(loader, point) ?: return false
         val topLayout = if (family == "top") resolved["top_layout"]?.let {
+            HomeChromeComposeLocator.method(loader, it)
+        } else null
+        val topBackdrop = if (family == "top" && glass) resolved["top_backdrop"]?.let {
             HomeChromeComposeLocator.method(loader, it)
         } else null
         val content = if (family == "bottom") {
@@ -88,6 +94,46 @@ internal object HostComposeChromeHooks {
                 ?: HostComposeChromePainter(view, glass, touchGlow, appearance, bottom, api, onApplied, onError).also {
                     painters.getOrPut(view) { linkedMapOf() }[family] = WeakReference(it)
                 }
+            val backdropReady = family != "top" || !glass || topBackdrop != null && api.backdropLeaves.size == 2
+            if (topBackdrop != null && api.backdropLeaves.size == 2) {
+                val key = "host_chrome.compose.scope.top_backdrop"
+                val index = topBackdrop.parameterTypes.indexOfFirst { it.name == "androidx.compose.runtime.Composer" }
+                environment.registrar.exact(key, topBackdrop.declaringClass, topBackdrop.name, *topBackdrop.parameterTypes) {
+                    before {
+                        runCatching {
+                            val composer = argOrNull(index) ?: return@runCatching
+                            val view = viewAccess.read(composer) ?: return@runCatching
+                            val current = painter(view)
+                            current.requestBackdropRefresh()
+                            onObserved()
+                            val entry = HostChromeCompositionScope.Entry(BackdropInvocation(current, topBackdrop))
+                            setObjectExtra(key, entry)
+                            backdrops.push(entry)
+                        }.onFailure(onError)
+                    }
+                    after {
+                        @Suppress("UNCHECKED_CAST")
+                        val entry = getObjectExtra(key) as? HostChromeCompositionScope.Entry<BackdropInvocation> ?: return@after
+                        backdrops.exit(entry); setObjectExtra(key, null)
+                    }
+                }
+                api.backdropLeaves.forEach { leaf ->
+                    environment.registrar.exact("host_chrome.compose.backdrop.${leaf.name}", leaf.declaringClass,
+                        leaf.name, *leaf.parameterTypes) {
+                        before {
+                            val current = backdrops.current() ?: return@before
+                            val original = argOrNull(0)?.takeIf(api.modifier::isInstance) ?: return@before
+                            runCatching {
+                                // Only direct decorative leaves belong to this row. Nested tab indicators,
+                                // image placeholders and menu contents retain every native modifier.
+                                if (!HostChromeRowSelection.directCaller(Throwable().stackTrace, leaf.name,
+                                        current.boundary.declaringClass.name, current.boundary.name)) return@runCatching
+                                args[0] = current.painter.modifier(original, HostChromeLayer.TOP_BACKDROP)
+                            }.onFailure(current.painter::failure)
+                        }
+                    }
+                }
+            }
             if (content != null) {
                 environment.registrar.exact("host_chrome.compose.row", api.rowPolicy.declaringClass,
                     api.rowPolicy.name, *api.rowPolicy.parameterTypes) {
@@ -151,7 +197,7 @@ internal object HostComposeChromeHooks {
                 }
             }
             val labelsReady = bottom?.iconOnly != true || HostComposeBottomLabels.install(environment, points, onError, semanticsPoint)
-            touchReady && labelsReady && (family != "top" || topLayout != null)
+            touchReady && labelsReady && backdropReady && (family != "top" || topLayout != null)
         }.onFailure(onError).getOrDefault(false)
     }
 

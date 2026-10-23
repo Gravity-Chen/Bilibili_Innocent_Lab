@@ -1,6 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome
 
-internal enum class HostChromeLayer { SURFACE, BOTTOM_OUTER, BOTTOM_ROW }
+internal enum class HostChromeLayer { SURFACE, TOP_BACKDROP, BOTTOM_OUTER, BOTTOM_ROW }
 
 /** A bounded caller check only inside one verified bottom-content invocation, never global Rows. */
 internal class HostChromeRowSelection(private val owner: String, private val method: String) {

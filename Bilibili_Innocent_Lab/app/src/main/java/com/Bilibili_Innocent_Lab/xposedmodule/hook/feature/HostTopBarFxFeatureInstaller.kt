@@ -26,11 +26,11 @@ internal class HostTopBarFxFeatureInstaller(
     private val firstObserved = AtomicBoolean(false)
     private val firstError = AtomicBoolean(false)
     private val firstMissing = AtomicBoolean(false)
-    @Volatile private var chromePoints = chromePoints.filterKeys { it == "top" || it == "top_layout" }
+    @Volatile private var chromePoints = chromePoints.filterKeys { it == "top" || it == "top_layout" || it == "top_backdrop" }
 
     /** Background adaptation can add points without resetting evidence captured by live callbacks. */
     fun updateChromePoints(points: Map<String, HookPoint>): Boolean {
-        val relevant = points.filterKeys { it == "top" || it == "top_layout" }
+        val relevant = points.filterKeys { it == "top" || it == "top_layout" || it == "top_backdrop" }
         if (relevant.all { (family, point) -> chromePoints[family] == point }) return false
         chromePoints = chromePoints + relevant
         return true

@@ -15,12 +15,14 @@ internal object HomeChromeAdapter {
     val SEMANTICS_MARKS = listOf("ContentDescription", "StateDescription", "TestTag")
     const val SEMANTICS_DIAGNOSTIC = "home.chrome.semantics"
     val families = linkedMapOf(DexAssistQuery.HOME_CHROME_TOP to "top", DexAssistQuery.HOME_CHROME_TOP_LAYOUT to "top_layout",
+        DexAssistQuery.HOME_CHROME_TOP_BACKDROP to "top_backdrop",
         DexAssistQuery.HOME_CHROME_TOP_CONTENT to "top_content",
         DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS to "top_right_actions", DexAssistQuery.HOME_CHROME_BOTTOM to "bottom",
         DexAssistQuery.HOME_CHROME_BOTTOM_ITEM to "bottom_item", DexAssistQuery.HOME_CHROME_BOTTOM_CONTENT to "bottom_content")
     val marks = mapOf(
         DexAssistQuery.HOME_CHROME_TOP to "tv.danmaku.bili.khome.widget.topbar.HomeTopTabRow (",
         DexAssistQuery.HOME_CHROME_TOP_LAYOUT to "tv.danmaku.bili.khome.widget.topbar.CustomScrollableTabRow (",
+        DexAssistQuery.HOME_CHROME_TOP_BACKDROP to "tv.danmaku.bili.khome.widget.topbar.NormalScreenSecondRow (",
         DexAssistQuery.HOME_CHROME_TOP_CONTENT to "tv.danmaku.bili.khome.widget.topbar.CustomScrollableTabRow.<anonymous>",
         DexAssistQuery.HOME_CHROME_TOP_RIGHT_ACTIONS to "tv.danmaku.bili.khome.widget.topbar.RightActionButtons (",
         DexAssistQuery.HOME_CHROME_BOTTOM to "tv.danmaku.bili.khome.widget.bottomtab.HomeBottomTabContainer (",

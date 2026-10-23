@@ -12,11 +12,24 @@ import java.lang.reflect.Proxy
 internal class HostComposeChromeApi private constructor(
     val modifier: Class<*>, val updater: Method, val setter: Any, val setterInvoke: Method, private val getModifier: Method,
     private val empty: Any, private val fold: Method, private val then: Method, private val fill: HostChromeRootFill,
+    val backdropLeaves: List<Method>,
     private val behind: Method, private val withContent: Method, private val drawContent: Method, val rowPolicy: Method, private val height: Method, private val padding: Method, private val f1: Class<*>, private val f2: Class<*>, private val unit: Any,
     private val size: Method, private val context: Method, private val canvas: Method, private val native: Method,
     private val position: HostComposeCardPositionAccess
 ) {
     fun decorate(original: Any, painter: HostComposeChromePainter, layer: HostChromeLayer): Any {
+        if (layer == HostChromeLayer.TOP_BACKDROP) {
+            if (!painter.glass) return original
+            var changed = false
+            val cleared = fold.invoke(original, empty, function(f2, "HostChromeNativeBackdrop") { args ->
+                val accumulated = requireNotNull(args?.getOrNull(0))
+                val element = requireNotNull(args?.getOrNull(1))
+                val transparent = fill.transparent(element)
+                if (transparent != null) changed = true
+                requireNotNull(then.invoke(accumulated, transparent ?: element))
+            })!!
+            return if (changed) cleared else original
+        }
         // Replace only the scoped root's opaque fill. All layout, clip, click and pointer elements survive.
         val base = (if (layer == HostChromeLayer.BOTTOM_ROW) null else painter.layout())?.let { (heightDp, marginDp) ->
             val padded = padding.invoke(null, empty, marginDp, 0f, marginDp, 0f)!!
@@ -50,10 +63,7 @@ internal class HostComposeChromeApi private constructor(
         return requireNotNull(behind.invoke(null, positioned, draw))
     }
 
-    private fun dimensions(scope: Any): Pair<Float, Float> {
-        val packed = size.invoke(scope) as Long
-        return Float.fromBits((packed ushr 32).toInt()) to Float.fromBits(packed.toInt())
-    }
+    private fun dimensions(scope: Any): Long = size.invoke(scope) as Long
     private fun targetCanvas(scope: Any) = native.invoke(null, canvas.invoke(context.invoke(scope))) as Canvas
     fun signal() = position.signal()
 
@@ -102,6 +112,10 @@ internal class HostComposeChromeApi private constructor(
                 exact(type("androidx.compose.runtime.Updater"), "set-impl", Void.TYPE, composer, obj, f2).also { check(Modifier.isStatic(it.modifiers)) }, setter, setterInvoke, exact(node, "getModifier", modifier),
                 empty,
                 exact(modifier, "foldIn", obj, obj, f2), exact(modifier, "then", modifier, modifier), fill,
+                listOf("BoxKt" to "Box", "SpacerKt" to "Spacer").mapNotNull { (owner, name) ->
+                    runCatching { exact(type("androidx.compose.foundation.layout.$owner"), name, Void.TYPE,
+                        modifier, composer, Int::class.javaPrimitiveType!!).also { check(Modifier.isStatic(it.modifiers)) } }.getOrNull()
+                },
                 exact(type("androidx.compose.ui.draw.DrawModifierKt"), "drawBehind", modifier, modifier, f1),
                 exact(type("androidx.compose.ui.draw.DrawModifierKt"), "drawWithContent", modifier, modifier, f1),
                 exact(type("androidx.compose.ui.graphics.drawscope.ContentDrawScope"), "drawContent", Void.TYPE),

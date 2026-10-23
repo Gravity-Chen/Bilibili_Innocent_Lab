@@ -7,14 +7,17 @@ import java.io.File
 import java.security.MessageDigest
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Classpath
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
+import org.gradle.process.CommandLineArgumentProvider
 import javax.inject.Inject
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -91,6 +94,12 @@ ${specs.joinToString("\n")}
 }
 """)
     }
+}
+
+/** Keep the source archives lazy, tracked, and independent of the build-script instance at execution. */
+abstract class LumenContractJvmArguments : CommandLineArgumentProvider {
+    @get:Classpath abstract val sources: ConfigurableFileCollection
+    override fun asArguments(): Iterable<String> = listOf("-DinnocentLab.lumenSources=${sources.asPath}")
 }
 
 val releaseVersionNameOverride = providers.gradleProperty("innocentLab.releaseVersionName")
@@ -303,7 +312,7 @@ android {
 }
 
 androidComponents.onVariants { variant ->
-    val copiedPayload = layout.buildDirectory.dir("intermediates/frame-native-copy/${variant.name}")
+    val variantName = variant.name
     val sourceKey = providers.provider {
         val digest = MessageDigest.getInstance("SHA-256")
         val files = fileTree("src/main/cpp").files.toList() + listOf(
@@ -320,9 +329,14 @@ androidComponents.onVariants { variant ->
             digest.update(name.toByteArray(Charsets.UTF_8)); digest.update(0)
             digest.update(providers.environmentVariable(name).orElse("").get().toByteArray(Charsets.UTF_8)); digest.update(0)
         }
-        digest.update(variant.name.toByteArray(Charsets.UTF_8))
+        digest.update(variantName.toByteArray(Charsets.UTF_8))
         digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
     }
+    // CMake configurations can be reused out of order; never let one overwrite another's copy receipt.
+    // The short directory handle keeps Windows paths bounded; pack still checks the full 256-bit key.
+    val copiedPayload = layout.buildDirectory.dir(sourceKey.map { key ->
+        "intermediates/frame-native-copy/$variantName/${key.take(16)}"
+    })
     variant.externalNativeBuild?.arguments?.add(sourceKey.map { "-DINNOCENT_FRAME_BUILD_KEY=$it" })
     variant.externalNativeBuild?.arguments?.add(copiedPayload.map { "-DINNOCENT_FRAME_PAYLOAD_DIR=${it.asFile.invariantSeparatorsPath}" })
     val pack = tasks.register<PackFrameNativePayload>("pack${variant.name.replaceFirstChar(Char::uppercaseChar)}FrameNativePayload") {
@@ -402,11 +416,16 @@ val sourceContractInputs = files(
     }
 )
 tasks.withType<Test>().configureEach {
-    doFirst {
-        systemProperty("innocentLab.lumenSources", lumenContractSources.asPath)
-    }
+    jvmArgumentProviders.add(objects.newInstance(LumenContractJvmArguments::class.java).apply {
+        sources.from(lumenContractSources)
+    })
     inputs.files(sourceContractInputs, lumenContractSources)
         .withPropertyName("sourceContractInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    // This optional generated projection is read by a JVM test in private checkouts. No secrets.
+    val projection = rootDir.parentFile.resolve("server/src/analytics/capability-catalog.json")
+    inputs.files(providers.provider { if (projection.isFile) listOf(projection) else emptyList<File>() })
+        .withPropertyName("privateCapabilityProjection")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 

@@ -148,6 +148,7 @@ class SettingsBackupActivity : SkinnedActivity(),
             titleColor = getColor(R.color.colorTextGray),
             sourceTitle = getString(R.string.settings_backup_title)
         )
+        motionHost.followScreenCorners = true
         motionHost.setMotionSurfaceBackground(skinMotionSurfaceBackground(monetColors.surfaceVariant, 15f))
         motionController = ContainerMorphController(
             activity = this,
