@@ -22,7 +22,7 @@ internal class FrameModelFiles(private val parts: List<FrameModelSpec.Part> = Fr
     }
 
     fun prepare(directory: File, fetch: (FrameModelSpec.Part, File) -> Boolean): Map<FrameModelSpec.Part, File>? {
-        if (!directory.isDirectory && !directory.mkdirs()) return null
+        if (!directory.isDirectory && !directory.mkdirs() && !directory.isDirectory) return null
         val ready = LinkedHashMap<FrameModelSpec.Part, File>()
         for (part in parts) {
             val target = File(directory, part.fileName)
