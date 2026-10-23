@@ -33,7 +33,11 @@ internal fun <S : Any, T> callFrameworkService(
 ): FrameworkServiceCall<T> {
     service ?: return FrameworkServiceCall.Failure(FrameworkServiceCall.Reason.NOT_CONNECTED)
     if (!status.capable) return FrameworkServiceCall.Failure(
-        if (status.properties == null || status.apiVersion == 0) FrameworkServiceCall.Reason.METADATA_UNAVAILABLE
+        if (status.properties == null || status.apiVersion == 0 ||
+            status.failureCode == "framework_metadata_unavailable" &&
+            status.apiVersion >= com.Bilibili_Innocent_Lab.xposedmodule.runtime.ModernApiSupport.MIN_API &&
+            status.properties and io.github.libxposed.service.XposedService.PROP_CAP_REMOTE != 0L)
+            FrameworkServiceCall.Reason.METADATA_UNAVAILABLE
         else FrameworkServiceCall.Reason.UNSUPPORTED)
     if (!isCurrent()) return FrameworkServiceCall.Failure(FrameworkServiceCall.Reason.CONNECTION_CHANGED)
     return try {

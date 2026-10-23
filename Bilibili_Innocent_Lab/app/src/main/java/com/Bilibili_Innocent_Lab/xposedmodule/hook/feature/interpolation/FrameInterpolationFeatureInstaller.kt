@@ -54,6 +54,7 @@ internal class FrameInterpolationFeatureInstaller(
     private val inMainOp = FrameCallScope()
     private val decoderGeneration = FrameDecoderGeneration<MediaCodec>()
     private val activationScheduled = java.util.concurrent.atomic.AtomicBoolean()
+    private val pendingDrainScheduled = java.util.concurrent.atomic.AtomicBoolean()
     private val activationExecutor = HostReceiptWire.executor("bil-frame-activation")
     private val writingSilence = ThreadLocal<Boolean>()
     private val playerClocks = FramePlayerClockProbe(::log, ::clockProbeEnabled)
@@ -282,12 +283,12 @@ internal class FrameInterpolationFeatureInstaller(
                     val ticket = decoderGeneration.begin(codec) {
                         previous = bridges.remove(codec); pending.remove(codec); configured.remove(codec)
                     }
-                    previous?.close()
+                    previous?.let { audioDelayUs = 0L; it.close() }
                     setObjectExtra(CONFIGURE_TICKET, ticket)
                     val decoder = PendingDecoder(format, display, argOrNull(cryptoIndex), ticket)
                     val holder = engine
                     if (holder == null) {
-                        decoderGeneration.commit(codec, ticket) { pending[codec] = decoder }
+                        awaitEngine(codec, decoder)
                         log("configure.wait", "activation")
                         showStatus(FrameStatus.Inactive(FrameStatus.Reason.LOADING))
                         return@before
@@ -297,13 +298,14 @@ internal class FrameInterpolationFeatureInstaller(
                         // 启动时能力测量因 GPU 被短暂占满而失败的，到期在此重测，成功后同样迟接管。
                         holder.retryIfDue()
                         if (holder.state != FrameInterpolationEngineHolder.State.FAILED || holder.recoveryPending()) {
-                            decoderGeneration.commit(codec, ticket) { pending[codec] = decoder }
+                            awaitEngine(codec, decoder)
                             showStatus(FrameStatus.Inactive(FrameStatus.Reason.LOADING))
                         } else showStatus(FrameStatus.Inactive(FrameStatus.Reason.ENGINE))
                         return@before
                     }
                     val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, format, display, decoder.crypto,
-                        holder, bridgeHost, requestedTargetFps = verificationTarget()) ?: return@before
+                        holder, bridgeHost, requestedTargetFps = verificationTarget(),
+                        isCurrent = decoder.ticket::isActive) ?: return@before
                     if (!decoderGeneration.commit(codec, ticket) { bridges[codec] = bridge; configured[codec] = decoder }) {
                         bridge.close(); return@before
                     }
@@ -439,12 +441,30 @@ internal class FrameInterpolationFeatureInstaller(
 
     private class PendingDecoder(val format: MediaFormat, val display: Surface, val crypto: Any?,
                                  val ticket: FrameDecoderGeneration.Ticket)
-    private val pending = Collections.synchronizedMap(WeakHashMap<MediaCodec, PendingDecoder>())
+    private val pending = FramePendingTakeovers<MediaCodec, PendingDecoder>()
+
+    private fun awaitEngine(codec: MediaCodec, decoder: PendingDecoder) {
+        decoderGeneration.commit(codec, decoder.ticket) {
+            pending.await(codec, decoder, { engine?.ready() == true }, ::schedulePendingTakeover)
+        }
+    }
+
+    private fun schedulePendingTakeover() {
+        if (!pendingDrainScheduled.compareAndSet(false, true)) return
+        runCatching { activationExecutor.execute(HostThreadGuard.runnable("frame.late") {
+            try { attachPending() }
+            finally {
+                pendingDrainScheduled.set(false)
+                if (pending.hasPending() && engine?.ready() == true) schedulePendingTakeover()
+            }
+        }) }.onFailure { pendingDrainScheduled.set(false); log("bridge.late.skip", "queue") }
+    }
 
     private fun detachDecoder(codec: MediaCodec, ticket: FrameDecoderGeneration.Ticket? = null): FrameCaptureBridge? {
         var detached: FrameCaptureBridge? = null
         decoderGeneration.end(codec, ticket) {
             pending.remove(codec); configured.remove(codec); detached = bridges.remove(codec)
+            if (detached != null) audioDelayUs = 0L
         }
         return detached
     }
@@ -452,13 +472,15 @@ internal class FrameInterpolationFeatureInstaller(
     /** 引擎就绪后接管冷启动期间已原生播放的解码器：在 worker 上把其输出切到捕获 Surface。 */
     private fun attachPending() {
         val holder = engine ?: return
-        val waiting = synchronized(pending) { pending.entries.map { it.key to it.value }.also { pending.clear() } }
+        if (!holder.ready()) return
+        val waiting = pending.take()
         for ((codec, decoder) in waiting) {
             if (!decoderGeneration.matches(codec, decoder.ticket)) continue
             val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, decoder.format, decoder.display,
                 decoder.crypto, holder, bridgeHost, requestedTargetFps = verificationTarget(),
                 attach = { surface -> decoderGeneration.matches(codec, decoder.ticket) &&
-                    runCatching { codec.setOutputSurface(surface) }.isSuccess }) ?: continue
+                    runCatching { codec.setOutputSurface(surface) }.isSuccess },
+                isCurrent = decoder.ticket::isActive) ?: continue
             if (!decoderGeneration.commit(codec, decoder.ticket) { bridges[codec] = bridge; configured[codec] = decoder }) {
                 bridge.close(); continue
             }
@@ -532,7 +554,7 @@ internal class FrameInterpolationFeatureInstaller(
                 val holder = FrameInterpolationEngineHolder(apk, host.codeCacheDir, modelSource,
                     log = { event, detail -> log(event, detail) }, capabilitySizes = sizes,
                     dumpDir = if (verifying) File(external, "$VERIFY_DIR/dump").apply { mkdirs() } else null)
-                holder.onReady = ::attachPending
+                holder.onReady = ::schedulePendingTakeover
                 engine = holder
                 holder.warmUp()
             }
@@ -585,14 +607,22 @@ internal class FrameInterpolationFeatureInstaller(
 
         /** 解码器此时已回到显示 Surface（原生播放）；在独立线程按当前上限与能力重新接管，不占用呈现或解码线程。 */
         private fun reattach(codec: MediaCodec, reason: String) {
-            val decoder = configured[codec] ?: return
+            val previous = configured[codec] ?: return
             val holder = engine ?: return
-            bridges.remove(codec)
+            var replacement: PendingDecoder? = null
+            decoderGeneration.replace(codec, previous.ticket) { ticket ->
+                val next = PendingDecoder(previous.format, previous.display, previous.crypto, ticket)
+                replacement = next
+                configured[codec] = next
+                bridges.remove(codec)
+            } ?: return
+            val decoder = replacement ?: return
             runCatching { activationExecutor.execute(HostThreadGuard.runnable("frame.retarget") {
                 if (configured[codec] !== decoder || !decoderGeneration.matches(codec, decoder.ticket)) return@runnable
                 val bridge = FrameCaptureBridge.create(FrameCaptureBridge.Config(), codec, decoder.format, decoder.display,
                     decoder.crypto, holder, this, attach = { surface -> decoderGeneration.matches(codec, decoder.ticket) &&
-                        runCatching { codec.setOutputSurface(surface) }.isSuccess })
+                        runCatching { codec.setOutputSurface(surface) }.isSuccess },
+                    isCurrent = decoder.ticket::isActive)
                 if (bridge != null && !decoderGeneration.commit(codec, decoder.ticket) { bridges[codec] = bridge }) bridge.close()
                 log("bridge.retarget", "$reason attached=${bridge != null}")
             }) }.onFailure { log("bridge.retarget.skip", "queue") }

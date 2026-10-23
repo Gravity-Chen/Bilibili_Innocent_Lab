@@ -14,6 +14,13 @@ class FrameworkServiceCallTest {
             callFrameworkService(Any(), ready.copy(capable = false, properties = 0L), { true }, {}) { error("must not execute") })
     }
 
+    @Test fun unknownRoutingIdentityIsPendingRatherThanUnsupported() {
+        val pending = readModernFrameworkCapabilities({ 102 }, { io.github.libxposed.service.XposedService.PROP_CAP_REMOTE })
+            .withModernFrameworkIdentity { error("not read yet") }
+        assertEquals(FrameworkServiceCall.Failure(FrameworkServiceCall.Reason.METADATA_UNAVAILABLE),
+            callFrameworkService(Any(), pending, { true }, {}) { error("must not execute") })
+    }
+
     @Test fun aReplacedConnectionCannotReportTheOldModelAsReady() {
         var current = true
         val result = callFrameworkService(Any(), ready, { current }, {}) { current = false; "ready" }

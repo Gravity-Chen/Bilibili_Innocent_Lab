@@ -443,6 +443,7 @@ internal object RemoteHookConfigStore {
             try {
                 if (!candidates.matches(bound, arrival)) return@execute
                 val metadata = readModernFrameworkCapabilities({ bound.apiVersion }, { bound.frameworkProperties })
+                    .withModernFrameworkIdentity { bound.frameworkName }
                 val updated = synchronized(stateLock) {
                     if (!candidates.matches(bound, arrival) || !metadata.capable && frameworkStatus.capable && service !== bound) null
                     else {
@@ -468,8 +469,7 @@ internal object RemoteHookConfigStore {
     private fun readServiceDescription(bound: XposedService, arrival: Long, status: ModernFrameworkStatus) {
         runCatching { displayMetadataExecutor.execute {
             if (!candidates.matches(bound, arrival)) return@execute
-            val metadata = status.withModernFrameworkMetadata({ bound.frameworkName },
-                { bound.frameworkVersion }, { bound.frameworkVersionCode })
+            val metadata = status.withModernFrameworkVersions({ bound.frameworkVersion }, { bound.frameworkVersionCode })
             val updated = synchronized(stateLock) {
                 if (!candidates.matches(bound, arrival) || service !== bound || connectionId != status.connectionId ||
                     frameworkStatus.capable != status.capable || frameworkStatus.apiVersion != status.apiVersion ||

@@ -35,22 +35,44 @@ internal class FrameSurfaceOwnership<O : Any, S : Any>(private val maxOwners: In
 
 /** A released or reconfigured decoder cannot acquire a bridge from an older async preparation. */
 internal class FrameDecoderGeneration<C : Any> {
-    class Ticket internal constructor()
+    class Ticket internal constructor() {
+        @Volatile private var active = true
+        fun isActive(): Boolean = active
+        internal fun revoke() { active = false }
+    }
     private val current = WeakHashMap<C, Ticket>()
     @Synchronized fun begin(codec: C, onReplace: () -> Unit = {}): Ticket =
-        Ticket().also { current[codec] = it; onReplace() }
+        Ticket().also { current.put(codec, it)?.revoke(); onReplace() }
     @Synchronized fun end(codec: C, ticket: Ticket? = null, action: () -> Unit = {}): Boolean {
         if (ticket != null && current[codec] !== ticket) return false
-        current.remove(codec)
+        current.remove(codec)?.revoke()
         action()
         return true
     }
     @Synchronized fun matches(codec: C, ticket: Ticket): Boolean = current[codec] === ticket
+    @Synchronized fun replace(codec: C, expected: Ticket, action: (Ticket) -> Unit): Ticket? {
+        if (current[codec] !== expected) return null
+        expected.revoke()
+        return Ticket().also { current[codec] = it; action(it) }
+    }
     @Synchronized fun commit(codec: C, ticket: Ticket, action: () -> Unit): Boolean {
         if (current[codec] !== ticket) return false
         action()
         return true
     }
+}
+
+/** Store before checking readiness, so a Ready callback racing this insertion cannot lose it. */
+internal class FramePendingTakeovers<C : Any, D : Any> {
+    private val waiting = WeakHashMap<C, D>()
+    fun await(codec: C, decoder: D, isReady: () -> Boolean, wake: () -> Unit) {
+        synchronized(this) { waiting[codec] = decoder }
+        if (isReady()) wake()
+    }
+    @Synchronized fun remove(codec: C) { waiting.remove(codec) }
+    @Synchronized fun hasPending(): Boolean = waiting.isNotEmpty()
+    @Synchronized fun take(): List<Pair<C, D>> =
+        waiting.entries.map { it.key to it.value }.also { waiting.clear() }
 }
 
 internal object FrameCodecConfigureShape {

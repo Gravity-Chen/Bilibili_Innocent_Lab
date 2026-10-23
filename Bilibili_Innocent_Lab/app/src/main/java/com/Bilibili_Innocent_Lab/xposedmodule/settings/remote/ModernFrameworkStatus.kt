@@ -88,15 +88,27 @@ internal fun ModernFrameworkStatus.withModernFrameworkMetadata(
     readName: () -> String,
     readVersion: () -> String,
     readVersionCode: () -> Long
-): ModernFrameworkStatus {
+): ModernFrameworkStatus = withModernFrameworkIdentity(readName)
+    .withModernFrameworkVersions(readVersion, readVersionCode)
+
+/** The name selects LSPatch receipt routing; never expose an identity-less service as root activation. */
+internal fun ModernFrameworkStatus.withModernFrameworkIdentity(readName: () -> String): ModernFrameworkStatus {
     val name = runCatching(readName)
+    val identity = name.getOrNull()?.take(128).orEmpty()
+    return copy(name = identity, capable = capable && identity.isNotBlank(),
+        failureCode = if (identity.isBlank()) "framework_metadata_unavailable" else failureCode)
+}
+
+internal fun ModernFrameworkStatus.withModernFrameworkVersions(
+    readVersion: () -> String,
+    readVersionCode: () -> Long
+): ModernFrameworkStatus {
     val version = runCatching(readVersion)
     val versionCode = runCatching(readVersionCode)
     return copy(
-        name = name.getOrNull().orEmpty().take(128),
         version = version.getOrNull()?.take(128),
         versionCode = versionCode.getOrNull()?.takeIf { it >= 0L },
-        failureCode = if (failureCode != null || listOf(name, version, versionCode).any { it.isFailure }) {
+        failureCode = if (failureCode != null || listOf(version, versionCode).any { it.isFailure }) {
             "framework_metadata_unavailable"
         } else null
     )
