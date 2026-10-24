@@ -257,6 +257,35 @@ internal fun MainActivity.showFrameInterpolationMaxFpsDialog(current: Int, ancho
     }
 }
 
+/** 只在明确确认之后回调；返回、取消或点外部均不改变设置。 */
+internal fun MainActivity.showFrameInterpolationThermalConfirmDialog(anchor: View?, onConfirm: () -> Unit) {
+    val density = resources.displayMetrics.density
+    val dialog = Dialog(this).also { installDialogElasticInteraction(it) }
+    val container = createModalContainer()
+    container.addView(NativeTextView(this).apply {
+        text = getString(R.string.player_frame_thermal_confirm_title)
+        textColor = getColor(R.color.colorTextDark)
+        textSize = 17f
+    })
+    container.addView(NativeTextView(this).apply {
+        text = getString(R.string.player_frame_thermal_confirm_message)
+        textColor = getColor(R.color.colorTextGray)
+        textSize = 14f
+        setLineSpacing(4 * density, 1f)
+    }, NativeLinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        topMargin = (12 * density).toInt(); bottomMargin = (16 * density).toInt()
+    })
+    val buttons = NativeLinearLayout(this).apply { orientation = NativeLinearLayout.HORIZONTAL; gravity = Gravity.END }
+    buttons.addView(createTermsActionButton(getString(R.string.dialog_cancel), filled = false) {
+        dismissWithAnimation(dialog, container) {}
+    }, NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    buttons.addView(createTermsActionButton(getString(R.string.player_frame_thermal_confirm_accept), filled = true) {
+        dismissWithAnimation(dialog, container) { onConfirm() }
+    }, NativeLinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = (8 * density).toInt() })
+    container.addView(buttons)
+    presentModalDialog(dialog, container, anchor)
+}
+
 /** apply() 不阻塞 UI；立即读回只用于发现本次写入是否被当前 bridge 拒绝。 */
 private fun MainActivity.savePlayerIntPreference(key: String, value: Int, logMessage: String): Boolean =
     runCatching {

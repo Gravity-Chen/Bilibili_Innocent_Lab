@@ -49,6 +49,8 @@ internal class FrameCaptureBridge private constructor(
         fun onFrameSubmitted(dueNs: Long, submittedNs: Long) = Unit
         /** 用户设置的补帧帧率上限（[FrameRateTarget.CEILINGS]）。 */
         fun maxFps(): Int = 60
+        /** 是否根据热余量、温控状态及电池温度自动回到原生播放；默认保留保护。 */
+        fun thermalControlEnabled(): Boolean = true
         /** 本进程此前实测到的系统实际刷新上限；null 表示未发现限制。 */
         fun displayLimitHz(): Float? = null
         /**
@@ -316,8 +318,8 @@ internal class FrameCaptureBridge private constructor(
             }
         }
         // 温控：预测余量逼近严重降频阈值前回原生，避免持续高负载把整机推入降频（之后宿主本身也会卡顿）。
-        power?.thermalHeadroom(now)?.let { headroom ->
-            if (headroom >= THERMAL_LIMIT) { returnToNative("thermal:%.2f".format(headroom)); return }
+        FrameThermalControl.pauseHeadroom(host.thermalControlEnabled()) { power?.thermalHeadroom(now) }?.let { headroom ->
+            returnToNative("thermal:%.2f".format(headroom)); return
         }
         session.tick(now)
         announceActive()
@@ -410,8 +412,6 @@ internal class FrameCaptureBridge private constructor(
         private const val WARMUP_SAMPLES = 20
         private const val REPORT_INTERVAL_NS = 5_000_000_000L
         private const val AUDIO_HYSTERESIS_US = 20_000L
-        /** getThermalHeadroom 的 1.0 为严重降频；留出余量提前退出。 */
-        private const val THERMAL_LIMIT = 0.85f
         /**
          * 呈现延迟 150 ms。曾试 200 ms 以吸收宿主约每分钟一次、约 100 ms 的解码迟到，但宿主真机越过槽位反而从每分钟
          * 约 3 个增至约 73 个、出现大量 200 ms 停顿，故保持 150 ms。原因须结合时钟换代与账本耗尽计数判断。

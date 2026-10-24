@@ -22,15 +22,17 @@ class SettingsDependenciesTest {
         val off = ModuleUiSettings.of { mapOf(
             FeaturePreferences.PLAYER_FRAME_INTERPOLATION to false,
             FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST to true,
+            FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL to true,
             FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS to 144
         ) }
         val ids = listOf("player.frame_interpolation.max_fps", "player.frame_interpolation.status_toast",
-            SettingsDependencies.FRAME_MODEL)
+            "player.frame_interpolation.disable_thermal_control", SettingsDependencies.FRAME_MODEL)
         repeat(3) {
             ids.forEach { assertFalse(it, SettingsDependencies.available(it, off)) }
             val on = off.with(FeaturePreferences.PLAYER_FRAME_INTERPOLATION, true)
             ids.forEach { assertTrue(it, SettingsDependencies.available(it, on)) }
             assertTrue(on.bool(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST))
+            assertTrue(on.bool(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL))
             assertEquals(144, on.int(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS))
         }
         assertTrue(off.bool(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST))

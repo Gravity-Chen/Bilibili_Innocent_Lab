@@ -945,7 +945,7 @@
     <string name="player_capabilities_tip">開啟後，嘗試開放所選播放功能；仍受裝置和伺服器限制，不改付費權限或影片來源。重新啟動 Bilibili 後生效。</string>
     <string name="player_frame_interpolation_title">影片插幀</string>
     <string name="player_frame_interpolation">影片插幀（實驗）</string>
-    <string name="player_frame_interpolation_tip">用 GPU 產生中間幀，把 30 fps 影片補到 60 fps、25 fps 補到 50 fps，支援最高 4K 的影片。超過螢幕解析度的影片先縮到螢幕能顯示的尺寸再處理；首次執行時的本機測速決定可持續的最高尺寸。HDR、受保護內容和不支援的幀率按原樣播放，機身過熱或跟不上時自動回到一般播放。高解析度會多一點延遲（音畫仍同步），耗電也更多。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="player_frame_interpolation_tip">用 GPU 產生中間幀，把 30 fps 影片補到 60 fps、25 fps 補到 50 fps，支援最高 4K 的影片。超過螢幕解析度的影片先縮到螢幕能顯示的尺寸再處理；首次執行時的本機測速決定可持續的最高尺寸。HDR、受保護內容和不支援的幀率按原樣播放，效能跟不上，或啟用溫控且裝置過熱時自動回到一般播放。高解析度會多一點延遲（音畫仍同步），耗電也更多。重新啟動嗶哩嗶哩後生效。</string>
     <string name="player_frame_max_fps">補幀幀率上限</string>
     <string name="player_frame_max_fps_value">%1$d fps</string>
     <string name="player_frame_max_fps_current">最高 %1$d fps。實際目標跟隨系統真實輸出的更新率與本機可持續的效能：上限設 185 而系統只給 120 Hz 時，只補到 120。</string>
@@ -1516,4 +1516,10 @@
     <string name="player_buffer_mode">緩衝模式</string>
     <string name="player_buffer_memory_tip">預讀佇列與播放消費佇列各分一半預算。解碼影格與其他原生記憶體另計，這不是宿主總記憶體占用上限。</string>
     <string name="player_buffer_wifi_tip">啟動預取後的中途切網由宿主處理，此選項不會單獨中止已有預取工作。</string>
+    <string name="player_frame_disable_thermal_control">關閉插幀溫控</string>
+    <string name="player_frame_disable_thermal_control_summary">高溫時仍繼續插幀。重新啟動嗶哩嗶哩後生效。</string>
+    <string name="player_frame_thermal_confirm_title">關閉插幀溫控？</string>
+    <string name="player_frame_thermal_confirm_message">高溫時也會繼續插幀，可能增加發熱和耗電。</string>
+    <string name="player_frame_thermal_confirm_accept">仍要關閉</string>
+    <string name="highlights_player_frame_thermal_control">新增關閉插幀溫控選項，開啟前需再次確認。</string>
 </resources>

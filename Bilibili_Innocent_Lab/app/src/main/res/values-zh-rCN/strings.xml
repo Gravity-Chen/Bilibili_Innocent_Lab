@@ -945,7 +945,7 @@
     <string name="player_capabilities_tip">开启后，尝试开放所选播放功能；仍受设备和服务端限制，不改付费权限或视频来源。重启哔哩哔哩后生效。</string>
     <string name="player_frame_interpolation_title">视频插帧</string>
     <string name="player_frame_interpolation">视频插帧（实验）</string>
-    <string name="player_frame_interpolation_tip">用 GPU 生成中间帧，把 30 fps 视频补到 60 fps、25 fps 补到 50 fps，支持最高 4K 的视频。超过屏幕分辨率的视频先缩到屏幕能显示的尺寸再处理；首次运行时的本机测速决定可持续的最高尺寸。HDR、受保护内容和不支持的帧率按原样播放，机身过热或跟不上时自动回到普通播放。高分辨率会多一点延迟（音画仍同步），耗电也更多。重启哔哩哔哩后生效。</string>
+    <string name="player_frame_interpolation_tip">用 GPU 生成中间帧，把 30 fps 视频补到 60 fps、25 fps 补到 50 fps，支持最高 4K 的视频。超过屏幕分辨率的视频先缩到屏幕能显示的尺寸再处理；首次运行时的本机测速决定可持续的最高尺寸。HDR、受保护内容和不支持的帧率按原样播放，性能跟不上，或启用温控且设备过热时自动回到普通播放。高分辨率会多一点延迟（音画仍同步），耗电也更多。重启哔哩哔哩后生效。</string>
     <string name="player_frame_max_fps">补帧帧率上限</string>
     <string name="player_frame_max_fps_value">%1$d fps</string>
     <string name="player_frame_max_fps_current">最高 %1$d fps。实际目标跟随系统真实输出的刷新率与本机可持续的性能：上限设 185 而系统只给 120 Hz 时，只补到 120。</string>
@@ -1516,4 +1516,10 @@
     <string name="player_buffer_mode">缓冲模式</string>
     <string name="player_buffer_memory_tip">预读队列与播放消费队列各分一半预算。解码帧和其他原生内存另计，这不是宿主总内存占用上限。</string>
     <string name="player_buffer_wifi_tip">启动预取后的中途切网由宿主处理，此选项不会单独中止已有预取任务。</string>
+    <string name="player_frame_disable_thermal_control">关闭插帧温控</string>
+    <string name="player_frame_disable_thermal_control_summary">高温时仍继续插帧。重启哔哩哔哩后生效。</string>
+    <string name="player_frame_thermal_confirm_title">关闭插帧温控？</string>
+    <string name="player_frame_thermal_confirm_message">高温时也会继续插帧，可能增加发热和耗电。</string>
+    <string name="player_frame_thermal_confirm_accept">仍要关闭</string>
+    <string name="highlights_player_frame_thermal_control">新增关闭插帧温控选项，开启前需二次确认。</string>
 </resources>

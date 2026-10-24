@@ -97,6 +97,45 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 refreshMaxFps()
             }
         }
+        val thermalKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) { topMargin = 8.dp; bottomMargin = 2.dp }
+        ) {
+            bindFavoriteSwitch(this, thermalKey)
+            bindSettingDestination(this, thermalKey)
+            text = stringResource(R.string.player_frame_disable_thermal_control)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            var savedDisabled = uiSettings.bool(thermalKey)
+            var programmatic = false
+            isChecked = savedDisabled
+            fun saveThermalDisabled(value: Boolean) {
+                val saved = runCatching {
+                    val preferences = prefs()
+                    preferences.edit { putBoolean(thermalKey, value) }
+                    check(preferences.getBoolean(thermalKey, !value) == value)
+                }.onFailure {
+                    Log.e("BilibiliInnocentLab", "write frame thermal control prefs failed", it)
+                }.isSuccess
+                if (saved) savedDisabled = value
+                programmatic = true; isChecked = savedDisabled; programmatic = false
+            }
+            setOnCheckedChangeListener { button, checked ->
+                if (programmatic) return@setOnCheckedChangeListener
+                // No enabling write until the secondary confirmation succeeds; cancel stays unchanged.
+                programmatic = true; button.isChecked = savedDisabled; programmatic = false
+                if (checked) showFrameInterpolationThermalConfirmDialog(button) { saveThermalDisabled(true) }
+                else saveThermalDisabled(false)
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            alpha = 0.6f
+            setLineSpacing(6f, 1f)
+            text = stringResource(R.string.player_frame_disable_thermal_control_summary)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+        }
         val statusKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {

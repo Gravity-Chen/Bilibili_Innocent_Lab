@@ -3484,7 +3484,8 @@ class HookEntry : XposedModule() {
                         remoteFile = { name -> runCatching { openRemoteFile(name) }.getOrNull() },
                         maxFps = prefs.getInt(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS, 60)
                             .takeIf { it in FrameRateTarget.CEILINGS } ?: 60,
-                        statusToast = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST, false)
+                        statusToast = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST, false),
+                        disableThermalControl = prefs.getBoolean(FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL, false)
                     )
                 )
             )

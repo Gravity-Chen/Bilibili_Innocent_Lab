@@ -15,6 +15,14 @@ import org.junit.Test
 import java.io.File
 
 class DiagnosticCapabilityCatalogTest {
+    @Test fun `frame temperature choice has an independent catalog leaf without invented runtime evidence`() {
+        val leaf = DiagnosticCapabilityCatalog.byId.getValue("player_frame_interpolation_thermal_control")
+        assertEquals(setOf("player.frame_interpolation.disable_thermal_control"), leaf.settingIds)
+        assertEquals(32, leaf.introducedCatalogVersion)
+        assertEquals(DiagnosticCapabilityCatalog.runtimeSupport("player_frame_interpolation_status_toast"),
+            DiagnosticCapabilityCatalog.runtimeSupport(leaf.id))
+    }
+
     @Test fun playerSpeedMenuHasItsOwnRuntimeCapabilityUnderPlayerSpeed() {
         val capability = DiagnosticCapabilityCatalog.byId.getValue("player_speed_menu_percents")
         assertEquals("player_speed", capability.parentId)

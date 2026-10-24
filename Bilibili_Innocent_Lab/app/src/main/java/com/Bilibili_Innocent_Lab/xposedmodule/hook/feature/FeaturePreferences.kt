@@ -214,6 +214,8 @@ internal object FeaturePreferences {
     const val PLAYER_FRAME_INTERPOLATION_MAX_FPS = "player_frame_interpolation_max_fps"
     /** 每次播放视频时提示插帧是否生效与补帧目标帧率（默认关）。 */
     const val PLAYER_FRAME_INTERPOLATION_STATUS_TOAST = "player_frame_interpolation_status_toast"
+    /** 经用户二次确认后跳过插帧自身的温度暂停；默认关。 */
+    const val PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL = "player_frame_interpolation_disable_thermal_control"
     const val PLAYER_DECODE_MODE = "player_decode_mode"
     const val PLAYER_BUFFER_MODE = "player_buffer_mode"
     const val PLAYER_BUFFER_SECONDS = "player_buffer_seconds"

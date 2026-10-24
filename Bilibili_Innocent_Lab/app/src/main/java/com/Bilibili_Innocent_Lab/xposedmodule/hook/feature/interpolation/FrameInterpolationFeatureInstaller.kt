@@ -43,7 +43,9 @@ internal class FrameInterpolationFeatureInstaller(
     /** 用户设置的补帧帧率上限；实际目标还受系统实际刷新与本机能力约束（[FrameRateTarget]）。 */
     private val maxFps: Int = 60,
     /** 「插帧状态提示」：每个视频提示插帧是否生效与补帧目标帧率。 */
-    private val statusToast: Boolean = false
+    private val statusToast: Boolean = false,
+    /** 仅关闭模块自己的自动温度暂停，不改变系统温控或其他准入条件。 */
+    private val disableThermalControl: Boolean = false
 ) : FeatureInstaller {
     override val id: String = ID
 
@@ -590,6 +592,7 @@ internal class FrameInterpolationFeatureInstaller(
         override fun log(event: String, detail: String) = this@FrameInterpolationFeatureInstaller.log(event, detail)
         override fun context(): android.content.Context? = ReflectAccess.currentApplication()
         override fun maxFps(): Int = maxFps
+        override fun thermalControlEnabled(): Boolean = !disableThermalControl
         override fun diagnostics(): Boolean = verificationAllowed && runCatching {
             File(ReflectAccess.currentApplication()?.getExternalFilesDir(null), "$VERIFY_DIR/measure-gpu").isFile
         }.getOrDefault(false)
