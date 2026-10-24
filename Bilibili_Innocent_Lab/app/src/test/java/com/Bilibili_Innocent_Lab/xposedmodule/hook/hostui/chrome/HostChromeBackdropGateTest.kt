@@ -4,6 +4,46 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostChromeBackdropGateTest {
+    @Test fun `right action backplates remain decorative while native images remain foreground`() {
+        val gate = HostChromeBackdropGate()
+        val actions = gate.enterForeground(allowBackdropPaint = true)
+        assertTrue(gate.decorative)
+        assertFalse(gate.decorativeImage)
+        val icon = gate.enterForeground()
+        assertFalse(gate.decorative)
+        assertFalse(gate.decorativeImage)
+        gate.exitForeground(icon)
+        assertTrue(gate.decorative)
+        assertFalse(gate.decorativeImage)
+        gate.exitForeground(actions)
+        assertTrue(gate.decorativeImage)
+    }
+
+    @Test fun `right actions cannot reopen native tab indicators or nested image placeholders`() {
+        val gate = HostChromeBackdropGate()
+        val tabs = gate.enterForeground()
+        val actions = gate.enterForeground(allowBackdropPaint = true)
+        assertFalse(gate.decorative)
+        gate.exitForeground(actions)
+        assertFalse(gate.decorative)
+        gate.exitForeground(tabs)
+        assertTrue(gate.decorative)
+    }
+
+    @Test fun `duplicate action and image cleanup cannot clear another live foreground`() {
+        val gate = HostChromeBackdropGate()
+        val actions = gate.enterForeground(allowBackdropPaint = true)
+        val image = gate.enterForeground()
+        gate.exitForeground(actions)
+        gate.exitForeground(actions)
+        gate.exitForeground(Any())
+        assertFalse(gate.decorative)
+        gate.exitForeground(image)
+        gate.exitForeground(image)
+        assertTrue(gate.decorative)
+        assertTrue(gate.decorativeImage)
+    }
+
     @Test fun `successful retry arms callbacks retained from a partial registration`() {
         val original = HostChromeBackdropGate.installation(javaClass, "partial-row", listOf("native.Model", "Composer"))
         assertFalse(original.get())

@@ -12,12 +12,21 @@ import java.lang.reflect.Proxy
 internal class HostComposeChromeApi private constructor(
     val modifier: Class<*>, val updater: Method, val setter: Any, val setterInvoke: Method, private val getModifier: Method,
     private val empty: Any, private val fold: Method, private val then: Method, private val fill: HostChromeRootFill,
+    private val wholeArea: Any?,
     val backdropLeaves: List<BackdropLeaf>, val backdropImagesReady: Boolean,
     private val behind: Method, private val withContent: Method, private val drawContent: Method, val rowPolicy: Method, private val height: Method, private val padding: Method, private val f1: Class<*>, private val f2: Class<*>, private val unit: Any,
     private val size: Method, private val context: Method, private val canvas: Method, private val native: Method,
     private val position: HostComposeCardPositionAccess
 ) {
     internal data class BackdropLeaf(val method: Method, val modifierIndex: Int)
+
+    /** Match the host's own fillMaxSize element, never a guessed R8 class or an image URL. */
+    fun fillsBackdrop(original: Any): Boolean {
+        val marker = wholeArea ?: return false
+        // Certified background image call sites supply only fillMaxSize. A chain with sizing,
+        // input or semantics is foreground/unknown and must not become eligible by containing it.
+        return original === marker || original == marker
+    }
 
     fun decorate(original: Any, painter: HostComposeChromePainter, layer: HostChromeLayer): Any {
         if (layer == HostChromeLayer.TOP_BACKDROP) {
@@ -96,6 +105,11 @@ internal class HostComposeChromeApi private constructor(
             val f2 = type("kotlin.jvm.functions.Function2")
             val composer = type("androidx.compose.runtime.Composer")
             val obj = Any::class.java
+            val wholeArea = Lookup.declaredMethods(type("androidx.compose.foundation.layout.SizeKt"), makeAccessible = true)
+                .singleOrNull { it.name == "fillMaxSize\$default" && Modifier.isStatic(it.modifiers) &&
+                    it.returnType == modifier && it.parameterTypes.toList() == listOf(modifier,
+                        Float::class.javaPrimitiveType!!, Int::class.javaPrimitiveType!!, obj) }
+                ?.invoke(null, empty, 0f, 1, null)
             val node = type("androidx.compose.ui.node.ComposeUiNode")
             val companion = requireNotNull(Lookup.fieldOrNull(node, "Companion")).get(null)!!
             val setter = exact(type("androidx.compose.ui.node.ComposeUiNode\$Companion"), "getSetModifier", f2).invoke(companion)!!
@@ -118,12 +132,12 @@ internal class HostComposeChromeApi private constructor(
             HostComposeChromeApi(modifier,
                 exact(type("androidx.compose.runtime.Updater"), "set-impl", Void.TYPE, composer, obj, f2).also { check(Modifier.isStatic(it.modifiers)) }, setter, setterInvoke, exact(node, "getModifier", modifier),
                 empty,
-                exact(modifier, "foldIn", obj, obj, f2), exact(modifier, "then", modifier, modifier), fill,
+                exact(modifier, "foldIn", obj, obj, f2), exact(modifier, "then", modifier, modifier), fill, wholeArea,
                 listOf("BoxKt" to "Box", "SpacerKt" to "Spacer").mapNotNull { (owner, name) ->
                     runCatching { exact(type("androidx.compose.foundation.layout.$owner"), name, Void.TYPE,
                         modifier, composer, Int::class.javaPrimitiveType!!).also { check(Modifier.isStatic(it.modifiers)) } }
                         .getOrNull()?.let { BackdropLeaf(it, 0) }
-                } + listOfNotNull(imageLeaf), image == null || imageLeaf != null,
+                } + listOfNotNull(imageLeaf), image == null || imageLeaf != null && wholeArea != null,
                 exact(type("androidx.compose.ui.draw.DrawModifierKt"), "drawBehind", modifier, modifier, f1),
                 exact(type("androidx.compose.ui.draw.DrawModifierKt"), "drawWithContent", modifier, modifier, f1),
                 exact(type("androidx.compose.ui.graphics.drawscope.ContentDrawScope"), "drawContent", Void.TYPE),

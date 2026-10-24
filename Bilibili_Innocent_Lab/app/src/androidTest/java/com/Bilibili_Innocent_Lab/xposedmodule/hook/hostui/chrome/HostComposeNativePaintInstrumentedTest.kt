@@ -20,6 +20,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.NativePaintFixtureActivity
+import com.lumen.coacervation.engine.host.LumenPrismGlass
+import com.lumen.coacervation.engine.host.LumenPrismFallbackReason
+import com.lumen.coacervation.engine.host.LumenSurfaceBackend
+import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import dalvik.system.DexClassLoader
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -40,6 +44,7 @@ class HostComposeNativePaintInstrumentedTest {
 
     @Test fun nativeBackdropPaintAndFailureRecoveryKeepMaterialAndInputAcrossThemes() {
         val args = InstrumentationRegistry.getArguments()
+        val opaquePage = args.getString("opaqueComposePage") == "true"
         val expected = args.getString("hostSha256")
         assumeTrue("An exact installed host APK must be explicitly selected", expected != null)
         val context = instrumentation.targetContext
@@ -55,6 +60,9 @@ class HostComposeNativePaintInstrumentedTest {
         assertEquals(expected, digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) })
         val loader = DexClassLoader(apk.path, context.codeCacheDir.path, null, ClassLoader.getSystemClassLoader())
         val native = Native(loader)
+        assertTrue("Native background image fills its containing row", native.api.fillsBackdrop(native.full(native.empty)))
+        assertFalse("Native foreground icon sizing must not be classified as a backdrop",
+            native.api.fillsBackdrop(native.height(native.width(native.empty), 22f)))
         val runId = args.getString("captureRunId") ?: "manual-${SystemClock.uptimeMillis()}"
         require(runId.matches(Regex("[A-Za-z0-9_-]{1,32}")))
         val output = File(context.getExternalFilesDir(null), "topbar-native-paint-$runId").apply { mkdirs() }
@@ -84,7 +92,8 @@ class HostComposeNativePaintInstrumentedTest {
                         null, native.api, { applied++ }, { error -> errors += error })
                     assertFalse("Keep native paint until the replacement has drawn", painter.backdropActive)
                     val root = FrameLayout(it).apply {
-                        keepScreenOn = true; setBackgroundColor(if (dark) 0xFF30343A.toInt() else Color.WHITE)
+                        keepScreenOn = true
+                        setBackgroundColor(if (opaquePage) Color.BLACK else if (dark) 0xFF30343A.toInt() else Color.WHITE)
                         addView(owner, FrameLayout.LayoutParams(-1, (72 * density).toInt()).apply {
                             topMargin = (120 * density).toInt()
                         })
@@ -98,30 +107,36 @@ class HostComposeNativePaintInstrumentedTest {
                     native.content(owner, native.function(2) { values ->
                         compositions++
                         val composer = values!![0]!!
-                        val sized = native.height(native.width(native.empty), 48f)
-                        native.box(painter.modifier(sized, HostChromeLayer.SURFACE), composer,
-                            native.function(3) { inner ->
-                                val c = inner!![1]!!
-                                native.group(c, 0x42494C) {
-                                    imagePresent = !cleared || !painter.omitBackdropImage
-                                    if (imagePresent) {
-                                        val black = native.background(native.full(native.empty), Color.BLACK)
-                                        val decoration = if (cleared) painter.modifier(black, HostChromeLayer.TOP_BACKDROP) else black
-                                        // Image helpers may append their own paint after the supplied Modifier.
-                                        val derived = native.paint(decoration) { canvas, w, h ->
-                                            canvas.drawRect(0f, 0f, w, h, Paint().apply { color = Color.BLACK })
+                        // A real Compose page may paint its opaque base inside the composition;
+                        // the unrelated Window/View background behind it can still be black.
+                        val page = native.background(native.full(native.empty), if (dark) 0xFF30343A.toInt() else Color.WHITE)
+                        native.box(page, composer, native.function(3) { pageScope ->
+                            val rowComposer = pageScope!![1]!!
+                            val sized = native.height(native.width(native.empty), 48f)
+                            native.box(painter.modifier(sized, HostChromeLayer.SURFACE), rowComposer,
+                                native.function(3) { inner ->
+                                    val c = inner!![1]!!
+                                    native.group(c, 0x42494C) {
+                                        imagePresent = !cleared || !painter.omitBackdropImage
+                                        if (imagePresent) {
+                                            val black = native.background(native.full(native.empty), Color.BLACK)
+                                            val decoration = if (cleared) painter.modifier(black, HostChromeLayer.TOP_BACKDROP) else black
+                                            // Image helpers may append their own paint after the supplied Modifier.
+                                            val derived = native.paint(decoration) { canvas, w, h ->
+                                                canvas.drawRect(0f, 0f, w, h, Paint().apply { color = Color.BLACK })
+                                            }
+                                            native.leaf(derived, c)
                                         }
-                                        native.leaf(derived, c)
                                     }
-                                }
-                                val foreground = native.paint(native.full(native.empty)) { canvas, w, h ->
-                                    val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                        color = Color.MAGENTA; textSize = h * .35f
+                                    val foreground = native.paint(native.full(native.empty)) { canvas, w, h ->
+                                        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                            color = Color.MAGENTA; textSize = h * .35f
+                                        }
+                                        canvas.drawText("LIVE   HOME   HOT", w * .18f, h * .65f, text)
                                     }
-                                    canvas.drawText("LIVE   HOME   HOT", w * .18f, h * .65f, text)
-                                }
-                                native.leaf(native.click(foreground) { clicks++ }, c)
-                            })
+                                    native.leaf(native.click(foreground) { clicks++ }, c)
+                                })
+                        })
                     })
                 }
                 scenario.onActivity { install(it, false) }
@@ -136,9 +151,12 @@ class HostComposeNativePaintInstrumentedTest {
                 snapshot("native-black").useBitmap { image -> assertTrue("Baseline native strip must be opaque black", brightness(image) < 12) }
                 main { native.dispose(owner); closeOwners() }
                 scenario.onActivity { install(it, true) }
-                settle(owner) { applied > 0 && !imagePresent }
+                settle(owner) { applied > 0 && !imagePresent && hasSampledFrame(painter) }
                 snapshot("cleared").useBitmap { image ->
-                    assertTrue("Native opaque paint must not cover the Lumen surface", brightness(image) > 35)
+                    // Preserve the original non-black check (sum > 35) in per-channel units.
+                    assertTrue("Native opaque paint must not cover the Lumen surface", brightness(image) > 12)
+                    if (opaquePage) assertTrue("The visible Compose page base must survive, not the hidden black Window: ${brightness(image)}",
+                        if (dark) brightness(image) < 85 else brightness(image) > 220)
                     assertTrue("Native foreground remains visible", magentaPixels(image) > 10)
                 }
                 var before = 0
@@ -211,7 +229,18 @@ class HostComposeNativePaintInstrumentedTest {
     }
     private fun brightness(image: Bitmap): Int {
         val color = image.getPixel(image.width / 2, (image.height / 6).coerceAtLeast(1))
-        return Color.red(color) + Color.green(color) + Color.blue(color)
+        return (Color.red(color) + Color.green(color) + Color.blue(color)) / 3
+    }
+    private fun hasSampledFrame(painter: HostComposeChromePainter): Boolean {
+        fun field(name: String) = HostComposeChromePainter::class.java.getDeclaredField(name)
+            .apply { isAccessible = true }.get(painter)
+        val prism = field("prism") as? LumenPrismGlass
+        if (prism != null) return prism.diagnostics().let {
+            it.glassVisible && it.fallbackReason == LumenPrismFallbackReason.NONE
+        }
+        return (field("binding") as? LumenSurfaceBinding)?.diagnostics()?.let {
+            it.hasVisibleFrame && it.backend in setOf(LumenSurfaceBackend.GPU, LumenSurfaceBackend.SOFTWARE)
+        } == true
     }
     private fun magentaPixels(image: Bitmap): Int {
         var count = 0

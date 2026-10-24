@@ -40,6 +40,9 @@ class HostChromeTopScopeMatrixTest {
             assertTrue(HomeChromeComposeLocator.accepts("top_right_actions", owner, params(a)))
             assertFalse(HomeChromeComposeLocator.accepts("top_foreground", owner, params(r)))
             assertFalse(HomeChromeComposeLocator.accepts("top_backdrop", owner, params(f)))
+            assertFalse(HomeChromeComposeLocator.accepts("top_right_actions", owner, params(f)))
+            assertFalse(HomeChromeComposeLocator.accepts("top_right_actions", owner, params(r)))
+            assertFalse(HomeChromeComposeLocator.accepts("top_foreground", owner, params(a)))
         }
         assertEquals(30, rows)
     }

@@ -356,7 +356,8 @@ internal class HostComposeChromePainter(
         try {
             root.overlay.add(target)
             syncTarget()
-            source = HostChromeContentSource(content ?: owner, colors.palette().background, includeViewContent = content != null)
+            source = HostChromeContentSource(content ?: owner, colors.palette().background,
+                includeViewContent = content != null, composeWindowBase = bottom == null)
             viewport = HostChromeViewportSource(requireNotNull(source), compositeView = appearance.material == HostGlassMaterial.PRISM) {
                 it(target, 0f, 0f, 72f * owner.resources.displayMetrics.density)
             }.also { it.sync() }

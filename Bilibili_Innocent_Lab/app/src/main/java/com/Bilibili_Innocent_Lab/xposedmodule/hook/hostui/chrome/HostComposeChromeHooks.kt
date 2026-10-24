@@ -127,10 +127,14 @@ internal object HostComposeChromeHooks {
                 // The tab body also protects independently restarted/deferred foreground content.
                 (foreground + method).forEach { native ->
                     val foregroundKey = "host_chrome.compose.foreground.${native.name}"
+                    // Only the certified right-actions ABI admits pure Box/Spacer backplates.
+                    // Tabs and their indicators remain protected regardless of locator order.
+                    val actionBackplates = HomeChromeComposeLocator.accepts("top_right_actions",
+                        native.declaringClass.name, native.parameterTypes.map { it.name })
                     environment.registrar.exact(foregroundKey, native.declaringClass, native.name, *native.parameterTypes) {
                         before {
                             val active = backdrops.current() ?: return@before
-                            setObjectExtra(foregroundKey, active.gate to active.gate.enterForeground())
+                            setObjectExtra(foregroundKey, active.gate to active.gate.enterForeground(actionBackplates))
                         }
                         after {
                             @Suppress("UNCHECKED_CAST")
@@ -141,12 +145,24 @@ internal object HostComposeChromeHooks {
                 }
                 api.backdropLeaves.forEach { leaf ->
                     val native = leaf.method
-                    environment.registrar.exact("host_chrome.compose.backdrop.${native.name}", native.declaringClass,
+                    val leafKey = "host_chrome.compose.backdrop.${native.name}"
+                    environment.registrar.exact(leafKey, native.declaringClass,
                         native.name, *native.parameterTypes) {
                         before {
                             val current = backdrops.current() ?: return@before
+                            val original = argOrNull(leaf.modifierIndex)?.takeIf(api.modifier::isInstance)
+                            if (leaf.modifierIndex == 1 && !current.gate.decorativeImage) {
+                                val backgroundImage = current.gate.decorative && original != null &&
+                                    runCatching { api.fillsBackdrop(original) }.onFailure(current.painter::failure).getOrDefault(false)
+                                if (!backgroundImage) {
+                                    // Native action icons can use BiliImage with nested Box placeholders.
+                                    // Protect the complete image invocation, including those descendants.
+                                    setObjectExtra(leafKey, current.gate to current.gate.enterForeground())
+                                    return@before
+                                }
+                            }
                             if (!current.gate.decorative) return@before
-                            val original = argOrNull(leaf.modifierIndex)?.takeIf(api.modifier::isInstance) ?: return@before
+                            original ?: return@before
                             runCatching {
                                 // The verified foreground invocations suspend this scope, including
                                 // nested indicators, menus and their asynchronous image placeholders.
@@ -158,6 +174,11 @@ internal object HostComposeChromeHooks {
                                     args[leaf.modifierIndex] = current.painter.modifier(original, HostChromeLayer.TOP_BACKDROP)
                                 }
                             }.onFailure(current.painter::failure)
+                        }
+                        after {
+                            @Suppress("UNCHECKED_CAST")
+                            val lease = getObjectExtra(leafKey) as? Pair<HostChromeBackdropGate, Any> ?: return@after
+                            lease.first.exitForeground(lease.second); setObjectExtra(leafKey, null)
                         }
                     }
                 }
