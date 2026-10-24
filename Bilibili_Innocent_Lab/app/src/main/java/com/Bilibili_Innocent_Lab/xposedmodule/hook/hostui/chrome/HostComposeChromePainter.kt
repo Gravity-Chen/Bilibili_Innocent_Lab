@@ -49,6 +49,9 @@ internal class HostComposeChromePainter(
     private val owner = WeakReference(owner)
     private val theme = HostChromeTheme(owner.context)
     private val signal = api.signal()
+    private val compositionSignal by lazy(LazyThreadSafetyMode.NONE) { api.signal() }
+    private var compositionObserved = false
+    private var compositionDirty = false
     private data class Original(val value: Any, val layer: HostChromeLayer)
     private val modifiers = mutableMapOf<HostChromeLayer, WeakHashMap<Any, WeakReference<Any>>>()
     private val originals = WeakHashMap<Any, Original>()
@@ -67,6 +70,7 @@ internal class HostComposeChromePainter(
     private var posted = false
     private var activeTouch = false
     private var failed = false
+    private var replacementReady = false
     private var target: Target? = null
     private var overlay: ViewGroup? = null
     private var session: LumenSurfaceSession? = null
@@ -93,7 +97,10 @@ internal class HostComposeChromePainter(
         posted = false
         HostThreadGuard.run("host.chrome.wake") {
             runCatching {
-                this.owner.get()?.takeIf { it.isAttachedToWindow }?.let { signal.invalidate(); it.invalidate() }
+                this.owner.get()?.takeIf { it.isAttachedToWindow }?.let {
+                    if (compositionDirty) { compositionDirty = false; compositionSignal.invalidate() }
+                    signal.invalidate(); it.invalidate()
+                }
             }.onFailure(::failure)
         }
     }
@@ -146,6 +153,23 @@ internal class HostComposeChromePainter(
 
     init { owner.addOnAttachStateChangeListener(attach) }
 
+    internal val backdropActive: Boolean
+        get() {
+            if (!glass || failed) return false
+            // Each image/draw layer observes the same host Snapshot state as the surface.
+            // Plain booleans alone leave an already recorded transparent layer cached on failure.
+            signal.read()
+            return replacementReady
+        }
+
+    internal val omitBackdropImage: Boolean
+        get() {
+            if (!glass || failed) return false
+            compositionObserved = true
+            compositionSignal.read()
+            return replacementReady
+        }
+
     /** No hierarchy search in a Hook callback; the next visible pre-draw performs the bounded probe. */
     fun requestBackdropRefresh() {
         if (failed) return
@@ -189,6 +213,12 @@ internal class HostComposeChromePainter(
     }
 
     fun modifier(supplied: Any, layer: HostChromeLayer): Any {
+        // Register in the real row's own restart scope, after native defaults and dirty flags.
+        // Sampling/position frames use a separate draw signal and never recompose this row.
+        if (glass && layer == HostChromeLayer.SURFACE) {
+            compositionObserved = true
+            compositionSignal.read()
+        }
         val original = originals[supplied]?.value ?: supplied
         if (failed) return original
         val cache = modifiers.getOrPut(layer) { WeakHashMap() }
@@ -270,6 +300,10 @@ internal class HostComposeChromePainter(
                 background.setBounds(0, 0, width, height)
                 background.draw(destination)
                 drawn = true
+                if (!replacementReady) {
+                    replacementReady = true
+                    if (compositionObserved) { compositionDirty = true; wake() }
+                }
             }
             if (touchGlow && activeTouch) {
                 glow?.draw(destination)
@@ -394,6 +428,8 @@ internal class HostComposeChromePainter(
                 }
             }
         }
+        if (compositionObserved) compositionDirty = true
+        wake()
         runCatching { onError(error) }
     }
 
@@ -409,7 +445,8 @@ internal class HostComposeChromePainter(
         val oldBinding = binding; binding = null
         val oldSession = session; session = null
         val oldViewport = viewport; viewport = null
-        source = null; version = null; paused = false
+        if (replacementReady && compositionObserved) compositionDirty = true
+        source = null; version = null; paused = false; replacementReady = false
         oldTarget?.wake = null
         var failure: Throwable? = null
         fun close(action: () -> Unit) {

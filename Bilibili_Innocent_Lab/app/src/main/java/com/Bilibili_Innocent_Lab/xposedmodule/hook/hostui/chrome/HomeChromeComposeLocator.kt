@@ -37,6 +37,10 @@ internal object HomeChromeComposeLocator {
             "top_backdrop" -> owner.startsWith(TOP.substringBeforeLast('.') + ".") && '$' !in owner &&
                 p.size in 4..5 && model(p[0]) && p.subList(1, 3) == listOf(F1, COMPOSER) &&
                 p.drop(3).all { it == "int" }
+            "top_foreground" -> owner.startsWith(TOP.substringBeforeLast('.') + ".") && '$' !in owner &&
+                p.size in 8..9 && model(p[0]) &&
+                p.subList(1, 7) == listOf("float", MODIFIER, "boolean", "float", F1, COMPOSER) &&
+                p.drop(7).all { it == "int" }
             "top_layout" -> owner.startsWith(TOP.substringBeforeLast('.') + ".") && p.size in 12..13 &&
                 p.take(9) == listOf("int", MODIFIER, "long", "long", "float", "float", F1,
                     "kotlin.jvm.functions.Function3", "kotlin.jvm.functions.Function2") &&
@@ -150,6 +154,15 @@ internal object HomeChromeComposeLocator {
         val names = point.paramClassNames ?: return null
         return Lookup.declaredMethods(owner, makeAccessible = true).singleOrNull {
             it.name == point.methodName && it.parameterTypes.map { type -> type.name } == names
+        }
+    }
+
+    /** Both foreground siblings are certified in the backdrop's own facade and model ABI. */
+    fun backdropForeground(loader: ClassLoader, backdrop: Method): List<Method>? {
+        val candidates = Lookup.declaredMethods(backdrop.declaringClass, makeAccessible = true)
+            .filter { it.parameterTypes.firstOrNull() === backdrop.parameterTypes.firstOrNull() }
+        return listOf("top_foreground", "top_right_actions").map { family ->
+            candidates.filter { verified(loader, family, it) }.singleOrNull() ?: return null
         }
     }
 }

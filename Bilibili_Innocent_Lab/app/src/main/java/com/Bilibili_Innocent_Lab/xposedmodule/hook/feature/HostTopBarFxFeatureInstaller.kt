@@ -40,11 +40,11 @@ internal class HostTopBarFxFeatureInstaller(
         if (environment.processName != TARGET_PACKAGE) return FeatureInstallResult.Skipped("non-main-process")
         if (!liquidGlass && !touchGlow) return FeatureInstallResult.Skipped("disabled")
         fun observed() { if (firstObserved.compareAndSet(false, true)) environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.OBSERVED) }
-        fun applied() {
+        fun applied(path: String) {
             if (firstHit.compareAndSet(false, true)) {
                 environment.reportRuntimeEvidence(ID, FeatureRuntimeStage.APPLIED)
                 environment.reportStatus(CHANNEL_STATUS, "applied:surface-attached")
-                environment.logInfo("host_top_bar_fx_hit", "[BIL] 宿主顶栏视觉增强已装配(liquidGlass=$liquidGlass, touchGlow=$touchGlow, appearance=$appearance)")
+                environment.logInfo("host_top_bar_fx_hit", "[BIL] 宿主顶栏视觉增强已装配(path=$path, liquidGlass=$liquidGlass, touchGlow=$touchGlow, appearance=$appearance)")
             }
         }
         fun failed(error: Throwable) {
@@ -58,7 +58,7 @@ internal class HostTopBarFxFeatureInstaller(
         fun attach(root: ViewGroup, fragment: Any?) {
             observed()
             HostTopBarFxController.attach(root, fragment, config, viewPoint?.viewField,
-                onApplied = ::applied, onMissing = {
+                onApplied = { applied("legacy") }, onMissing = {
                     if (!firstHit.get() && firstMissing.compareAndSet(false, true)) {
                         environment.reportStatus(CHANNEL_STATUS, "observed:missing-laid-out-top-bar")
                         environment.logInfo("host_top_bar_fx_layout_missing", "[BIL] 首页入口已命中，顶栏布局尚未就绪或不属于原生栏")
@@ -73,7 +73,7 @@ internal class HostTopBarFxFeatureInstaller(
         }.onSuccess { count++ }.onFailure(::failed)
         count += HostHomeLifecycleHooks.install(environment, ID) { root, fragment -> attach(root, fragment) }
         val compose = HostComposeChromeHooks.install(environment, "top", chromePoints, liquidGlass, touchGlow,
-            appearance, null, ::observed, ::applied, ::failed)
+            appearance, null, ::observed, { applied("compose-row") }, ::failed)
         if (compose) count++
         if (count == 0) {
             environment.reportStatus(CHANNEL_STATUS, "missing:missing-view-created-point")

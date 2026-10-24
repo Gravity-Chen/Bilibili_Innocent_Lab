@@ -12,6 +12,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
 import java.lang.ref.WeakReference
 import java.lang.reflect.Method
 import java.util.WeakHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Semantic containers scope the otherwise global Updater hook to one real chrome LayoutNode. */
 internal object HostComposeChromeHooks {
@@ -33,7 +34,8 @@ internal object HostComposeChromeHooks {
         decorated[System.identityHashCode(modifier)]?.firstOrNull { it.modifier.get() === modifier }?.painter?.get()
 
     private val scopes = HostChromeCompositionScope<Invocation>()
-    private data class BackdropInvocation(val painter: HostComposeChromePainter, val boundary: Method)
+    private data class BackdropInvocation(val painter: HostComposeChromePainter,
+                                          val gate: HostChromeBackdropGate = HostChromeBackdropGate())
     private val backdrops = HostChromeCompositionScope<BackdropInvocation>()
     private val painters = WeakHashMap<View, MutableMap<String, WeakReference<HostComposeChromePainter>>>()
 
@@ -45,12 +47,10 @@ internal object HostComposeChromeHooks {
         val resolved = HomeChromeComposeLocator.resolve(loader, points)
         val point = resolved[family] ?: return false
         val method = HomeChromeComposeLocator.method(loader, point) ?: return false
-        val topLayout = if (family == "top") resolved["top_layout"]?.let {
+        val topBackdrop = if (family == "top") resolved["top_backdrop"]?.let {
             HomeChromeComposeLocator.method(loader, it)
         } else null
-        val topBackdrop = if (family == "top" && glass) resolved["top_backdrop"]?.let {
-            HomeChromeComposeLocator.method(loader, it)
-        } else null
+        val foreground = topBackdrop?.let { HomeChromeComposeLocator.backdropForeground(loader, it) }
         val content = if (family == "bottom") {
             val candidate = resolved["bottom_content"] ?: return false
             HomeChromeComposeLocator.method(loader, candidate) ?: return false
@@ -59,6 +59,13 @@ internal object HostComposeChromeHooks {
         if (composerIndex < 0) return false
         val viewAccess = CommentComposeViewAccess.resolve(loader) ?: return false
         val api = HostComposeChromeApi.resolve(loader, onError) ?: return false
+        val backdropReady = family != "top" || !glass || topBackdrop != null && foreground != null &&
+            api.backdropLeaves.count { it.modifierIndex == 0 } == 2 && api.backdropImagesReady
+        if (family == "top" && (topBackdrop == null || !backdropReady)) return false
+        // Partial registration must never hide native paint before the replacement is available.
+        val armed = if (family == "top") HostChromeBackdropGate.installation(
+            requireNotNull(topBackdrop).declaringClass, topBackdrop.name, topBackdrop.parameterTypes.map { it.name }
+        ) else AtomicBoolean(true)
         return runCatching {
             environment.registrar.exact("host_chrome.compose.modifier", api.updater.declaringClass,
                 api.updater.name, *api.updater.parameterTypes) {
@@ -94,19 +101,19 @@ internal object HostComposeChromeHooks {
                 ?: HostComposeChromePainter(view, glass, touchGlow, appearance, bottom, api, onApplied, onError).also {
                     painters.getOrPut(view) { linkedMapOf() }[family] = WeakReference(it)
                 }
-            val backdropReady = family != "top" || !glass || topBackdrop != null && api.backdropLeaves.size == 2
-            if (topBackdrop != null && api.backdropLeaves.size == 2) {
+            if (glass && topBackdrop != null && foreground != null && backdropReady) {
                 val key = "host_chrome.compose.scope.top_backdrop"
                 val index = topBackdrop.parameterTypes.indexOfFirst { it.name == "androidx.compose.runtime.Composer" }
                 environment.registrar.exact(key, topBackdrop.declaringClass, topBackdrop.name, *topBackdrop.parameterTypes) {
                     before {
+                        if (!armed.get()) return@before
                         runCatching {
                             val composer = argOrNull(index) ?: return@runCatching
                             val view = viewAccess.read(composer) ?: return@runCatching
                             val current = painter(view)
                             current.requestBackdropRefresh()
                             onObserved()
-                            val entry = HostChromeCompositionScope.Entry(BackdropInvocation(current, topBackdrop))
+                            val entry = HostChromeCompositionScope.Entry(BackdropInvocation(current))
                             setObjectExtra(key, entry)
                             backdrops.push(entry)
                         }.onFailure(onError)
@@ -117,18 +124,39 @@ internal object HostComposeChromeHooks {
                         backdrops.exit(entry); setObjectExtra(key, null)
                     }
                 }
+                // The tab body also protects independently restarted/deferred foreground content.
+                (foreground + method).forEach { native ->
+                    val foregroundKey = "host_chrome.compose.foreground.${native.name}"
+                    environment.registrar.exact(foregroundKey, native.declaringClass, native.name, *native.parameterTypes) {
+                        before {
+                            val active = backdrops.current() ?: return@before
+                            setObjectExtra(foregroundKey, active.gate to active.gate.enterForeground())
+                        }
+                        after {
+                            @Suppress("UNCHECKED_CAST")
+                            val lease = getObjectExtra(foregroundKey) as? Pair<HostChromeBackdropGate, Any> ?: return@after
+                            lease.first.exitForeground(lease.second); setObjectExtra(foregroundKey, null)
+                        }
+                    }
+                }
                 api.backdropLeaves.forEach { leaf ->
-                    environment.registrar.exact("host_chrome.compose.backdrop.${leaf.name}", leaf.declaringClass,
-                        leaf.name, *leaf.parameterTypes) {
+                    val native = leaf.method
+                    environment.registrar.exact("host_chrome.compose.backdrop.${native.name}", native.declaringClass,
+                        native.name, *native.parameterTypes) {
                         before {
                             val current = backdrops.current() ?: return@before
-                            val original = argOrNull(0)?.takeIf(api.modifier::isInstance) ?: return@before
+                            if (!current.gate.decorative) return@before
+                            val original = argOrNull(leaf.modifierIndex)?.takeIf(api.modifier::isInstance) ?: return@before
                             runCatching {
-                                // Only direct decorative leaves belong to this row. Nested tab indicators,
-                                // image placeholders and menu contents retain every native modifier.
-                                if (!HostChromeRowSelection.directCaller(Throwable().stackTrace, leaf.name,
-                                        current.boundary.declaringClass.name, current.boundary.name)) return@runCatching
-                                args[0] = current.painter.modifier(original, HostChromeLayer.TOP_BACKDROP)
+                                // The verified foreground invocations suspend this scope, including
+                                // nested indicators, menus and their asynchronous image placeholders.
+                                if (leaf.modifierIndex == 1 && current.painter.omitBackdropImage) {
+                                    // Like native label removal, omit the whole decorative composable.
+                                    // A cached image cannot bypass this boundary via unchanged-argument flags.
+                                    result = null
+                                } else {
+                                    args[leaf.modifierIndex] = current.painter.modifier(original, HostChromeLayer.TOP_BACKDROP)
+                                }
                             }.onFailure(current.painter::failure)
                         }
                     }
@@ -168,12 +196,16 @@ internal object HostComposeChromeHooks {
                     }
                 }
             }
-            val boundaries = listOfNotNull(family to method, topLayout?.let { "top_layout" to it })
+            // A tab Surface excludes the right actions and is below native decorative siblings.
+            // The verified outer row owns all three, including independent restarts of that row.
+            val boundaries = if (family == "top") listOfNotNull(topBackdrop?.let { "top_root" to it })
+                else listOf(family to method)
             boundaries.forEach { (boundary, native) ->
                 val key = "host_chrome.compose.scope.$boundary"
                 val index = native.parameterTypes.indexOfFirst { it.name == "androidx.compose.runtime.Composer" }
                 environment.registrar.exact(key, native.declaringClass, native.name, *native.parameterTypes) {
                     before {
+                        if (!armed.get()) return@before
                         val composer = argOrNull(index) ?: return@before
                         runCatching {
                             val view = viewAccess.read(composer) ?: return@runCatching
@@ -197,7 +229,9 @@ internal object HostComposeChromeHooks {
                 }
             }
             val labelsReady = bottom?.iconOnly != true || HostComposeBottomLabels.install(environment, points, onError, semanticsPoint)
-            touchReady && labelsReady && backdropReady && (family != "top" || topLayout != null)
+            (touchReady && labelsReady && backdropReady && (family != "top" || topBackdrop != null))
+                // Optional touch feedback can be unavailable while the whole paint chain is ready.
+                .also { if (family == "top") armed.set(true) }
         }.onFailure(onError).getOrDefault(false)
     }
 

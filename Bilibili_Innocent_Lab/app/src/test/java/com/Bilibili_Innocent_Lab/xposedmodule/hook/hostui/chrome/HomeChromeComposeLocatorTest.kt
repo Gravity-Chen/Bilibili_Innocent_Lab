@@ -21,6 +21,17 @@ class HomeChromeComposeLocatorTest {
     private val topOwner = "tv.danmaku.bili.khome.widget.topbar.HomeTopTabKt"
     private val prefix = listOf("Qo1.e", modifier, "float", "float", "float", "long", "long")
     private val bottom = listOf(modifier, "java.util.List", f1, f1, "kotlin.jvm.functions.Function4", "No1.b", "boolean", f1, "No1.g", composer, "int")
+    @Test fun `foreground barriers accept audited 9161 row ABI and reject decorative or foreign callers`() {
+        val owner = "tv.danmaku.bili.khome.widget.topbar.y"
+        val p = listOf("fp1.e", "float", modifier, "boolean", "float", f1, composer, "int", "int")
+        assertTrue(HomeChromeComposeLocator.accepts("top_foreground", owner, p))
+        assertTrue(HomeChromeComposeLocator.accepts("top_foreground", owner, p.dropLast(1)))
+        assertFalse(HomeChromeComposeLocator.accepts("top_foreground", owner, listOf("fp1.e", f1, composer, "int")))
+        assertFalse(HomeChromeComposeLocator.accepts("top_foreground", "foreign.NormalScreenRow", p))
+        assertFalse(HomeChromeComposeLocator.accepts("top_foreground", owner + "\$Content", p))
+        assertFalse(HomeChromeComposeLocator.accepts("top_foreground", owner, listOf("java.lang.Object") + p.drop(1)))
+        assertFalse(HomeChromeComposeLocator.accepts("top_foreground", owner, p.toMutableList().apply { this[3] = "int" }))
+    }
     @Test fun `second row backdrop requires its exact model and restart ABI`() {
         val owner = "tv.danmaku.bili.khome.widget.topbar.y"
         val p = listOf("Qo1.e", f1, composer, "int")
