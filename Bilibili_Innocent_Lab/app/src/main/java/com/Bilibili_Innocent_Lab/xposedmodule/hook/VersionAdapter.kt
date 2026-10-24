@@ -2412,6 +2412,8 @@ object VersionAdapter {
     private const val DYNAMIC_MEDIATOR_TAB_CLASS =
         "com.bilibili.bplus.followinglist.home.mediator.MediatorTabLayout"
     private val BLOCK_UPDATE_OWNER_CANDIDATES = listOf(
+        // 9.17.0(9170100)：FORCE_NETWORK、UpdateApk 写入及包装层调用链已核；Bx1.a 只做缓存回退。
+        "Bx1.c",
         // 9.16.0(9160200)：专用网络日志、FORCE_NETWORK 与 UpdateApk 写入已核；不选缓存包装层。
         "Gs1.c",
         // 双 9.15.0：专用网络日志全局唯一；同包 a 仍是缓存/回退包装器。
@@ -2663,6 +2665,8 @@ object VersionAdapter {
         "tv.danmaku.p9138bili.p9228ui.main2.widget.TabHost"
     )
     private val PLAYER_DEFAULT_QUALITY_CLASS_CANDIDATES = listOf(
+        // 9.17.0(9170100)：quality settings 日志、登录/能力限制和绕过稳定包装层的直接调用已核。
+        "tz1.h",
         // 9.16.0(9160200)：完整 a()I 保留 Wi-Fi 偏好、登录/能力限制和 quality settings 日志。
         "xu1.h",
         // 双 9.15.0：quality settings: + 登录/能力限制，完整 a()I body 已核。

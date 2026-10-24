@@ -9,38 +9,45 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.lang.reflect.Modifier
 
-/** Child-loader fixtures keep the 9.16 names and G.b shape out of other host generations. */
+/** Child-loader fixtures keep each exact host generation's names and local-owner shape isolated. */
 class FollowFeed916AdapterTest {
-    private class Host(private val localField: String = "b", private val hideOpus: Boolean = false) :
+    private class Host(private val localField: String = "b", private val hideOpus: Boolean = false,
+        private val profile917: Boolean = false, private val ambientNewSeparator: Boolean = false) :
         ClassLoader(FollowFeed916AdapterTest::class.java.classLoader) {
+        private val painterName = if (profile917) "rU.d" else "mU.d"
+        private val moduleName = if (profile917) "CS.I" else "xS.G"
+        private val itemName = if (profile917) "CS.J" else "xS.H"
+        private val opusName = if (profile917) "com.bilibili.bplus.followinglist.opus.t" else "com.bilibili.bplus.followinglist.opus.k"
         private val definitions = mapOf(
-            "mU.d" to follow916.Painter::class.java,
-            "xS.G" to tS.G::class.java,
-            "xS.H" to tS.H::class.java,
+            painterName to follow916.Painter::class.java,
+            moduleName to tS.G::class.java,
+            itemName to tS.H::class.java,
             "xS.TestModule" to follow916.ConcreteModule::class.java,
-            "com.bilibili.bplus.followinglist.home.U" to com.bilibili.bplus.followinglist.home.Q::class.java,
-            "com.bilibili.bplus.followinglist.quick.consume.I" to followtest.roles.PersonalDecoration::class.java,
-            "com.bilibili.bplus.followinglist.quick.consume.W" to followtest.roles.PersonalSeparator::class.java,
-            "com.bilibili.bplus.followinglist.opus.k" to follow916.Opus::class.java
+            "com.bilibili.bplus.followinglist.home.${if (profile917) "a0" else "U"}" to com.bilibili.bplus.followinglist.home.Q::class.java,
+            "com.bilibili.bplus.followinglist.quick.consume.${if (profile917) "F" else "I"}" to followtest.roles.PersonalDecoration::class.java,
+            "com.bilibili.bplus.followinglist.quick.consume.${if (profile917) "T" else "W"}" to followtest.roles.PersonalSeparator::class.java,
+            opusName to follow916.Opus::class.java
         )
         private val names = definitions.map { (name, template) ->
             template.name.replace('.', '/') to name.replace('.', '/')
-        }.toMap() + ("iU/d" to "mU/d")
+        }.toMap() + ("iU/d" to painterName.replace('.', '/'))
 
         override fun loadClass(name: String, resolve: Boolean): Class<*> = synchronized(this) {
-            if (name in setOf("gv1.c", "iU.d") || hideOpus && name.endsWith(".opus.k"))
+            if (ambientNewSeparator && !profile917 && name == "com.bilibili.bplus.followinglist.quick.consume.T")
+                return@synchronized followtest.roles.PersonalSeparator::class.java
+            if (name in setOf("gv1.c", "iU.d") || profile917 && name == "mU.d" || hideOpus && name == opusName)
                 throw ClassNotFoundException(name)
             val template = definitions[name] ?: return@synchronized super.loadClass(name, resolve)
             val type = findLoadedClass(name) ?: run {
-                val bytes = rewrite(template, names, if (name == "xS.G") localField else null)
+                val bytes = rewrite(template, names, if (name == moduleName) localField else null)
                 defineClass(name, bytes, 0, bytes.size)
             }
             if (resolve) resolveClass(type)
             type
         }
 
-        fun item(): Any = loadClass("xS.H").getConstructor().newInstance()
-        fun module(item: Any): Any = loadClass("xS.TestModule").getConstructor(loadClass("xS.H")).newInstance(item)
+        fun item(): Any = loadClass(itemName).getConstructor().newInstance()
+        fun module(item: Any): Any = loadClass("xS.TestModule").getConstructor(loadClass(itemName)).newInstance(item)
 
         private fun rewrite(template: Class<*>, names: Map<String, String>, field: String?): ByteArray {
             val bytes = requireNotNull(template.getResourceAsStream("/${template.name.replace('.', '/')}.class"))
@@ -115,5 +122,39 @@ class FollowFeed916AdapterTest {
         assertNull(FollowFeedAdapter.direct(Host(localField = "unknown")))
         assertNull(HostOpusBackgroundAccess.resolve(Host(localField = "unknown")))
         assertNull(HostOpusBackgroundAccess.resolve(Host(hideOpus = true)))
+    }
+
+    @Test fun `917 painter home personal separator and opus preserve the same ownership contract`() {
+        val loader = Host(profile917 = true)
+        val points = requireNotNull(FollowFeedAdapter.direct(loader))
+        assertEquals("rU.d", points.painterOwnerClass)
+        assertEquals("CS.I", points.moduleClass)
+        assertEquals("CS.J", points.itemClass)
+        assertEquals("com.bilibili.bplus.followinglist.home.a0", points.homeDecorationClass)
+        assertEquals("com.bilibili.bplus.followinglist.quick.consume.F", points.personalDecorationClass)
+        assertEquals("com.bilibili.bplus.followinglist.quick.consume.T", points.personalSeparatorClass)
+        val host = requireNotNull(FollowFeedAdapter.resolve(loader, points)).host
+        val item = loader.item()
+        val module = loader.module(item)
+        assertEquals(false, host.isQuotedModule(module))
+        item.javaClass.getField("j").set(item, loader.item())
+        assertEquals(true, host.isQuotedModule(module))
+        val opus = requireNotNull(HostOpusBackgroundAccess.resolve(loader))
+        assertFalse(opus.accepts(null, module))
+    }
+
+    @Test fun `917 direct resolution replaces old names without mixing the two generations`() {
+        val old = requireNotNull(FollowFeedAdapter.direct(Host()))
+        val loader = Host(profile917 = true)
+        val refreshed = requireNotNull(FollowFeedAdapter.locate(loader, null, true, old, planned = false))
+        assertEquals("rU.d", refreshed.painterOwnerClass)
+        assertEquals("com.bilibili.bplus.followinglist.home.a0", refreshed.homeDecorationClass)
+        assertNull(FollowFeedAdapter.direct(Host(localField = "unknown", profile917 = true)))
+    }
+
+    @Test fun `same named T decoration cannot change an older painter generation`() {
+        val points = requireNotNull(FollowFeedAdapter.direct(Host(ambientNewSeparator = true)))
+        assertEquals("mU.d", points.painterOwnerClass)
+        assertEquals("com.bilibili.bplus.followinglist.quick.consume.W", points.personalSeparatorClass)
     }
 }

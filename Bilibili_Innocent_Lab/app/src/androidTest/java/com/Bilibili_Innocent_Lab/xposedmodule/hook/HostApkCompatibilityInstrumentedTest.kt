@@ -172,6 +172,9 @@ class HostApkCompatibilityInstrumentedTest {
         if (arguments.getString("optionalAdapters") == "true") {
             verifyOptionalAdapters(apk, loader, report, reportFile)
         }
+        if (arguments.getString("featurePlans") == "true") {
+            HostFeaturePlanAudit.collect(context, apk, loader, result, report, reportFile)
+        }
         report.put("passed", true)
         reportFile.writeText(report.toString(2))
     }
