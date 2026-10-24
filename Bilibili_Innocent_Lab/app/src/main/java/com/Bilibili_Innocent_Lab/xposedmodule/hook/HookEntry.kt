@@ -2296,8 +2296,9 @@ class HookEntry : XposedModule() {
     }
 
     override fun onPackageReady(param: XposedModuleInterface.PackageReadyParam) {
+        if (param.packageName == "android") return
         if (param.packageName != TARGET_PACKAGE) {
-            // 模块 scope 固定为 tv.danmaku.bili（module.prop 的 staticScope=true），改包名的
+            // 推荐 scope 包含宿主与系统框架；宿主专用 Hook 仍只接受 tv.danmaku.bili，改包名的
             // 克隆宿主既进不了作用域、也无法复用按 TARGET_PACKAGE 解析的宿主资源 id。过去这里
             // 静默 return，失败完全不可观测；至少要留下实际包名，让"多开为什么不生效"可查。
             logError(
