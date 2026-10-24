@@ -21,7 +21,8 @@ internal class HostBottomBarFxFeatureInstaller(
     private val iconOnly: Boolean = false,
     private val appearance: HostChromeAppearance = HostChromeAppearance(renderer = HostGlassRenderer.SOFTWARE),
     chromePoints: Map<String, HookPoint> = emptyMap(),
-    semanticsPoint: HomeChromeSemanticsPoint? = null
+    semanticsPoint: HomeChromeSemanticsPoint? = null,
+    private val mineGarbDim: Boolean = true
 ) : FeatureInstaller {
     override val id: String = ID
     private val firstHit = AtomicBoolean(false)
@@ -58,7 +59,8 @@ internal class HostBottomBarFxFeatureInstaller(
                 environment.logError("host_bottom_bar_fx_error", "[BIL] 宿主底栏视觉增强失败: $error")
             }
         }
-        val config = HostBottomBarFxConfig(liquidGlass, touchGlow, liquidGlass && compact, liquidGlass && iconOnly, appearance)
+        val config = HostBottomBarFxConfig(liquidGlass, touchGlow, liquidGlass && compact, liquidGlass && iconOnly, appearance,
+            mineGarbDim = mineGarbDim)
         fun attach(host: ViewGroup) {
             observed()
             HostBottomBarFxController.attach(host, config, onApplied = ::applied, onMissing = {

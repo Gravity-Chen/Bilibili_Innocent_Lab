@@ -165,6 +165,41 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             textSize = 12f
             capsuleOptions.add(this)
         }
+        MaterialSwitch(
+            lparams = LayoutParams(widthMatchParent = true) {
+                marginStart = 16.dp
+                topMargin = 12.dp
+                bottomMargin = 5.dp
+            }
+        ) {
+            capsuleOptions.add(this)
+            bindFavoriteSwitch(this, FeaturePreferences.HOST_MINE_GARB_DIM, directToggle = true)
+            bindSettingDestination(this, FeaturePreferences.HOST_MINE_GARB_DIM)
+            text = stringResource(R.string.host_mine_garb_dim)
+            isAllCaps = false
+            textColor = colorResource(R.color.colorTextGray)
+            textSize = 15f
+            isChecked = hostMineGarbDim
+            setOnCheckedChangeListener { _, checked ->
+                if (!hostBottomBarLiquidGlass) {
+                    isChecked = hostMineGarbDim
+                    return@setOnCheckedChangeListener
+                }
+                hostMineGarbDim = checked
+                runCatching {
+                    prefs().edit { putBoolean(FeaturePreferences.HOST_MINE_GARB_DIM, checked) }
+                }.onFailure { throwable ->
+                    Log.e("BilibiliInnocentLab", "write host mine garb dim prefs failed", throwable)
+                }
+            }
+        }
+        TextView(lparams = LayoutParams(widthMatchParent = true) { marginStart = 16.dp }) {
+            alpha = 0.6f
+            text = stringResource(R.string.host_mine_garb_dim_tip)
+            textColor = colorResource(R.color.colorTextDark)
+            textSize = 12f
+            capsuleOptions.add(this)
+        }
         capsuleOptions.refresh()
         MaterialSwitch(
             lparams = LayoutParams(widthMatchParent = true) {

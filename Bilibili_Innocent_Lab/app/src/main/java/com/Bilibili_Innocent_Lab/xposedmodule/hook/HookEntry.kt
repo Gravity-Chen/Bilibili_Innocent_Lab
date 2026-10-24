@@ -2804,6 +2804,7 @@ class HookEntry : XposedModule() {
                     points = hostAdaptResult?.bottomBar,
                     compact = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, false),
                     iconOnly = prefs.getBoolean(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, false),
+                    mineGarbDim = prefs.getBoolean(FeaturePreferences.HOST_MINE_GARB_DIM, true),
                     appearance = com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppearance.read(
                         prefs.getString(FeaturePreferences.HOST_BOTTOM_BAR_GLASS_MATERIAL, "soft"),
                         prefs.getString(FeaturePreferences.HOST_BOTTOM_BAR_GLASS_RENDERER, "legacy"),

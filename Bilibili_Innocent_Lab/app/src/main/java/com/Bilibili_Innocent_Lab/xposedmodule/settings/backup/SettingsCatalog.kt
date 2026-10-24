@@ -34,7 +34,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMateri
 internal object SettingsCatalog {
     const val PRODUCT_ID = "bilibili-innocent-lab.settings"
     const val SCOPE_ID = "core-user-settings"
-    const val CATALOG_VERSION = 64
+    const val CATALOG_VERSION = 65
     const val ID_PLAYER_DEFAULT_SPEED = "player.default_speed.percent"
     const val ID_PLAYER_LONG_PRESS_SPEED = "player.long_press_speed.percent"
     const val ID_PLAYER_SPEED_MENU = "player.speed_menu.percents"
@@ -696,6 +696,8 @@ internal object SettingsCatalog {
             default = false,
             introducedCatalogVersion = 41
         ),
+        bool("host.mine.garb_dim.enabled", FeaturePreferences.HOST_MINE_GARB_DIM,
+            R.string.host_mine_garb_dim, default = true, introducedCatalogVersion = 65),
         bool(
             "host.bottom_bar.touch_glow.enabled",
             FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW,
@@ -1030,7 +1032,7 @@ internal object SettingsCatalog {
     val byStorageKey: Map<String, SettingSpec> = specs.associateBy(SettingSpec::storageKey)
 
     init {
-        check(specs.size == 244) { "Expected 244 catalog settings, found ${specs.size}" }
+        check(specs.size == 245) { "Expected 245 catalog settings, found ${specs.size}" }
         check(byId.size == specs.size) { "Duplicate logical setting id" }
         check(specs.map(SettingSpec::storageKey).distinct().size == specs.size) {
             "Duplicate settings storage key"

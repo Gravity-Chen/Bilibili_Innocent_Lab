@@ -334,6 +334,9 @@ internal object ReleaseHighlightsCatalog {
     )), ReleaseHighlightsBatch(29, listOf(
         ReleaseHighlight("player-frame-thermal-control", HighlightKind.NEW, R.string.highlights_player_frame_thermal_control,
             HighlightDestination("player.frame_interpolation.disable_thermal_control"))
+    )), ReleaseHighlightsBatch(30, listOf(
+        ReleaseHighlight("host-mine-garb-dim", HighlightKind.NEW, R.string.host_mine_garb_dim_tip,
+            HighlightDestination("host.mine.garb_dim.enabled"))
     )))
     val currentRevision: Int get() = batches.maxOf { it.revision }
     val destinations get() = batches.sortedByDescending { it.revision }.flatMap { it.entries }
