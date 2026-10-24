@@ -9,6 +9,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SettingsDependenciesTest {
+    @Test fun `mine dimming follows the capsule without discarding a disabled choice`() {
+        val key = FeaturePreferences.HOST_MINE_GARB_DIM
+        val id = "host.mine.garb_dim.enabled"
+        assertTrue(ModuleUiSettings.EMPTY.bool(key))
+        assertFalse(SettingsDependencies.available(id, ModuleUiSettings.EMPTY))
+        val disabled = ModuleUiSettings.EMPTY.with(key, false)
+        val capsule = disabled.with(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, true)
+        assertTrue(SettingsDependencies.available(id, capsule))
+        assertFalse(capsule.bool(key))
+        assertFalse(capsule.with(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, false).bool(key))
+    }
+
     @Test fun `every preference dependency uses real catalog identities and boolean parents`() {
         SettingsDependencies.requirements.forEach { (id, requirement) ->
             if (id != SettingsDependencies.FRAME_MODEL) assertNotNull(id, SettingsCatalog.byId[id])
