@@ -158,6 +158,19 @@ jobs:
         shell: bash
         run: sdkmanager "${CI_COMPILE_SDK_PACKAGE}" "build-tools;${CI_BUILD_TOOLS}"
 
+      # 弹幕 wire 内核（libinnocent_danmaku_wire.so）由 CMake 在 Gradle 构建内调 cargo 编译；
+      # rustup 从不预置，本步无条件执行。工具链代次必须与
+      # Bilibili_Innocent_Lab/app/src/main/rust/danmaku-wire/rust-toolchain.toml 一致。
+      - name: Install Rust toolchain (danmaku wire kernel)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain 1.99.0
+          . "$HOME/.cargo/env"
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
       - name: Verify installed Android SDK packages
         if: ${{ steps.sdk.outputs.ready != 'true' }}
         shell: bash
@@ -277,6 +290,19 @@ jobs:
         if: ${{ steps.sdk.outputs.ready != 'true' }}
         shell: bash
         run: sdkmanager "${CI_COMPILE_SDK_PACKAGE}" "build-tools;${CI_BUILD_TOOLS}"
+
+      # 弹幕 wire 内核（libinnocent_danmaku_wire.so）由 CMake 在 Gradle 构建内调 cargo 编译；
+      # rustup 从不预置，本步无条件执行。工具链代次必须与
+      # Bilibili_Innocent_Lab/app/src/main/rust/danmaku-wire/rust-toolchain.toml 一致。
+      - name: Install Rust toolchain (danmaku wire kernel)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain 1.99.0
+          . "$HOME/.cargo/env"
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Verify installed Android SDK packages
         if: ${{ steps.sdk.outputs.ready != 'true' }}

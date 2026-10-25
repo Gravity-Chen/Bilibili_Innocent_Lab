@@ -1,0 +1,19 @@
+[package]
+name = "danmaku-wire"
+version = "0.1.0"
+edition = "2021"
+description = "DmSegMobileReply wire-format scan/rewrite for the danmaku purify fast path."
+publish = false
+
+# 静态库由 app/src/main/cpp/CMakeLists.txt 链进 libinnocent_danmaku_wire.so；
+# rlib 仅供 cargo test 使用。cdylib 不参与生产（jni 垫片在 C++ 侧）。
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+# panic 必须保持 unwind：native 侧每个 C 入口都 catch_unwind 转错误码，
+# panic=abort 会在宿主进程里直接 abort（PROTECTIVE 兜不住原生崩溃）。
+[profile.release]
+panic = "unwind"
+opt-level = "s"
+lto = false
+codegen-units = 1

@@ -1,0 +1,4 @@
+# 锁定构建工具链代次，避免 stable 漂移静默改变产物；升级时连同 CI 缓存 key 一起复核。
+[toolchain]
+channel = "1.99.0"
+targets = ["aarch64-linux-android", "armv7-linux-androideabi"]

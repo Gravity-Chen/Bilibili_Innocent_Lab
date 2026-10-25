@@ -1,0 +1,15 @@
+libinnocent_danmaku_wire.so（弹幕 wire 过滤内核）第三方声明
+
+1. Rust 标准库（rustc 1.99.0 构建）
+   许可：MIT OR Apache-2.0
+   来源：随 rustup 分发的官方预编译 std（含其内部携带的 addr2line / gimli /
+   miniz_oxide / libc / unwind 等，均按 MIT OR Apache-2.0 / Apache-2.0 / MIT 发布）。
+   版权与许可全文：https://github.com/rust-lang/rust/blob/master/LICENSE-MIT
+   https://github.com/rust-lang/rust/blob/master/LICENSE-APACHE
+
+2. C++ 侧编译工具链与 libc++（静态）
+   与帧插值引擎共用同一 NDK 工具链声明，见
+   assets/licenses/frame-interpolation/NDK-TOOLCHAIN-NOTICE。
+
+本项目自有部分（danmaku-wire crate、danmaku_wire_jni.cpp）不引入任何第三方 crate
+依赖（Cargo.lock 仅含本包），无额外许可负担。
