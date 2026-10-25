@@ -1,6 +1,8 @@
 # 凝光稳定版接入
 
-默认使用上游 [LumenCoacervationEngine 1.5.4](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.5.4)，`lumen-engine` 与 `lumen-motion` 在 `gradle/libs.versions.toml` 中共用同一个版本。普通构建直接从 JitPack 解析官方 Maven 产物，不下载源码归档，也不修改依赖缓存。
+默认使用上游 [LumenCoacervationEngine 1.5.5](https://github.com/jichuo1/LumenCoacervationEngine/releases/tag/1.5.5)，`lumen-engine` 与 `lumen-motion` 在 `gradle/libs.versions.toml` 中共用同一个版本。普通构建直接从 JitPack 解析官方 Maven 产物，不下载源码归档，也不修改依赖缓存。
+
+1.5.5 新增可选通用滑块 `LumenSlider`（五种材质外观与 HDR 高光，引擎长按弹性自动排除），并修复多级手风琴首级标题的长按形变；公开 API 只做新增，契约版本仍为 1，最低 SDK 仍为 27，默认材质质量不变。本模块尚未接入滑块。
 
 1.5.4 修复展开手风琴标题向下形变受限和回弹中再次长按的续接，并优化 Effect 初始化复用、Liquid 静止刷新率归还与弹性位移的窗口范围通知。此前的输入框描边、分页手势、屏幕圆角与皮肤动画修复继续保留；契约版本为 1，最低 SDK 仍为 27，默认材质质量不变。
 
