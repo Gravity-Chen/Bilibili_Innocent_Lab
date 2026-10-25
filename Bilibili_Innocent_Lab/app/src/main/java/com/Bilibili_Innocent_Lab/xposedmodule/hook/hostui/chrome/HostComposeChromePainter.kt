@@ -2,6 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.chrome
 
 import android.annotation.SuppressLint
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Rect
@@ -11,6 +12,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.bottom.HostBottomBarFxConfig
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeContentSource
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.common.HostChromeTheme
@@ -24,6 +26,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostChromeAppe
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMaterial
 import com.lumen.coacervation.engine.host.LumenPrismGlass
 import com.lumen.coacervation.engine.host.LumenPrismOptions
+import com.lumen.coacervation.engine.host.LumenPrismShadowOptions
 import com.lumen.coacervation.engine.host.LumenSurfaceBinding
 import com.lumen.coacervation.engine.host.LumenSurfaceSession
 import com.lumen.coacervation.engine.host.LumenSurfaceSessionOptions
@@ -71,6 +74,8 @@ internal class HostComposeChromePainter(
     private var activeTouch = false
     private var failed = false
     private var replacementReady = false
+    private var capsule: HostChromeTopCapsule? = null
+    private val underlay = Paint()
     private var target: Target? = null
     private var overlay: ViewGroup? = null
     private var session: LumenSurfaceSession? = null
@@ -297,7 +302,18 @@ internal class HostComposeChromePainter(
                 syncTarget()
                 val target = target ?: return
                 val background = target.background ?: return
-                background.setBounds(0, 0, width, height)
+                // The suppressed native row was the only paint there: the host leaves the Window
+                // (black) behind it. Restore the scene base unless the module wallpaper shows through.
+                if (bottom == null && !moduleWallpaperBehind(owner)) {
+                    underlay.color = colors.palette().background or 0xFF000000.toInt()
+                    destination.drawRect(0f, 0f, w, h, underlay)
+                }
+                val inset = capsule
+                if (inset == null) background.setBounds(0, 0, width, height)
+                else {
+                    val dx = inset.insetX.roundToInt(); val dy = inset.insetY.roundToInt()
+                    background.setBounds(dx, dy, width - dx, height - dy)
+                }
                 background.draw(destination)
                 drawn = true
                 if (!replacementReady) {
@@ -349,6 +365,27 @@ internal class HostComposeChromePainter(
 
     private fun radiusDp(owner: View) = (height / owner.resources.displayMetrics.density / 2f).coerceIn(0f, 128f)
 
+    private fun prismOptions(owner: View): LumenPrismOptions {
+        val density = owner.resources.displayMetrics.density
+        val fitted = if (bottom == null) HostChromeTopCapsule.fit(width.toFloat(), height.toFloat(), density) else null
+        capsule = fitted
+        fitted ?: return LumenPrismOptions(cornerRadiusDp = radiusDp(owner))
+        // The engine's 24dp default shadow lands entirely outside the row and is cut flat there.
+        return LumenPrismOptions(cornerRadiusDp = (fitted.cornerRadius(height.toFloat()) / density).coerceIn(0f, 128f),
+            shadow = LumenPrismShadowOptions(enabled = fitted.shadowRadius > 0f, radiusDp = fitted.shadowRadius / density,
+                offsetYDp = 0f, opacity = HostChromeTopCapsule.SHADOW_OPACITY))
+    }
+
+    private fun moduleWallpaperBehind(owner: View): Boolean {
+        var node: View? = owner
+        var depth = 0
+        while (node != null && depth++ < 128) {
+            if (node.background is HostBackgroundDrawable) return true
+            node = node.parent as? View
+        }
+        return false
+    }
+
     private fun build(owner: View, content: ViewGroup? = selectContent()) {
         val root = owner.rootView as? ViewGroup ?: return
         val target = Target(owner).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO; isClickable = false }
@@ -364,7 +401,7 @@ internal class HostComposeChromePainter(
             val active = LumenSurfaceSession(owner.context, colors.palette(), LumenSurfaceSessionOptions(pauseWhenWindowUnfocused = false))
             session = active
             if (appearance.material == HostGlassMaterial.PRISM) {
-                prism = LumenPrismGlass(target, colors.palette(), LumenPrismOptions(cornerRadiusDp = radiusDp(owner)), active, viewport?.coordinateView)
+                prism = LumenPrismGlass(target, colors.palette(), prismOptions(owner), active, viewport?.coordinateView)
             } else {
                 binding = active.bindSource(target, HostSurfaceStyle.floating(colors.dark, radiusDp(owner), appearance.compatible(Build.VERSION.SDK_INT)), viewport)
             }
@@ -447,7 +484,7 @@ internal class HostComposeChromePainter(
         val oldSession = session; session = null
         val oldViewport = viewport; viewport = null
         if (replacementReady && compositionObserved) compositionDirty = true
-        source = null; version = null; paused = false; replacementReady = false
+        source = null; version = null; paused = false; replacementReady = false; capsule = null
         oldTarget?.wake = null
         var failure: Throwable? = null
         fun close(action: () -> Unit) {
