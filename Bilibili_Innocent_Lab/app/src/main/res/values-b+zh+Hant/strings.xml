@@ -3,7 +3,7 @@
     <string name="app_name">Bilibili_Innocent_Lab</string>
     <string name="xposed_desc">讓 Bilibili 介面更加純淨</string>
     <string name="about_module">此模組使用 libxposed Modern API 101/102 建構。\n瞭解更多 https://github.com/libxposed/api</string>
-    <string name="about_module_extension">此 Xposed 模組由 KavaRef 驅動。\n瞭解更多 https://github.com/HighCapable/KavaRef</string>
+    <string name="about_module_extension">此 Xposed 模組由 MeguvizRef 驅動。\n瞭解更多 https://github.com/jichuo1/MeguvizRef</string>
     <string name="player_codec_preference">優先影片編碼</string>
     <string name="player_codec_preference_current">目前：%1$s</string>
     <string name="player_codec_preference_tip">盡量要求所選編碼；跟隨嗶哩嗶哩時維持原有行為。</string>
