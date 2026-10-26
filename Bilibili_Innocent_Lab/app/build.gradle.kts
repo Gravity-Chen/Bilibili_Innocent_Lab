@@ -221,6 +221,9 @@ android {
     ndkVersion = "30.0.16248370"
 
     defaultConfig {
+        // 构建期回退开关：-Pmeguviz.legacyLookup=true 时成员定位改走平台反射。
+        buildConfigField("boolean", "MEGUVIZ_LEGACY_LOOKUP",
+            providers.gradleProperty("meguviz.legacyLookup").map { it.toBooleanStrict().toString() }.orElse("false").get())
         applicationId = gropify.project.app.packageName
         minSdk = gropify.project.android.minSdk
         targetSdk = gropify.project.android.targetSdk
@@ -569,6 +572,9 @@ dependencies {
     implementation(libs.kavaref.core)
     implementation(libs.kavaref.android)
     implementation(libs.kavaref.extension)
+
+    // MeguvizRef (https://github.com/jichuo1/MeguvizRef)
+    implementation(libs.meguviz.ref.core)
 
     // 仅在后台版本适配缺点时启用；不进入 quickLocate 与 Hook 热路径。
     implementation(libs.dexkit)

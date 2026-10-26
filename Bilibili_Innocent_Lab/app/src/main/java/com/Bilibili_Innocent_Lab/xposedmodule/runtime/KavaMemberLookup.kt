@@ -1,16 +1,24 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.runtime
 
-import com.highcapable.kavaref.KavaRef.Companion.resolve
-import com.highcapable.kavaref.extension.loadClassOrNull
-import com.highcapable.kavaref.extension.makeAccessible
+import com.Bilibili_Innocent_Lab.xposedmodule.BuildConfig
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.loadClassOrNull
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.makeAccessible
+import io.github.jichuo1.meguviz.ref.api.descriptor.MemberKind
+import io.github.jichuo1.meguviz.ref.api.query.AccessPolicy
+import io.github.jichuo1.meguviz.ref.api.query.Hierarchy
+import io.github.jichuo1.meguviz.ref.api.query.QuerySpec
+import io.github.jichuo1.meguviz.ref.api.query.Selection
+import io.github.jichuo1.meguviz.ref.api.result.ResolutionStatus
+import io.github.jichuo1.meguviz.ref.scope.CodeScope
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
+import java.lang.reflect.Member
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * KavaRef 成员定位边界。
+ * MeguvizRef 成员定位边界；对象名称保留以缩小调用方迁移。
  *
  * 只缓存进程生命周期内稳定的 Class/Member 与负查询结果，绝不缓存宿主实例。
  * 调用方在热路径仍应保留就地 Member 引用并直接 invoke/get/newInstance。
@@ -78,8 +86,10 @@ internal object KavaMemberLookup {
         cacheMisses.incrementAndGet()
         val resolved = try {
             resolver()
-        } catch (_: Throwable) {
+        } catch (failure: Throwable) {
+            if (failure is VirtualMachineError) throw failure
             lookupFailures.incrementAndGet()
+            if (failure is IncompleteMemberLookup) return null
             null
         }
         val value = CachedValue(resolved)
@@ -98,8 +108,10 @@ internal object KavaMemberLookup {
         cacheMisses.incrementAndGet()
         val resolved = try {
             resolver()
-        } catch (_: Throwable) {
+        } catch (failure: Throwable) {
+            if (failure is VirtualMachineError) throw failure
             lookupFailures.incrementAndGet()
+            if (failure is IncompleteMemberLookup) return emptyList()
             emptyList()
         }
         return cache.putIfAbsent(key, resolved) ?: resolved
@@ -126,14 +138,8 @@ internal object KavaMemberLookup {
         methodCache,
         MethodKey(declaringClass, name, parameterTypes.toList(), includeSuperclasses = false)
     ) {
-        declaringClass.resolve()
-            .optional(silent = true)
-            .firstMethodOrNull {
-                this.name = name
-                if (parameterTypes.isEmpty()) emptyParameters() else parameters(*parameterTypes)
-            }
-            ?.self
-            ?.takeIf { it.makeAccessible() }
+        firstMember(declaringClass, MemberKind.METHOD, name, parameterTypes)
+            ?.let { it as Method }?.takeIf { it.makeAccessible() }
     }
 
     /** 精确定位类或其父类声明的指定方法。 */
@@ -145,19 +151,12 @@ internal object KavaMemberLookup {
         methodCache,
         MethodKey(declaringClass, name, parameterTypes.toList(), includeSuperclasses = true)
     ) {
-        declaringClass.resolve()
-            .optional(silent = true)
-            .firstMethodOrNull {
-                this.name = name
-                if (parameterTypes.isEmpty()) emptyParameters() else parameters(*parameterTypes)
-                superclass()
-            }
-            ?.self
-            ?.takeIf { it.makeAccessible() }
+        firstMember(declaringClass, MemberKind.METHOD, name, parameterTypes, true)
+            ?.let { it as Method }?.takeIf { it.makeAccessible() }
     }
 
     /**
-     * 解析当前类声明的方法集合。结构特征筛选仍由调用方表达，KavaRef 只承担统一枚举边界；
+     * 解析当前类声明的方法集合。结构特征筛选仍由调用方表达，MeguvizRef 只承担统一枚举边界；
      * 返回原始 [Method]，便于 XposedBridge 注册和调用方现有缓存继续复用。
      */
     fun declaredMethods(
@@ -171,7 +170,7 @@ internal object KavaMemberLookup {
         predicate = predicate
     )
 
-    /** 解析方法集合；[includeSuperclasses] 为 true 时由 KavaRef 统一遍历父类。 */
+    /** 解析方法集合；[includeSuperclasses] 为 true 时由 MeguvizRef 统一遍历父类。 */
     fun methods(
         declaringClass: Class<*>,
         includeSuperclasses: Boolean,
@@ -187,10 +186,7 @@ internal object KavaMemberLookup {
             listOf(declaringClass)
         }
         owners.flatMap { owner ->
-            owner.resolve()
-                .optional(silent = true)
-                .method { }
-                .map { it.self }
+            rawMembers(owner, MemberKind.METHOD).map { it as Method }
         }
     }.asSequence()
         .filter(predicate)
@@ -206,14 +202,7 @@ internal object KavaMemberLookup {
         fieldCache,
         FieldKey(declaringClass, name, includeSuperclasses)
     ) {
-        declaringClass.resolve()
-            .optional(silent = true)
-            .firstFieldOrNull {
-                this.name = name
-                if (includeSuperclasses) superclass()
-            }
-            ?.self
-            ?.takeIf { it.makeAccessible() }
+        firstMember(declaringClass, MemberKind.FIELD, name, includeSuperclasses = includeSuperclasses)?.let { it as Field }?.takeIf { it.makeAccessible() }
     }
 
     /** 解析当前类声明的字段集合；读取型调用方可要求统一开放访问权限。 */
@@ -228,7 +217,7 @@ internal object KavaMemberLookup {
         predicate = predicate
     )
 
-    /** 解析字段集合；[includeSuperclasses] 为 true 时由 KavaRef 统一遍历父类。 */
+    /** 解析字段集合；[includeSuperclasses] 为 true 时由 MeguvizRef 统一遍历父类。 */
     fun fields(
         declaringClass: Class<*>,
         includeSuperclasses: Boolean,
@@ -244,10 +233,7 @@ internal object KavaMemberLookup {
             listOf(declaringClass)
         }
         owners.flatMap { owner ->
-            owner.resolve()
-                .optional(silent = true)
-                .field { }
-                .map { it.self }
+            rawMembers(owner, MemberKind.FIELD).map { it as Field }
         }
     }.asSequence()
         .filter(predicate)
@@ -262,13 +248,7 @@ internal object KavaMemberLookup {
         constructorCache,
         ConstructorKey(declaringClass, parameterTypes.toList())
     ) {
-        declaringClass.resolve()
-            .optional(silent = true)
-            .firstConstructorOrNull {
-                if (parameterTypes.isEmpty()) emptyParameters() else parameters(*parameterTypes)
-            }
-            ?.self
-            ?.takeIf { it.makeAccessible() }
+        firstMember(declaringClass, MemberKind.CONSTRUCTOR, parameterTypes = parameterTypes)?.let { it as Constructor<*> }?.takeIf { it.makeAccessible() }
     }
 
     /** 解析当前类声明的构造器集合，供参数结构会随宿主版本漂移的 Hook 点使用。 */
@@ -277,14 +257,76 @@ internal object KavaMemberLookup {
         makeAccessible: Boolean = false,
         predicate: (Constructor<*>) -> Boolean = { true }
     ): List<Constructor<*>> = cachedList(constructorCollectionCache, declaringClass) {
-        declaringClass.resolve()
-            .optional(silent = true)
-            .constructor { }
-            .map { it.self }
+        rawMembers(declaringClass, MemberKind.CONSTRUCTOR).map { it as Constructor<*> }
     }.asSequence()
         .filter(predicate)
         .filter { !makeAccessible || it.makeAccessible() }
         .toList()
+
+    private class IncompleteMemberLookup(status: ResolutionStatus) : IllegalStateException("Incomplete member lookup: $status")
+
+    private fun firstMember(
+        owner: Class<*>,
+        kind: MemberKind,
+        name: String? = null,
+        parameterTypes: Array<out Class<*>>? = null,
+        includeSuperclasses: Boolean = false
+    ): Member? {
+        if (Thread.currentThread().isInterrupted) throw IncompleteMemberLookup(ResolutionStatus.CANCELLED)
+        if (BuildConfig.MEGUVIZ_LEGACY_LOOKUP) {
+            val owners = if (includeSuperclasses) generateSequence(owner) { it.superclass } else sequenceOf(owner)
+            for (type in owners) {
+                val found = platformMembers(type, kind).firstOrNull { member ->
+                    (name == null || member.name == name) && (parameterTypes == null || when (member) {
+                        is Method -> member.parameterTypes.contentEquals(parameterTypes)
+                        is Constructor<*> -> member.parameterTypes.contentEquals(parameterTypes)
+                        else -> false
+                    })
+                }
+                if (found != null) return found
+            }
+            return null
+        }
+        return CodeScope.open(owner.classLoader, AccessPolicy.PRESERVE_JAVA_ACCESS, 16384).use { scope ->
+            val query = QuerySpec.builder(owner, kind).selection(Selection.FIRST)
+            name?.let(query::name)
+            parameterTypes?.let { query.parameters(*it) }
+            if (includeSuperclasses) query.hierarchy(Hierarchy.SUPERCLASSES)
+            val result = scope.resolve(query.build())
+            when (result.status()) {
+                ResolutionStatus.RESOLVED -> scope.exportRaw(result.requireSingle())
+                ResolutionStatus.NOT_FOUND_IN_VISIBLE_UNIVERSE, ResolutionStatus.UNAVAILABLE -> null
+                else -> throw IncompleteMemberLookup(result.status())
+            }
+        }
+    }
+
+    /** Exported members are intentionally owned by the existing BIL caches after the short scope closes. */
+    private fun rawMembers(
+        owner: Class<*>,
+        kind: MemberKind,
+        name: String? = null,
+        parameterTypes: Array<out Class<*>>? = null,
+        includeSuperclasses: Boolean = false
+    ): List<Member> {
+        if (Thread.currentThread().isInterrupted) throw IncompleteMemberLookup(ResolutionStatus.CANCELLED)
+        if (BuildConfig.MEGUVIZ_LEGACY_LOOKUP) return platformMembers(owner, kind)
+        return CodeScope.open(owner.classLoader, AccessPolicy.PRESERVE_JAVA_ACCESS, 16384).use { scope ->
+            val query = QuerySpec.builder(owner, kind).selection(Selection.ALL).resultLimit(16384)
+            name?.let(query::name)
+            parameterTypes?.let { query.parameters(*it) }
+            if (includeSuperclasses) query.hierarchy(Hierarchy.SUPERCLASSES)
+            val result = scope.resolve(query.build())
+            if (!result.receipt().coverage().complete()) throw IncompleteMemberLookup(result.status())
+            result.members().map { scope.exportRaw(it) }
+        }
+    }
+
+    private fun platformMembers(owner: Class<*>, kind: MemberKind): List<Member> = when (kind) {
+        MemberKind.METHOD -> owner.declaredMethods.toList()
+        MemberKind.FIELD -> owner.declaredFields.toList()
+        MemberKind.CONSTRUCTOR -> owner.declaredConstructors.toList()
+    }
 
     fun diagnostics(): Diagnostics = Diagnostics(
         cacheHits = cacheHits.get(),

@@ -209,4 +209,21 @@ class KavaMemberLookupTest {
         assertEquals(1, diagnostics.cachedMethods)
         assertEquals(0, diagnostics.lookupFailures)
     }
+
+    @Test
+    fun `cancelled member lookup does not poison the stable cache`() {
+        Thread.currentThread().interrupt()
+        try {
+            assertNull(KavaMemberLookup.methodOrNull(HiddenMethods::class.java, "seed"))
+            assertTrue(KavaMemberLookup.declaredMethods(HiddenMethods::class.java).isEmpty())
+            assertTrue(Thread.currentThread().isInterrupted)
+            assertEquals(0, KavaMemberLookup.diagnostics().cachedMethods)
+            assertEquals(0, KavaMemberLookup.diagnostics().cachedMemberCollections)
+        } finally {
+            Thread.interrupted()
+        }
+        assertEquals("seed", KavaMemberLookup.methodOrNull(HiddenMethods::class.java, "seed")?.name)
+        assertTrue(KavaMemberLookup.declaredMethods(HiddenMethods::class.java).isNotEmpty())
+    }
+
 }

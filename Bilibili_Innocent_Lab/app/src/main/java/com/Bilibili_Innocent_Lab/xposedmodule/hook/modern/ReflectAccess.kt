@@ -2,9 +2,9 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.modern
 
 import android.app.Application
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
-import com.highcapable.kavaref.extension.toClass
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.toClass
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 
@@ -60,12 +60,12 @@ internal object ReflectAccess {
         var current: Class<*>? = owner
         while (current != null) {
             val match = KavaMemberLookup.declaredMethods(current, makeAccessible = true) { method ->
-                method.name == name &&
-                    method.isStatic == requireStatic &&
-                    method.parameterTypes.size == args.size &&
-                    method.parameterTypes.indices.all { index ->
-                        compatible(method.parameterTypes[index], args[index])
-                    }
+                if (method.name != name || method.isStatic != requireStatic || method.parameterCount != args.size) {
+                    false
+                } else {
+                    val parameterTypes = method.parameterTypes
+                    parameterTypes.indices.all { index -> compatible(parameterTypes[index], args[index]) }
+                }
             }.firstOrNull()
             if (match != null) return match
             current = current.superclass
