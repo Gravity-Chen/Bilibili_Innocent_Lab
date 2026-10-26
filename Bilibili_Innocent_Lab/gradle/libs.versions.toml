@@ -4,7 +4,6 @@ kotlin = "2.4.21"
 ksp = "2.3.12"
 hikage-plugin = "1.0.1"
 libxposed = "102.0.0"
-kavaref = "1.1.1"
 meguviz-ref = "1.0.0"
 hikage-bom = "1.1.1"
 betterandroid-ui-component = "1.1.6"
@@ -36,10 +35,6 @@ hikage = { id = "com.highcapable.hikage", version.ref = "hikage-plugin" }
 [libraries]
 libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "libxposed" }
 libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "libxposed" }
-kavaref-bom = { group = "com.highcapable.kavaref", name = "kavaref-bom", version.ref = "kavaref" }
-kavaref-core = { group = "com.highcapable.kavaref", name = "kavaref-core" }
-kavaref-android = { group = "com.highcapable.kavaref", name = "kavaref-android" }
-kavaref-extension = { group = "com.highcapable.kavaref", name = "kavaref-extension" }
 meguviz-ref-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ref-core", version.ref = "meguviz-ref" }
 dexkit = { group = "org.luckypray", name = "dexkit", version.ref = "dexkit" }
 hikage-bom = { group = "com.highcapable.hikage", name = "hikage-bom", version.ref = "hikage-bom" }

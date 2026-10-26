@@ -567,12 +567,6 @@ dependencies {
     compileOnly(libs.libxposed.api)
     implementation(libs.libxposed.service)
 
-    // KavaRef (https://github.com/HighCapable/KavaRef)
-    implementation(platform(libs.kavaref.bom))
-    implementation(libs.kavaref.core)
-    implementation(libs.kavaref.android)
-    implementation(libs.kavaref.extension)
-
     // MeguvizRef (https://github.com/jichuo1/MeguvizRef)
     implementation(libs.meguviz.ref.core)
 
