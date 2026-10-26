@@ -59,7 +59,10 @@ internal class HostComposeChromeApi private constructor(
             if (fill.matches(element)) accumulated
             else requireNotNull(then.invoke(accumulated, element))
         })!! else base
-        val positioned = position.attach(withoutFill, painter::position, painter::failure)
+        // 9.16+ moves the pinned row's ComposeView by AppBarLayout offsets, which never re-run the
+        // positioned callback. A root-local offset lets the painter add the View's live location.
+        val positioned = if (position.rootPositions) position.attach(withoutFill, painter::rootPosition, painter::failure, root = true)
+            else position.attach(withoutFill, painter::position, painter::failure)
         val draw = function(f1, "HostChromeSurface") { args ->
             args?.firstOrNull()?.let { scope ->
                 painter.draw({ dimensions(scope) }, { targetCanvas(scope) })

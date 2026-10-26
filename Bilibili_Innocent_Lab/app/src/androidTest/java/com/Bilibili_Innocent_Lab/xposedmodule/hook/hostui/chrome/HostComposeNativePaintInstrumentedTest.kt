@@ -183,6 +183,87 @@ class HostComposeNativePaintInstrumentedTest {
         }
     }
 
+    /**
+     * 9.16.1 pins the second row in its own ComposeView inside HomeAppBarLayout. Collapsing moves
+     * that View (AppBarLayout offset, translation) without a Compose layout pass, so no positioned
+     * callback runs. The glass and the visibility test must still follow the row's real location.
+     */
+    @Test fun appBarOffsetsMoveTheGlassWithoutComposeLayout() {
+        val args = InstrumentationRegistry.getArguments()
+        assumeTrue("An exact installed host APK must be explicitly selected", args.getString("hostSha256") != null)
+        val context = instrumentation.targetContext
+        @Suppress("DEPRECATION")
+        val identity = context.packageManager.getPackageInfo("tv.danmaku.bili", 0)
+        val loader = DexClassLoader(identity.applicationInfo!!.sourceDir, context.codeCacheDir.path, null, ClassLoader.getSystemClassLoader())
+        val native = Native(loader)
+        assumeTrue("Host keeps positionInRoot", native.api.let {
+            HostComposeChromeApi::class.java.getDeclaredField("position").apply { isAccessible = true }
+                .get(it) as com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostComposeCardPositionAccess
+        }.rootPositions)
+        val density = context.resources.displayMetrics.density
+        ActivityScenario.launch(NativePaintFixtureActivity::class.java).use { scenario ->
+            lateinit var owner: View
+            lateinit var painter: HostComposeChromePainter
+            lateinit var activity: NativePaintFixtureActivity
+            var closeOwners: () -> Unit = {}
+            var applied = 0
+            var imagePresent = true
+            val errors = ArrayList<Throwable>()
+            scenario.onActivity {
+                activity = it
+                owner = native.view.getConstructor(Context::class.java).newInstance(it) as View
+                painter = HostComposeChromePainter(owner, true, false, HostChromeAppearance(material = HostGlassMaterial.PRISM),
+                    null, native.api, { applied++ }, { error -> errors += error })
+                // Nothing below the row but the black Window, as on 9.16.1 once MainTopBg moves away.
+                val root = FrameLayout(it).apply {
+                    keepScreenOn = true; setBackgroundColor(Color.BLACK)
+                    addView(owner, FrameLayout.LayoutParams(-1, (48 * density).toInt()).apply { topMargin = (240 * density).toInt() })
+                }
+                closeOwners = native.owners(root, it)
+                it.setContentView(root)
+                native.content(owner, native.function(2) { values ->
+                    val composer = values!![0]!!
+                    val sized = native.height(native.width(native.empty), 48f)
+                    native.box(painter.modifier(sized, HostChromeLayer.SURFACE), composer, native.function(3) { inner ->
+                        val c = inner!![1]!!
+                        native.group(c, 0x42494C) {
+                            imagePresent = !painter.omitBackdropImage
+                            if (imagePresent) native.leaf(painter.modifier(native.background(native.full(native.empty), Color.WHITE),
+                                HostChromeLayer.TOP_BACKDROP), c)
+                        }
+                    })
+                })
+            }
+            settle(owner) { applied > 0 && !imagePresent && hasSampledFrame(painter) }
+            fun field(name: String) = HostComposeChromePainter::class.java.getDeclaredField(name).apply { isAccessible = true }
+            fun check(label: String, move: (View) -> Unit) {
+                main { move(owner) }
+                // A few frames: pre-draw tracking, the glass re-sample and its redraw.
+                SystemClock.sleep(200)
+                main {
+                    val at = IntArray(2); owner.getLocationInWindow(at)
+                    assertEquals("$label: glass y follows the owner", at[1].toFloat(), field("y").getFloat(painter), 0.5f)
+                    val target = field("target").get(painter) as View
+                    // The target lives in the root's overlay, in root coordinates.
+                    val rootAt = IntArray(2); owner.rootView.getLocationInWindow(rootAt)
+                    assertEquals("$label: glass target sits on the row", at[1] - rootAt[1], target.top)
+                    assertEquals("$label: target stays visible", View.VISIBLE, target.visibility)
+                }
+                copy(activity, owner).useBitmap { image ->
+                    val edge = image.getPixel(1, image.height / 2)
+                    val level = (Color.red(edge) + Color.green(edge) + Color.blue(edge)) / 3
+                    assertTrue("$label: the base under the suppressed native row must not expose the Window ($level)", level > 200)
+                }
+            }
+            // More than the row height: the stale position used to fall outside the owner's visible rect.
+            val shift = (96 * density).toInt()
+            check("appbar-offset") { it.offsetTopAndBottom(-shift) }
+            check("translation") { it.translationY = -shift / 2f }
+            check("restored") { it.translationY = 0f; it.offsetTopAndBottom(shift) }
+            main { assertTrue("Unexpected material failure: $errors", errors.isEmpty()); native.dispose(owner); closeOwners() }
+        }
+    }
+
     private fun settle(owner: View, ready: () -> Boolean) {
         val until = SystemClock.uptimeMillis() + 7000
         var good = false

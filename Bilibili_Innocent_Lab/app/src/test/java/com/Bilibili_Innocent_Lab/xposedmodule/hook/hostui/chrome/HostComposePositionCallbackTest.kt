@@ -6,27 +6,30 @@ import org.junit.Test
 
 /** Execute the real Proxy callback without mocking an entire host Compose runtime. */
 class HostComposePositionCallbackTest {
-    private data class Coordinates(val packed: Long = 0, val failure: Throwable? = null)
+    private data class Coordinates(val packed: Long = 0, val failure: Throwable? = null, val root: Long = packed)
     private class State(var value: Int)
     private class Bridge {
         companion object {
             @JvmStatic fun positioned(modifier: Any, callback: (Any) -> Unit): Any = callback
             @JvmStatic fun inWindow(coordinates: Any): Long = (coordinates as Coordinates).let { it.failure?.let { error -> throw error }; it.packed }
+            @JvmStatic fun inRoot(coordinates: Any): Long = (coordinates as Coordinates).root
             @JvmStatic fun state(value: Int): Any = State(value)
             @JvmStatic fun read(state: Any): Int = (state as State).value
             @JvmStatic fun write(state: Any, value: Int) { (state as State).value = value }
         }
     }
-    private fun access(): HostComposeCardPositionAccess {
+    private fun access(root: Boolean = true): HostComposeCardPositionAccess {
         fun method(name: String, vararg types: Class<*>) = Bridge::class.java.getDeclaredMethod(name, *types).apply { isAccessible = true }
-        val ctor = HostComposeCardPositionAccess::class.java.declaredConstructors.single { it.parameterCount == 7 }.apply { isAccessible = true }
+        val ctor = HostComposeCardPositionAccess::class.java.declaredConstructors.single { it.parameterCount == 8 }.apply { isAccessible = true }
         return ctor.newInstance(method("positioned", Any::class.java, Function1::class.java), method("inWindow", Any::class.java),
             Function1::class.java, Unit, method("state", Int::class.javaPrimitiveType!!), method("read", Any::class.java),
-            method("write", Any::class.java, Int::class.javaPrimitiveType!!)) as HostComposeCardPositionAccess
+            method("write", Any::class.java, Int::class.javaPrimitiveType!!),
+            if (root) method("inRoot", Any::class.java) else null) as HostComposeCardPositionAccess
     }
     @Suppress("UNCHECKED_CAST")
-    private fun observer(callback: (Float, Float) -> Unit, onError: ((Throwable) -> Unit)?): (Any) -> Unit =
-        access().attach(Any(), callback, onError) as (Any) -> Unit
+    private fun observer(callback: (Float, Float) -> Unit, onError: ((Throwable) -> Unit)?, root: Boolean = false): (Any) -> Unit =
+        access().attach(Any(), callback, onError, root) as (Any) -> Unit
+    private fun pack(x: Float, y: Float) = (x.toBits().toLong() shl 32) or (y.toBits().toLong() and 0xFFFFFFFFL)
 
     @Test fun `position decoder failure reaches error handler without escaping host layout`() {
         val expected = IllegalStateException("detached coordinates")
@@ -53,5 +56,19 @@ class HostComposePositionCallbackTest {
         } catch (failure: Throwable) {
             assertTrue(generateSequence(failure) { it.cause }.any { it === expected })
         }
+    }
+    @Test fun `root mode reads the owner-local offset instead of the cached window position`() {
+        var position: Pair<Float, Float>? = null
+        observer({ x, y -> position = x to y }, { throw AssertionError(it) }, root = true)(Coordinates(pack(0f, 900f), root = pack(4f, 0f)))
+        assertEquals(4f to 0f, position)
+    }
+    @Test fun `root mode is optional and never silently falls back to window coordinates`() {
+        assertTrue(access().rootPositions)
+        val missing = access(root = false)
+        assertFalse(missing.rootPositions)
+        try {
+            missing.attach(Any(), { _, _ -> }, null, root = true)
+            fail("window coordinates were used as root-local offsets")
+        } catch (expected: IllegalArgumentException) {}
     }
 }

@@ -9,7 +9,8 @@ import java.lang.reflect.Proxy
 internal class HostComposeCardPositionAccess private constructor(
     private val positioned: Method, private val inWindow: Method,
     private val function: Class<*>, private val unit: Any,
-    private val createState: Method, private val readState: Method, private val writeState: Method
+    private val createState: Method, private val readState: Method, private val writeState: Method,
+    private val inRoot: Method? = null
 ) {
     internal inner class Signal {
         private val state = requireNotNull(createState.invoke(null, 0))
@@ -18,13 +19,16 @@ internal class HostComposeCardPositionAccess private constructor(
         fun invalidate() { version++; writeState.invoke(state, version) }
     }
     fun signal() = Signal()
-    fun attach(modifier: Any, callback: (Float, Float) -> Unit, onError: ((Throwable) -> Unit)? = null): Any {
+    /** Root-local positions stay valid while View ancestors move without a Compose layout pass. */
+    val rootPositions: Boolean get() = inRoot != null
+    fun attach(modifier: Any, callback: (Float, Float) -> Unit, onError: ((Throwable) -> Unit)? = null, root: Boolean = false): Any {
+        val read = if (root) requireNotNull(inRoot) { "Host Compose positionInRoot is unavailable" } else inWindow
         val observer = Proxy.newProxyInstance(function.classLoader, arrayOf(function)) { proxy, method, args ->
             when (method.name) {
                 "invoke" -> {
                     try {
                         args?.firstOrNull()?.let {
-                            val packed = inWindow.invoke(null, it) as Long
+                            val packed = read.invoke(null, it) as Long
                             val x = Float.fromBits((packed ushr 32).toInt())
                             val y = Float.fromBits(packed.toInt())
                             if (x.isFinite() && y.isFinite()) callback(x, y)
@@ -67,7 +71,9 @@ internal class HostComposeCardPositionAccess private constructor(
                     check(Modifier.isStatic(it.modifiers))
                 },
                 exact(type("androidx.compose.runtime.IntState"), "getIntValue", intType),
-                exact(type("androidx.compose.runtime.MutableIntState"), "setIntValue", Void.TYPE, intType)
+                exact(type("androidx.compose.runtime.MutableIntState"), "setIntValue", Void.TYPE, intType),
+                runCatching { exact(type("androidx.compose.ui.layout.LayoutCoordinatesKt"), "positionInRoot",
+                    Long::class.javaPrimitiveType!!, coordinates) }.getOrNull()
             )
         }.getOrNull()
     }

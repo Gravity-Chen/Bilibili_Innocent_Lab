@@ -67,6 +67,9 @@ internal class HostComposeChromePainter(
     private var layoutTabs = -1
     private var x = 0f
     private var y = 0f
+    private var rootX = 0f
+    private var rootY = 0f
+    private var rootRelative = false
     private var width = 0
     private var height = 0
     private var positioned = false
@@ -122,6 +125,7 @@ internal class HostComposeChromePainter(
     private val preDraw = ViewTreeObserver.OnPreDrawListener {
         runCatching {
             val currentOwner = this.owner.get() ?: return@runCatching
+            trackOwner(currentOwner)
             val visible = actuallyVisible(currentOwner)
             target?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
             val shouldPause = !visible
@@ -266,7 +270,26 @@ internal class HostComposeChromePainter(
         }
     }
 
-    fun position(x: Float, y: Float) {
+    fun position(x: Float, y: Float) = moveTo(x, y)
+
+    /** [x]/[y] are relative to the owner AndroidComposeView; [trackOwner] adds its live window location. */
+    fun rootPosition(x: Float, y: Float) {
+        rootRelative = true; rootX = x; rootY = y
+        owner.get()?.let(::trackOwner)
+    }
+
+    /**
+     * AppBarLayout offsets and View translations move the owner without a Compose layout pass, so
+     * the positioned callback stays silent. A stale position makes the glass sample the feed below
+     * the row and lets the visibility test fail, which skips the base under the suppressed native row.
+     */
+    private fun trackOwner(owner: View) {
+        if (!rootRelative) return
+        owner.getLocationInWindow(location)
+        moveTo(location[0] + rootX, location[1] + rootY)
+    }
+
+    private fun moveTo(x: Float, y: Float) {
         if (positioned && this.x == x && this.y == y) return
         runCatching {
             positioned = true; this.x = x; this.y = y
@@ -287,7 +310,12 @@ internal class HostComposeChromePainter(
                 width = nextW; height = nextH
                 release()?.let { throw it }
             }
-            if (!actuallyVisible(owner)) return
+            trackOwner(owner)
+            if (!actuallyVisible(owner)) {
+                // Native layers may still be recorded as suppressed; never expose the Window there.
+                if (replacementReady) paintBase(owner, canvas(), w, h)
+                return
+            }
             val nextColors = theme.read()
             if (colors != nextColors) {
                 colors = nextColors; source?.windowBaseColor = colors.palette().background
@@ -302,12 +330,7 @@ internal class HostComposeChromePainter(
                 syncTarget()
                 val target = target ?: return
                 val background = target.background ?: return
-                // The suppressed native row was the only paint there: the host leaves the Window
-                // (black) behind it. Restore the scene base unless the module wallpaper shows through.
-                if (bottom == null && !moduleWallpaperBehind(owner)) {
-                    underlay.color = colors.palette().background or 0xFF000000.toInt()
-                    destination.drawRect(0f, 0f, w, h, underlay)
-                }
+                paintBase(owner, destination, w, h)
                 val inset = capsule
                 if (inset == null) background.setBounds(0, 0, width, height)
                 else {
@@ -374,6 +397,16 @@ internal class HostComposeChromePainter(
         return LumenPrismOptions(cornerRadiusDp = (fitted.cornerRadius(height.toFloat()) / density).coerceIn(0f, 128f),
             shadow = LumenPrismShadowOptions(enabled = fitted.shadowRadius > 0f, radiusDp = fitted.shadowRadius / density,
                 offsetYDp = 0f, opacity = HostChromeTopCapsule.SHADOW_OPACITY))
+    }
+
+    /**
+     * The suppressed native row was the only paint there: the host leaves the Window (black)
+     * behind it. Restore the scene base unless the module wallpaper shows through.
+     */
+    private fun paintBase(owner: View, destination: Canvas, w: Float, h: Float) {
+        if (bottom != null || moduleWallpaperBehind(owner)) return
+        underlay.color = colors.palette().background or 0xFF000000.toInt()
+        destination.drawRect(0f, 0f, w, h, underlay)
     }
 
     private fun moduleWallpaperBehind(owner: View): Boolean {
