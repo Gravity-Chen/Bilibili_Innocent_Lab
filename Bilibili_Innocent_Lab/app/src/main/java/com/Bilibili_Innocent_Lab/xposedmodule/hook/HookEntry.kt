@@ -13,9 +13,9 @@ import com.highcapable.betterandroid.ui.extension.view.childOrNull
 import com.highcapable.betterandroid.ui.extension.view.parentOrNull
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.textToString
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
-import com.highcapable.kavaref.extension.isSubclassOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import io.github.libxposed.api.XposedModule
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationEntryGate
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation.FrameInterpolationFeatureInstaller
@@ -2127,7 +2127,7 @@ class HookEntry : XposedModule() {
         }
 
         /**
-         * 评论路径直设长按监听器：通过 KavaRef 一次解析并缓存
+         * 评论路径直设长按监听器：通过 MeguvizRef 一次解析并缓存
          * View.ListenerInfo.mOnLongClickListener，绕开我们全局 setOnLongClickListener hook
          * 的 bridge 开销——快速加载/展开回复时每条评论数十个 view，逐一走 hook 是主要卡顿
          * 来源之一。mListenerInfo 为空（首次）或反射失败时回退正常 setOnLongClickListener
@@ -2137,7 +2137,7 @@ class HookEntry : XposedModule() {
             runCatching {
                 // 直接读 View.mListenerInfo 字段（Field.get 远快于 getListenerInfo() 的
                 // Method.invoke），再写 ListenerInfo.mOnLongClickListener——均经
-                // KavaRef 只在缓存未命中时解析；热路径仍直接 Field.get/set。
+                // MeguvizRef 只在缓存未命中时解析；热路径仍直接 Field.get/set。
                 val mliField = mListenerInfoField
                     ?: KavaMemberLookup.fieldOrNull(classOf<View>(), "mListenerInfo")
                         ?.also { mListenerInfoField = it }
@@ -2364,7 +2364,7 @@ class HookEntry : XposedModule() {
             }
 
             /**
-             * KavaRef → API 102 interceptor 的统一边界。成员定位失败直接抛出，让各功能原有的
+             * MeguvizRef → API 102 interceptor 的统一边界。成员定位失败直接抛出，让各功能原有的
              * runCatching/try-catch 正确记录未命中；Hook 回调本身不经过额外包装。
              */
             fun hookFirstMethod(

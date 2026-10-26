@@ -2,8 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.lang.reflect.Method
 
 /** 宿主当前账号令牌的状态；只有状态会离开这一层，令牌原文永不外传。 */

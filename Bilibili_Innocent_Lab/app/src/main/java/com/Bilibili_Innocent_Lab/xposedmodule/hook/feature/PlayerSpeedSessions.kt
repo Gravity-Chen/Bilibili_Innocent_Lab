@@ -3,12 +3,12 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedSessionLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.lang.ref.WeakReference
 import java.lang.reflect.Field
-import com.highcapable.kavaref.extension.isStatic
-import com.highcapable.kavaref.extension.isAbstract
-import com.highcapable.kavaref.extension.isSubclassOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import java.util.WeakHashMap
 
 /** Per-player state only: no media identities leave this object or survive process lifetime. */

@@ -2,7 +2,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 
 /**
  * 预见式返回（Predictive Back）运行时应用。

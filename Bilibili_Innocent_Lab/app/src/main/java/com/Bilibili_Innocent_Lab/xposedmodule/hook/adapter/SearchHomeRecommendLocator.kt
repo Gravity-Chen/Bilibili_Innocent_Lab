@@ -1,10 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup as Lookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isAbstract
-import com.highcapable.kavaref.extension.isStatic
-import com.highcapable.kavaref.extension.isPublic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isPublic
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
 import java.lang.reflect.Method

@@ -5,8 +5,8 @@ import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.HostThreadGuard
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.InjectedUiLocale
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.lang.ref.WeakReference
 import java.lang.reflect.Proxy
 import java.lang.reflect.Method

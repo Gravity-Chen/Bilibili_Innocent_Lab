@@ -177,7 +177,7 @@ import android.widget.TextView as NativeTextView
 import androidx.core.graphics.ColorUtils
 import androidx.core.content.edit
 import android.R as Android_R
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File

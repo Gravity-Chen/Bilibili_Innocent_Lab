@@ -1,9 +1,9 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isPublic
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isPublic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.lang.reflect.Method
 import java.time.Instant
 import java.time.LocalDate

@@ -22,7 +22,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedLocator
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerSpeedMenuAdapter
 
 /**
- * DexKit 后台实现：只在常规 KavaRef 定位缺失时创建桥，并在每个代码 APK 查询后立即关闭。
+ * DexKit 后台实现：只在常规 MeguvizRef 定位缺失时创建桥，并在每个代码 APK 查询后立即关闭。
  */
 internal object DexKitAssistEngine : DexAssistEngine {
 

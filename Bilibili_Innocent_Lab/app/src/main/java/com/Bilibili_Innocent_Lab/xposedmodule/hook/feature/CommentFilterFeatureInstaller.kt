@@ -1,10 +1,10 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
-import com.highcapable.kavaref.extension.isSubclassOf
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 

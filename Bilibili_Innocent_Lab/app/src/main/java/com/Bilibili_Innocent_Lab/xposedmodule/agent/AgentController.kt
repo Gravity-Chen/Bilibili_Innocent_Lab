@@ -33,7 +33,7 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 
 internal data class AgentTaskState(val running: Boolean = false, val phase: String = "idle", val step: Long = 0,
                                    val source: Int = 0, val detail: String = "", val observations: Long = 0,

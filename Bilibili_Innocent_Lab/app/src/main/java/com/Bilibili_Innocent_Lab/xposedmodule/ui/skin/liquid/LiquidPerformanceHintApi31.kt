@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.PerformanceHintManager
 import android.os.Process
 import androidx.annotation.RequiresApi
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 
 /** API 31+ ADPF 会话；仅登记创建它的模块进程主线程。 */
 @RequiresApi(31)

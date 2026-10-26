@@ -8,9 +8,9 @@ import android.net.Uri
 import android.os.Bundle
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
-import com.highcapable.kavaref.extension.isSubclassOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong

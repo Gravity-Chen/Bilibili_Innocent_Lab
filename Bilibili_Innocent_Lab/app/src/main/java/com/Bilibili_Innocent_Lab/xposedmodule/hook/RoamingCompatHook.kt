@@ -21,7 +21,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookParam
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookRuntime
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.io.File
 import java.lang.reflect.Field
 import java.lang.reflect.Method

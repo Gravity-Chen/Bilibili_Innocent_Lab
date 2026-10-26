@@ -10,7 +10,7 @@ import androidx.core.content.edit
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 

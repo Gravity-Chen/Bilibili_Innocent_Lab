@@ -4,8 +4,8 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.isGone
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 
 /**
  * 隐藏 Story 竖屏流右侧的互动图标（每个图标单独开关），见 [StoryActionIcon]。

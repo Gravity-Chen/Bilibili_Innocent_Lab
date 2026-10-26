@@ -1,7 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isSubclassOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import java.lang.reflect.Method
 
 /** 安装期校验并缓存的结构化推荐理由 getter 链。 */

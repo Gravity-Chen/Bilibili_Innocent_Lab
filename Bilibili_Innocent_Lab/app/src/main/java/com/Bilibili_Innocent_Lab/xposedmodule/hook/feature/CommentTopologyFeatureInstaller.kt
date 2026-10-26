@@ -41,9 +41,9 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay.ReplyTopologyPanelSessi
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay.ReplyTopologyPanelState
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay.ReplyTopologyPanelStrings
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.overlay.ReplyTopologyRenderSnapshot
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
-import com.highcapable.kavaref.extension.isSubclassOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import java.lang.ref.WeakReference
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field

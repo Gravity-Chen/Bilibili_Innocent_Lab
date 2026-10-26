@@ -5,8 +5,8 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.util.concurrent.atomic.AtomicInteger
 
 /**

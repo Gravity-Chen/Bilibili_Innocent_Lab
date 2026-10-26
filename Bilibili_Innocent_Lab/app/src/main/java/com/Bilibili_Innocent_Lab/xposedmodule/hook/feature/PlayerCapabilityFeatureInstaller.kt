@@ -2,8 +2,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter.PlayerCapabilityAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 
 /** 同步/异步播放响应只调整已选客户端能力；不创建播放地址、不更改服务器权限。 */
 internal class PlayerCapabilityFeatureInstaller(private val options: PlayerCapabilityOptions) : FeatureInstaller {

@@ -42,12 +42,12 @@ import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.TargetAppStorage
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigContract
 import com.highcapable.betterandroid.system.extension.component.versionCodeCompat
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isAbstract
-import com.highcapable.kavaref.extension.isFinal
-import com.highcapable.kavaref.extension.isPublic
-import com.highcapable.kavaref.extension.isStatic
-import com.highcapable.kavaref.extension.isSubclassOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isFinal
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isPublic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isSubclassOf
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ModernHookLog
 import org.json.JSONArray
 import org.json.JSONObject
@@ -68,7 +68,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   自动定位各功能 hook 点并缓存；适配完成后每次启动走快路径（仅读缓存），不影响
  *   冷启动与运行期性能。
  * - **智能定位**：不在手机上反编译（性能/时间不允许），而是运行时对「内置候选类名」
- *   通过 KavaRef 验证类 + 匹配方法签名特征（如 ViewBinding 参数类含 View 字段 a），
+ *   通过 MeguvizRef 验证类 + 匹配方法签名特征（如 ViewBinding 参数类含 View 字段 a），
  *   自动适配 hook 点漂移（方法重载变化、签名变化）。
  * - **手动重适配**：UI 提供「重新适配」按钮，清除缓存后重启即重新定位。
  *
@@ -3474,7 +3474,7 @@ object VersionAdapter {
     }
 
     /** 智能定位核心：对内置候选类做存在性验证 + 方法签名特征匹配。
-     * 全部在内存中完成（KavaRef ClassLoader/成员解析），无任何反编译/文件解压开销。
+     * 全部在内存中完成（MeguvizRef ClassLoader/成员解析），无任何反编译/文件解压开销。
      * 成功标准放宽：任一候选类存在即算成功——运行期注册有 classExists 双路径回退，
      * 适配结果主要用于快路径签名（定位不到签名不影响运行期内置候选注册），
      * 避免「功能可用但报适配失败」的误导（8.90.2 实测）。
@@ -4692,7 +4692,7 @@ object VersionAdapter {
 
     /**
      * 仅在内置 owner 全部未命中时执行全 DEX 精确签名查询；查询结果仍由宿主 ClassLoader
-     * 解析，并复用 KavaRef/反射结构约束二次验真。任何不唯一结果都按缺失处理。
+     * 解析，并复用 MeguvizRef/反射结构约束二次验真。任何不唯一结果都按缺失处理。
      */
     private fun locateBlockUpdateByDex(
         loader: ClassLoader,

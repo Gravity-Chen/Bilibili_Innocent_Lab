@@ -28,7 +28,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.RuntimeSe
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.MaxHeightScrollView
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import android.widget.EditText as NativeEditText
 import android.widget.LinearLayout as NativeLinearLayout
 import android.widget.TextView as NativeTextView

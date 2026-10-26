@@ -3,8 +3,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.adapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossBridgeMembers
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isAbstract
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
 import java.lang.reflect.Method
 
 /** 只解析成员；DexKit 查询由适配后台集中调度，安装器和快路径不创建桥。 */

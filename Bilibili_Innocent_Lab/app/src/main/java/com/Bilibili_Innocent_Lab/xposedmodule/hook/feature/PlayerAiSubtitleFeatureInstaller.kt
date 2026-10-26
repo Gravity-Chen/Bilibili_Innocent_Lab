@@ -1,7 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 
 /** Client eligibility only. Language tracks and generation remain owned by the official server. */
 internal class PlayerAiSubtitleFeatureInstaller(private val enabled: Boolean) : FeatureInstaller {

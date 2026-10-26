@@ -3,8 +3,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.danmakuwire
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.KotlinMossBridgeMembers
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.ProtobufBuilderPlan
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.lang.reflect.Method
 
 /**

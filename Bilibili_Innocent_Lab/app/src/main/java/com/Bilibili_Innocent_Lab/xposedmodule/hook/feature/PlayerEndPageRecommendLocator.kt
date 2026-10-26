@@ -1,8 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isAbstract
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isAbstract
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.VersionAdapter.HookPoint
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier

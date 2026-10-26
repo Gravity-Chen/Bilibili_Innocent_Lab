@@ -1,6 +1,6 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.hook.modern
 
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

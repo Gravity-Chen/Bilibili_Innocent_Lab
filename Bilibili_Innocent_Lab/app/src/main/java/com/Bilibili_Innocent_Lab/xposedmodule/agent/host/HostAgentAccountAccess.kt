@@ -4,8 +4,8 @@ import android.content.Context
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BiliAccessKeyProbe
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.BiliAccessKeyState
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.lang.reflect.Method
 
 /** 只保存成员描述符。每次重读宿主当前账号，令牌原文仅由共用 Probe 在宿主内判空。 */

@@ -3,7 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid
 import android.content.Context
 import android.os.PowerManager
 import androidx.annotation.RequiresApi
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 
 /** API 29+ Thermal 状态监听；回调由应用主线程 Executor 串行分发。 */
 @RequiresApi(29)

@@ -64,7 +64,7 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentSto
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.PredictiveBack
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.text.DateFormat

@@ -3,8 +3,8 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature
 import android.view.View
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import java.lang.reflect.Field
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.util.concurrent.ConcurrentHashMap
 
 /** comment2 正文监听器的同步捕获；不遍历 Activity、整个 Holder 或列表。 */

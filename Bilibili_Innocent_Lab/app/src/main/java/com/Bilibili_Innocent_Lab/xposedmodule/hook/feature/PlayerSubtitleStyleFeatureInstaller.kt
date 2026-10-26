@@ -7,10 +7,10 @@ import android.widget.Button
 import android.widget.LinearLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.modern.ReflectAccess
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
-import com.highcapable.kavaref.extension.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
 import java.io.File
 import java.lang.ref.WeakReference
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.util.concurrent.Executors
 import java.util.zip.ZipFile
 

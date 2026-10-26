@@ -35,8 +35,8 @@ import com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentWire
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.KavaMemberLookup
 import com.highcapable.betterandroid.ui.extension.view.child
 import com.highcapable.betterandroid.ui.extension.view.removeSelf
-import com.highcapable.kavaref.extension.classOf
-import com.highcapable.kavaref.extension.isStatic
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.classOf
+import com.Bilibili_Innocent_Lab.xposedmodule.runtime.ref.isStatic
 import java.io.ByteArrayOutputStream
 import java.lang.ref.WeakReference
 import java.util.concurrent.CompletableFuture
