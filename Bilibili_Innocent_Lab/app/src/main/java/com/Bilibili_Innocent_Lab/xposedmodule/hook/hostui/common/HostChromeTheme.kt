@@ -16,6 +16,7 @@ internal class HostChromeTheme(private val context: Context) {
             .getMethod("getColorById", Context::class.java, Int::class.javaPrimitiveType)
     }.getOrNull()
     private val accentId = context.resources.getIdentifier("theme_color_secondary", "color", context.packageName)
+    private val pageId = context.resources.getIdentifier("Ga1", "color", context.packageName)
     private var previous: HostChromeColors? = null
 
     /** 逐帧只读换肤值；反射方法和资源 id 在绑定时解析一次，不跑壁纸取色/HCT。 */
@@ -29,6 +30,14 @@ internal class HostChromeTheme(private val context: Context) {
         }
         return HostChromeColors.resolve(hostDark, systemDark, accent, HostGarbTheme.accent(context), previous)
             .also { previous = it }
+    }
+
+    /** 宿主页面底色 `Ga1`（khome 信息流背景）；读不到或与当前明暗不符时返回 null。 */
+    fun pageBase(dark: Boolean): Int? {
+        if (pageId == 0) return null
+        val color = runCatching { hostColor?.invoke(null, context, pageId) as? Int }.getOrNull()
+            ?: runCatching { context.getColor(pageId) }.getOrNull() ?: return null
+        return HostChromeColors.pageBase(color, dark)
     }
 }
 
@@ -56,6 +65,12 @@ internal data class HostChromeColors(val dark: Boolean, val accent: Int, val gar
     }
 
     companion object {
+        /** A resource that ignores the host's own night switch must not paint a light band in dark mode. */
+        fun pageBase(color: Int, dark: Boolean): Int? {
+            val luminance = (.2126 * (color ushr 16 and 255) + .7152 * (color ushr 8 and 255) + .0722 * (color and 255)) / 255.0
+            return (color or 0xFF000000.toInt()).takeIf { if (dark) luminance < .5 else luminance >= .5 }
+        }
+
         fun resolve(hostDark: Boolean?, systemDark: Boolean, accent: Int?, garbAccent: Int? = null,
                     previous: HostChromeColors? = null): HostChromeColors {
             val dark = hostDark ?: systemDark

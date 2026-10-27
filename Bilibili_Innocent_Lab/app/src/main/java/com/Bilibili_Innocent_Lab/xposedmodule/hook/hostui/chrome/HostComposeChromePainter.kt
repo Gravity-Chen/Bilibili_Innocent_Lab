@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Rect
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.SystemClock
 import android.view.MotionEvent
@@ -79,6 +80,15 @@ internal class HostComposeChromePainter(
     private var replacementReady = false
     private var capsule: HostChromeTopCapsule? = null
     private val underlay = Paint()
+    private var headerId = 0
+    private val header = HostChromeHeaderBackdrop(object : HostChromeHeaderBackdrop.Ops<View, ViewGroup> {
+        override fun alpha(header: View) = header.alpha
+        override fun setAlpha(header: View, alpha: Float) { header.alpha = alpha }
+        override fun background(root: ViewGroup): Any? = root.background
+        override fun setBackground(root: ViewGroup, value: Any?) { root.background = value as? ColorDrawable }
+        override fun newFill(color: Int): Any = ColorDrawable(color)
+        override fun recolor(fill: Any, color: Int) { (fill as ColorDrawable).let { if (it.color != color) it.color = color } }
+    })
     private var target: Target? = null
     private var overlay: ViewGroup? = null
     private var session: LumenSurfaceSession? = null
@@ -126,6 +136,7 @@ internal class HostComposeChromePainter(
         runCatching {
             val currentOwner = this.owner.get() ?: return@runCatching
             trackOwner(currentOwner)
+            syncHeader(currentOwner)
             val visible = actuallyVisible(currentOwner)
             target?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
             val shouldPause = !visible
@@ -405,8 +416,35 @@ internal class HostComposeChromePainter(
      */
     private fun paintBase(owner: View, destination: Canvas, w: Float, h: Float) {
         if (bottom != null || moduleWallpaperBehind(owner)) return
-        underlay.color = colors.palette().background or 0xFF000000.toInt()
+        underlay.color = pageBase()
         destination.drawRect(0f, 0f, w, h, underlay)
+    }
+
+    /** The feed's own base (`Ga1`), so the row and the uncovered header blend into the page. */
+    private fun pageBase(): Int = theme.pageBase(colors.dark) ?: (colors.palette().background or 0xFF000000.toInt())
+
+    /**
+     * Hide the native header base only while the capsule actually replaces the row. An equipped
+     * garb keeps its artwork, like the native top bar path; a module wallpaper stays uncovered.
+     */
+    private fun syncHeader(owner: View) {
+        if (bottom != null) return
+        val located = if (glass && !failed && replacementReady && colors.garbAccent == null) nativeHeader(owner) else null
+        if (located == null) { header.restore(); return }
+        header.apply(located.first, located.second, if (moduleWallpaperBehind(owner)) null else pageBase())
+    }
+
+    /** khome: `main_top_layout` is drawn before the AppBar holding this row, in the same CoordinatorLayout. */
+    private fun nativeHeader(owner: View): Pair<View, ViewGroup>? {
+        val appBar = owner.parent as? ViewGroup ?: return null
+        val root = appBar.parent as? ViewGroup ?: return null
+        if (headerId == 0) headerId = owner.resources.getIdentifier("main_top_layout", "id", owner.context.packageName)
+        if (headerId == 0) return null
+        for (index in 0 until root.indexOfChild(appBar)) {
+            val child = root.getChildAt(index)
+            if (child.id == headerId && child.javaClass.name.endsWith("ComposeView")) return child to root
+        }
+        return null
     }
 
     private fun moduleWallpaperBehind(owner: View): Boolean {
@@ -537,6 +575,7 @@ internal class HostComposeChromePainter(
         close { oldViewport?.close() }
         close { oldTarget?.let { oldOverlay?.overlay?.remove(it) } }
         close { glow?.resetGestureState() }
+        close { header.restore() }
         return failure
     }
 }
