@@ -34,7 +34,7 @@ private const val DROP_SETTLE_MIN_MS = 220L
 private const val DROP_SETTLE_PER_PX_MS = 0.16f
 private const val DROP_SETTLE_MAX_MS = 420L
 
-/** Edits arrangement only. Feature state always goes through the original page's controls. */
+/** Edits arrangement only. Entries come from pure metadata even before their pages are created. */
 internal fun MainActivity.showSettingsFavoritesDialog(anchor: View? = null) {
     val home = settingsHome ?: return
     if (home.editing) return

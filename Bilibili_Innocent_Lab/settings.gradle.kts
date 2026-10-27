@@ -45,12 +45,6 @@ providers.gradleProperty("lumen.sourceDir").orNull?.let { sourceDir ->
 }
 
 // Isolated full-replacement migration; source provenance is recorded alongside each fork.
-include(":migration-hikage-core")
-project(":migration-hikage-core").projectDir = file("migration-forks/hikage-core")
-include(":migration-hikage-extension")
-project(":migration-hikage-extension").projectDir = file("migration-forks/hikage-extension")
-include(":migration-hikage-runtime-attribute")
-project(":migration-hikage-runtime-attribute").projectDir = file("migration-forks/hikage-runtime-attribute")
 include(":migration-system-extension")
 project(":migration-system-extension").projectDir = file("migration-forks/system-extension")
 include(":migration-ui-component")

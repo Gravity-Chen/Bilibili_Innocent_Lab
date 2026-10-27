@@ -2,6 +2,8 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+
 import android.app.Dialog
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -27,9 +29,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgro
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.background.HostBackgroundPreset
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.widget.android.widget.TextView as HikageTextView
 
 internal fun MainActivity.readHostBackground(): HostBackgroundConfig {
     val settings = com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings.read(prefs())
@@ -51,10 +50,9 @@ internal fun MainActivity.backgroundLabel(preset: HostBackgroundPreset): String 
     HostBackgroundPreset.CUSTOM -> R.string.host_background_custom
 })
 
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.hostBackgroundAppearanceRows(performer: Hikage.Performer<LinearLayout.LayoutParams>) {
+internal fun MainActivity.hostBackgroundAppearanceRows(performer: LinearSettingsScope) {
     with(performer) {
-        HikageTextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }) {
+        textView(key = "HostBackgroundPresenter:57", lparams = params(widthMatchParent = true) { topMargin = 12.dp }) {
             bindSettingDestination(this, FeaturePreferences.HOST_BACKGROUND_PRESET)
             fun refresh() { text = getString(R.string.host_background_current, backgroundLabel(readHostBackground().preset)) }
             refresh()
@@ -72,7 +70,7 @@ internal fun MainActivity.hostBackgroundAppearanceRows(performer: Hikage.Perform
                 }
             }
         }
-        HikageTextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "HostBackgroundPresenter:75", lparams = params(widthMatchParent = true)) {
             text = stringResource(R.string.host_background_tip)
             textColor = colorResource(R.color.colorTextDark)
             alpha = .6f

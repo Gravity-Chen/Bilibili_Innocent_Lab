@@ -1,6 +1,8 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import android.os.Bundle
+import android.os.Looper
+import android.util.Log
 import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.view.Gravity
@@ -14,7 +16,6 @@ import android.widget.Toast
 import androidx.core.widget.NestedScrollView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.doOnNextLayout
 import androidx.core.view.isVisible
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.engine.GlowBackdropTarget
@@ -29,19 +30,21 @@ import com.highcapable.betterandroid.ui.extension.view.firstChildOrNull
 import com.highcapable.betterandroid.ui.extension.view.removeSelf
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.textToString
+import io.github.jichuo1.meguviz.ui.UiSession
+import io.github.jichuo1.meguviz.ui.prewarm.PrewarmStop
+import io.github.jichuo1.meguviz.ui.prewarm.PrewarmSubmission
+import io.github.jichuo1.meguviz.ui.prewarm.PrewarmWork
+import io.github.jichuo1.meguviz.ui.prewarm.UiPrewarmer
 import com.highcapable.betterandroid.ui.extension.view.toast
 import kotlin.math.roundToInt
 
-/** Owns navigation and personal arrangement only; original controls remain the settings authority. */
+/** Owns final page construction and arrangement; setting identity and state exist before Views. */
 internal class SettingsHomePresenter(
     private val activity: MainActivity,
     private val shell: LinearLayout,
     private val originalScroll: NestedScrollView,
-    private val originalContent: ViewGroup,
-    private val purification: View?,
-    private val enhancement: View?,
-    private val beautification: View?,
-    private val activation: View?,
+    private val store: SettingStore,
+    private val buildPage: (Int, LinearLayout) -> Unit,
     private val floatingToolbar: View?,
     private val savedState: Bundle?,
     private val installStretch: (View, () -> Boolean) -> View?,
@@ -50,10 +53,17 @@ internal class SettingsHomePresenter(
     private val skinScrollPositionChanged: (View) -> Unit,
     private val skinContentSource: (View) -> Unit,
     private val navigationChanged: () -> Unit,
-    private val navigationTouched: () -> Unit
+    private val navigationTouched: () -> Unit,
+    private val prewarmSession: () -> UiSession? = { null }
 ) : SettingsFavoritesRepository.Observer {
-    internal data class Entry(val id: String, val source: MaterialSwitch) {
-        val title: String get() = source.textToString()
+    internal data class Entry(val id: String, val title: String)
+
+    private companion object {
+        const val TAG = "SettingsHomePresenter"
+        /** 一帧（120Hz≈8.3ms）多一点的余量；只用于事后判断是否让出剩余页，不能抢占构造。 */
+        const val PREWARM_UNIT_BUDGET_NANOS = 12_000_000L
+        const val PREWARM_RETRY_MILLIS = 300L
+        const val PREWARM_START_DELAY_MILLIS = 800L
     }
 
     private val density = activity.resources.displayMetrics.density
@@ -67,7 +77,17 @@ internal class SettingsHomePresenter(
     private val headings = ArrayList<View>(pageCount)
     private var navigation: ModernNavigationBar? = null
     private val contents = List(pageCount) { LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL } }
-    private val scrolls = List(pageCount) { SettingsHomeScrollView(activity, ::userNavigated, navigationTouched).apply {
+    private val builtPages = BooleanArray(pageCount).apply { this[0] = true }
+    private val buildingPages = BooleanArray(pageCount)
+    private val failedPages = arrayOfNulls<String>(pageCount)
+    private val scrollRestore = SettingsPageScrollRestore(List(pageCount) {
+        savedState?.getInt("settings_home_scroll_$it", 0) ?: 0
+    })
+    private val restoreListeners = arrayOfNulls<View.OnLayoutChangeListener>(pageCount)
+    private val scrolls = List(pageCount) { index -> SettingsHomeScrollView(activity,
+        { cancelPageRestore(index); userNavigated() },
+        { cancelPageRestore(index); navigationTouched() }
+    ).apply {
         onScrollPositionChanged = skinScrollPositionChanged
         isFillViewport = true
         isVerticalScrollBarEnabled = false
@@ -79,11 +99,12 @@ internal class SettingsHomePresenter(
     private val peerDisposers = mutableListOf<() -> Unit>()
     private var afterEdit: ((Boolean) -> Unit)? = null
     private var disposed = false
+    private var prewarmer: UiPrewarmer? = null
+    private var prewarmIdleQueued = false
 
     /** 弹窗队列派发前要先问：disposed 后 edit 会静默丢弃且不回调，队列会永久卡死。 */
     internal val isDisposed: Boolean get() = disposed
     private var revealingPage = false
-    private var userNavigationGeneration = 0L
     private var previousPage = 0
     private var manageButton: View? = null
     // 顶部悬浮栏与底部悬浮栏各自的高度（px）；滚动页用它们做内缩，
@@ -102,39 +123,18 @@ internal class SettingsHomePresenter(
         private set
     internal var editing = false
         private set
-    internal var entries: List<Entry> = emptyList()
-        private set
+    internal val entries: List<Entry> = store.descriptors.filter { it.favoriteEligible }
+        .map { Entry(it.id, activity.getString(it.titleRes)) }
     val searchRoots: List<ViewGroup> get() = contents.drop(1)
 
     fun install() {
         pager.onPositionChanged = {
+            ensurePage(pager.pagePosition.toInt().coerceIn(0, pageCount - 1))
+            ensurePage(kotlin.math.ceil(pager.pagePosition.toDouble()).toInt().coerceIn(0, pageCount - 1))
             navigation?.setPageProgress(pager.pagePosition, notifyPositionChanged = false)
             skinPositionChanged()
             floatingChrome?.onContentMoved()
             textChain?.onPositionChanged()
-        }
-        fun collect(view: View) {
-            if (view is MaterialSwitch && view.isVisible) {
-                view.settingId?.let { id -> entries = entries + Entry(id, view) }
-            }
-            if (view is ViewGroup) for (i in 0 until view.childCount) collect(view.child(i))
-        }
-        collect(originalContent)
-        val duplicateIds = entries.groupBy { it.id }.filterValues { it.size > 1 }.keys
-        if (duplicateIds.isNotEmpty()) {
-            android.util.Log.e("BilibiliInnocentLab", "Duplicate favorite control IDs: $duplicateIds")
-            activity.toast(activity.getString(R.string.settings_favorites_unavailable), Toast.LENGTH_LONG)
-            entries = entries.filterNot { it.id in duplicateIds }
-        }
-        val originalCards: List<View> = List(originalContent.childCount) { originalContent.child(it) }
-        originalContent.removeAllViews()
-        originalCards.forEach { card ->
-            val index = when (card) { purification -> 1; enhancement -> 2; beautification -> 3; else -> 4 }
-            contents[index].addView(card)
-        }
-        if (activation != null) {
-            activation.removeSelf()
-            contents[4].addView(activation, 0)
         }
         shell.removeView(originalScroll)
 
@@ -284,6 +284,7 @@ internal class SettingsHomePresenter(
             )
         }
         pager.onPageSelected = { index ->
+            ensurePage(index)
             stretches.getOrNull(previousPage)?.let(finishStretch)
             previousPage = index
             dock.setSelectedPage(index)
@@ -292,20 +293,76 @@ internal class SettingsHomePresenter(
         textChain = SettingsPageTextChain(pager, headings)
         pager.onUserInteraction = { if (!revealingPage) userNavigated() }
         val restored = savedState?.getInt("settings_home_page", 0)?.coerceIn(0, contents.lastIndex) ?: 0
+        ensurePage(restored)
         revealingPage = true
         try { pager.selectPage(restored, false) } finally { revealingPage = false }
         previousPage = restored
         dock.setSelectedPage(restored)
         dock.setPageProgress(pager.pagePosition)
-        scrolls.forEachIndexed { index, scroll ->
-            val y = savedState?.getInt("settings_home_scroll_$index", 0) ?: 0
-            if (y > 0 && index != 0) scroll.doOnNextLayout {
-                if (!disposed && userNavigationGeneration == 0L) scroll.scrollTo(0, y)
-            }
-        }
         renderFavorites()
         SettingsFavoritesRepository.read(activity.applicationContext, this)
         installTopInset()
+        // 让开冷启动首屏与入场动效；之后每个空闲窗口最多预建一页。
+        schedulePrewarm(PREWARM_START_DELAY_MILLIS)
+    }
+
+    /**
+     * 首次切页不再在点击帧里现场构建整页：首帧画完、主线程空闲后，由 UiPrewarmer 每帧最多
+     * 预建一个未建页面（相邻页优先）。用户一开始拖动或点选就整体取消，等下一次空闲再续。
+     * 单页是最小单元，无法在页内切分；超出帧预算的页仍保留（已建好），但本轮剩余页让到下次空闲。
+     */
+    private fun schedulePrewarm(delayMillis: Long = 0) {
+        if (disposed || prewarmIdleQueued || builtPages.all { it }) return
+        prewarmIdleQueued = true
+        shell.postDelayed({
+            if (disposed) { prewarmIdleQueued = false; return@postDelayed }
+            Looper.myQueue().addIdleHandler {
+                prewarmIdleQueued = false
+                submitPrewarm()
+                false
+            }
+        }, delayMillis)
+    }
+
+    private fun submitPrewarm() {
+        if (disposed) return
+        val session = prewarmSession() ?: return
+        // 分页动画/回弹期间主线程在帧间也会空闲；只在静止时预建，否则稍后再看。
+        if (!pager.isSettled) { schedulePrewarm(PREWARM_RETRY_MILLIS); return }
+        val queue = prewarmer ?: UiPrewarmer.attach(session, capacity = pageCount, maxUnitsPerWork = 1,
+            maxUnitNanos = PREWARM_UNIT_BUDGET_NANOS).also { prewarmer = it }
+        if (queue.pendingCount > 0) return
+        val current = pager.selectedPage
+        val order = (0 until pageCount).filter { !builtPages[it] }.sortedBy { kotlin.math.abs(it - current) }
+        for (index in order) {
+            // 本单元刚建好的页面仍是“当前”结果：否则调度器会把完成的单元当作过期丢弃，预算判断失效。
+            var built = false
+            val submission = queue.submit(PrewarmWork(
+                isCurrent = { !disposed && failedPages[index] == null && (built || !builtPages[index]) },
+                step = {
+                    built = true
+                    try { ensurePage(index) } catch (failure: Throwable) {
+                        // 不让预建失败拖垮会话调度器；用户真正切到该页时由 ensurePage 的检查报告。
+                        Log.e(TAG, "Settings page $index prewarm failed", failure)
+                    }
+                    true
+                },
+                ready = {},
+                discard = { reason ->
+                    // 慢设备上一页就超过预算：本轮剩余页让出，等下一次空闲。
+                    if (reason == PrewarmStop.OVER_BUDGET) { queue.cancel(); schedulePrewarm(PREWARM_RETRY_MILLIS) }
+                },
+            ))
+            if (submission != PrewarmSubmission.Accepted) break
+        }
+    }
+
+    /** 用户开始交互：放弃尚未执行的预建单元，交互结束后的下一次空闲再续。 */
+    private fun pausePrewarm() {
+        val queue = prewarmer ?: return
+        if (queue.pendingCount == 0) return
+        queue.cancel()
+        schedulePrewarm(PREWARM_RETRY_MILLIS)
     }
 
     /**
@@ -394,10 +451,7 @@ internal class SettingsHomePresenter(
         val success = result.saved
         if (success == null) {
             renderFavorites()
-            val y = savedState?.getInt("settings_home_scroll_0", 0) ?: 0
-            if (y > 0) scrolls[0].doOnNextLayout {
-                if (!disposed && userNavigationGeneration == 0L) scrolls[0].scrollTo(0, y)
-            }
+            schedulePageRestore(0)
         } else {
             editing = false
             renderFavorites()
@@ -409,7 +463,7 @@ internal class SettingsHomePresenter(
     }
 
     private fun userNavigated() {
-        userNavigationGeneration++
+        pausePrewarm()
         navigationChanged()
     }
 
@@ -438,8 +492,7 @@ internal class SettingsHomePresenter(
                 setPadding(dp(16), dp(12), dp(16), dp(12))
                 background = activity.skinCardBackground(activity.monetColors.surfaceVariant, 18f)
             }
-            if (entry != null && entry.source.supportsFavoriteToggle) {
-                val source = entry.source
+            if (entry != null && store.descriptor(id)?.directToggle == true) {
                 val peer = MaterialSwitch(activity, null).apply {
                     text = entry.title; textSize = 15f; isAllCaps = false
                     isSingleLine = false; maxLines = 3
@@ -450,18 +503,20 @@ internal class SettingsHomePresenter(
                 fun sync() {
                     syncing = true
                     try {
-                        peer.isChecked = source.isChecked
-                        peer.alpha = source.alpha
-                        peer.isEnabled = source.isEnabled
+                        val finalState = store.state(id)
+                        peer.isChecked = finalState.checked
+                        peer.alpha = if (finalState.enabled) 1f else .45f
+                        peer.isEnabled = finalState.enabled
                     }
                     finally { syncing = false }
                 }
                 sync()
-                peerDisposers += source.observeState(::sync)
+                peerDisposers += store.observe(id) { sync() }
                 peer.setOnCheckedChangeListener { _, checked ->
                     if (!syncing) {
-                        if (source.isEnabled) source.isChecked = checked
-                        sync()
+                        try {
+                            if (store.state(id).enabled) activity.requestFavoriteSetting(id, checked, peer)
+                        } finally { sync() }
                     }
                 }
                 card.addView(peer, LinearLayout.LayoutParams(-1, -2))
@@ -473,7 +528,7 @@ internal class SettingsHomePresenter(
                     if (entry != null) {
                         isFocusable = true
                         setOnClickListener {
-                            activity.collectSettingsSearchTargets().firstOrNull { it.view === entry.source }
+                            activity.collectSettingsSearchTargets().firstOrNull { id in it.settingIds }
                                 ?.let { activity.revealSettingsSearchTarget(it) }
                         }
                     }
@@ -484,6 +539,23 @@ internal class SettingsHomePresenter(
         activity.styleHomeControls(favoriteRows)
     }
 
+    internal fun pageRoot(index: Int): ViewGroup = contents[index]
+
+    internal fun ensurePage(index: Int) {
+        if (disposed || builtPages[index] || buildingPages[index]) return
+        check(failedPages[index] == null) { "Page construction failed; recreate its session before retrying" }
+        buildingPages[index] = true
+        try {
+            buildPage(index, contents[index])
+            builtPages[index] = true
+            schedulePageRestore(index)
+            skinPositionChanged()
+        } catch (failure: Throwable) {
+            failedPages[index] = failure.javaClass.name
+            throw failure
+        } finally { buildingPages[index] = false }
+    }
+
     fun revealPageFor(view: View): NestedScrollView? {
         val index = contents.indexOfFirst { root ->
             var ancestor: View? = view
@@ -491,6 +563,8 @@ internal class SettingsHomePresenter(
             ancestor === root
         }
         if (index < 0) return null
+        ensurePage(index)
+        cancelPageRestore(index)
         revealingPage = true
         try { pager.selectPage(index, false) } finally { revealingPage = false }
         return scrolls[index]
@@ -498,11 +572,43 @@ internal class SettingsHomePresenter(
 
     fun saveState(out: Bundle) {
         out.putInt("settings_home_page", pager.selectedPage)
-        scrolls.forEachIndexed { index, scroll -> out.putInt("settings_home_scroll_$index", scroll.scrollY) }
+        scrolls.forEachIndexed { index, scroll -> out.putInt("settings_home_scroll_$index",
+            scrollRestore.savedOffset(index, scroll.scrollY)) }
+    }
+
+    private fun cancelPageRestore(index: Int) {
+        restoreListeners[index]?.let(scrolls[index]::removeOnLayoutChangeListener)
+        restoreListeners[index] = null
+        scrollRestore.userInput(index)
+    }
+
+    private fun schedulePageRestore(index: Int) {
+        if (disposed) return
+        val ticket = scrollRestore.prepare(index) ?: return
+        val scroll = scrolls[index]
+        restoreListeners[index]?.let(scroll::removeOnLayoutChangeListener)
+        val listener = object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(view: View, left: Int, top: Int, right: Int, bottom: Int,
+                oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int) {
+                scroll.removeOnLayoutChangeListener(this)
+                if (restoreListeners[index] === this) restoreListeners[index] = null
+                if (!disposed) scrollRestore.consume(ticket)?.let { scroll.scrollTo(0, it) }
+            }
+        }
+        restoreListeners[index] = listener
+        scroll.addOnLayoutChangeListener(listener)
+        scroll.requestLayout()
     }
 
     fun dispose() {
         disposed = true
+        prewarmer?.let { queue -> runCatching { queue.close() } }
+        prewarmer = null
+        restoreListeners.indices.forEach { index ->
+            restoreListeners[index]?.let(scrolls[index]::removeOnLayoutChangeListener)
+            restoreListeners[index] = null
+        }
+        scrollRestore.close()
         scrolls.forEach { it.onScrollPositionChanged = null }
         floatingChrome?.dispose()
         floatingChrome = null

@@ -37,11 +37,11 @@ class TelemetryMenuStructureTest {
         val badge = source.after("// The badge stays outside the circular button and does not change its anchor geometry.")
             .before("activationCardView = this")
         // 圆形 GitHub 按钮固定 48dp，徽章只借用其右上角外飘，不改动按钮锚定几何。
-        assertTrue(badge.contains("LayoutParams(48.dp, 48.dp) { marginEnd = 5.dp }"))
+        assertTrue(badge.contains("params(48.dp, 48.dp) { marginEnd = 5.dp }"))
         // 负边距徽章要画出宿主外，宿主必须关掉裁剪。
         assertTrue(badge.contains("clipChildren = false"))
         assertTrue(badge.contains("clipToPadding = false"))
-        assertTrue(badge.contains("LayoutParams(22.dp, 15.dp)"))
+        assertTrue(badge.contains("params(22.dp, 15.dp)"))
         assertTrue(badge.contains("marginEnd = -5.dp"))
         assertTrue(badge.contains("topMargin = -5.dp"))
         assertTrue(badge.contains("GithubUpdateBadgeDrawable"))

@@ -38,10 +38,11 @@ class ElasticExpandableRowGateTest {
     }
 
     @Test fun advancedCategoryHeaderParticipatesInTheElasticGesture() {
-        val block = main().after("val header = NativeLinearLayout(this).apply {")
-            .take(560)
+        val block = SettingsUiSource.function("advancedCategoryScope")
+            .after("header = linearLayout(").before("}) {")
         assertFalse(block.contains("EXCLUDED_TAG"))
         assertTrue(block.contains("foreground = selfRippleBackground(12f)"))
+        assertTrue(block.contains("setOnClickListener { toggleAdvancedCategory(category) }"))
     }
 
     /** 排除机制本身要保住：只剩角标不独占手势与 scrub 条自管触摸两处。 */

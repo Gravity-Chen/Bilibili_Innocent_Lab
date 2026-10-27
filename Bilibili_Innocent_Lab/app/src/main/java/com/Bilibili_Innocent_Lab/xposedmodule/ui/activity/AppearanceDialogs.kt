@@ -35,8 +35,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidRealtimeCaptu
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.toast
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.widget.android.widget.ImageView
 import android.widget.LinearLayout as NativeLinearLayout
 import android.widget.TextView as NativeTextView
 

@@ -2,6 +2,8 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+
 import android.graphics.Typeface
 import android.util.Log
 import android.text.TextUtils
@@ -16,12 +18,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.toast
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
-import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.widget.android.widget.ImageView
-import com.highcapable.hikage.widget.android.widget.LinearLayout
-import com.highcapable.hikage.widget.android.widget.TextView
-import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.StoryActionIcon
@@ -33,9 +29,8 @@ import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.AdvancedSettingsCategory
 
 /** 推荐过滤的"标题 + 当前摘要"可点行及其说明；时长、播放量、发布时间三行同构。 */
-@com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.recommendSummaryRow(
-    scope: Hikage.Performer<NativeLinearLayout.LayoutParams>,
+    scope: LinearSettingsScope,
     @StringRes titleRes: Int,
     @StringRes tipRes: Int,
     settingIds: List<String>,
@@ -43,8 +38,8 @@ internal fun MainActivity.recommendSummaryRow(
     bindSummaryView: (NativeTextView) -> Unit,
     onClick: (View) -> Unit
 ) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "recommend-summary:$titleRes",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
         }
     ) {
@@ -62,8 +57,8 @@ internal fun MainActivity.recommendSummaryRow(
         settingIds.forEach { settingsDestinations.bind(it, this) }
         setOnClickListener(onClick)
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "recommend-summary-tip:$titleRes",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -74,13 +69,8 @@ internal fun MainActivity.recommendSummaryRow(
 }
 
 /** 进阶净化 · PURIFY_SHARED 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.purifySharedCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.purifySharedCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.PURIFY_SHARED) {
         advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_SHARED] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_purify_shared)
@@ -100,13 +90,8 @@ internal fun MainActivity.purifySharedCategory(scope: Hikage.Performer<NativeLin
 }
 
 /** 进阶净化 · PURIFY_SHARE 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.purifyShareCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.purifyShareCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.PURIFY_SHARE) {
         advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_SHARE] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_purify_share)
@@ -114,8 +99,8 @@ internal fun MainActivity.purifyShareCategory(scope: Hikage.Performer<NativeLine
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:117",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -126,26 +111,12 @@ internal fun MainActivity.purifyShareCategory(scope: Hikage.Performer<NativeLine
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = purifyShareContent
-        setOnCheckedChangeListener { _, checked ->
-            purifyShareContent = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.PURIFY_SHARE_CONTENT,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write share purify prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.PURIFY_SHARE_CONTENT, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:147",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -153,8 +124,8 @@ internal fun MainActivity.purifyShareCategory(scope: Hikage.Performer<NativeLine
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:156",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -165,26 +136,12 @@ internal fun MainActivity.purifyShareCategory(scope: Hikage.Performer<NativeLine
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = shareMiniProgramDirectLink
-        setOnCheckedChangeListener { _, checked ->
-            shareMiniProgramDirectLink = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write mini program share prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.SHARE_MINI_PROGRAM_DIRECT_LINK, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:186",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -195,13 +152,8 @@ internal fun MainActivity.purifyShareCategory(scope: Hikage.Performer<NativeLine
 }
 
 /** 进阶净化 · PURIFY_STARTUP 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.purifyStartupCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.PURIFY_STARTUP) {
         advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_STARTUP] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_purify_startup)
@@ -209,8 +161,8 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:212",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -221,15 +173,12 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = purifySplashAds
-        setOnCheckedChangeListener { _, checked ->
-            purifySplashAds = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.PURIFY_SPLASH_ADS, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.PURIFY_SPLASH_ADS, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:231",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -237,8 +186,8 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "PurifySettingsSections:240",
+        lparams = params(widthMatchParent = true) {
             topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
             bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
         }
@@ -246,8 +195,8 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
         text = stringResource(R.string.prompt_purify_settings)
         applyAdvancedSubsectionStyle()
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:249",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -257,26 +206,12 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = blockTeenagersModePrompt
-        setOnCheckedChangeListener { _, isChecked ->
-            blockTeenagersModePrompt = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write teenagers mode prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.BLOCK_TEENAGERS_MODE_PROMPT, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:278",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -284,8 +219,8 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "PurifySettingsSections:287",
+        lparams = params(widthMatchParent = true) {
             topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
             bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
         }
@@ -293,8 +228,8 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
         text = stringResource(R.string.client_update_settings)
         applyAdvancedSubsectionStyle()
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:296",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -304,26 +239,12 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = blockAppUpdate
-        setOnCheckedChangeListener { _, isChecked ->
-            blockAppUpdate = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.BLOCK_APP_UPDATE,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write block app update prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.BLOCK_APP_UPDATE, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:325",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -331,8 +252,8 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:334",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -344,41 +265,18 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
         textSize = 15f
         isChecked = blockComponentLibraryDownload
         setOnCheckedChangeListener { button, checked ->
-            if (programmaticSwitch) return@setOnCheckedChangeListener
-            val previous = blockComponentLibraryDownload
-            val saved = runCatching {
-                val preferences = prefs()
-                preferences.edit {
-                    putBoolean(FeaturePreferences.BLOCK_COMPONENT_LIBRARY_DOWNLOAD, checked)
-                }
-                check(
-                    preferences.getBoolean(
-                        FeaturePreferences.BLOCK_COMPONENT_LIBRARY_DOWNLOAD,
-                        !checked
-                    ) == checked
-                )
-            }.onFailure { throwable ->
-                Log.e("BilibiliInnocentLab", "write component library prefs failed", throwable)
-            }.isSuccess
-            if (!saved) {
-                programmaticSwitch = true
-                button.isChecked = previous
-                programmaticSwitch = false
-                toast(getString(R.string.block_component_library_download_save_failed))
-                return@setOnCheckedChangeListener
-            }
-            blockComponentLibraryDownload = checked
+            applyModeledToggle(FeaturePreferences.BLOCK_COMPONENT_LIBRARY_DOWNLOAD, checked, button)
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "PurifySettingsSections:373", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.block_component_library_download_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }
+    textView(key = "PurifySettingsSections:380",
+        lparams = params(widthMatchParent = true) { topMargin = 12.dp }
     ) {
         componentPoolRulesSummaryView = this
         text = stringResource(R.string.component_pool_block) + "\n" +
@@ -396,7 +294,7 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
             queryComponentSnapshotAndOpenPicker(componentPoolPickerSurface())
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "PurifySettingsSections:399", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.component_pool_block_tip)
@@ -406,13 +304,8 @@ internal fun MainActivity.purifyStartupCategory(scope: Hikage.Performer<NativeLi
 }
 
 /** 进阶净化 · PURIFY_COMMENTS 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.purifyCommentsCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.PURIFY_COMMENTS) {
         advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_COMMENTS] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_purify_comments)
@@ -420,8 +313,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:423",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -432,15 +325,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hideCommentSection
-        setOnCheckedChangeListener { _, checked ->
-            hideCommentSection = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.HIDE_COMMENT_SECTION, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_COMMENT_SECTION, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:442",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -448,8 +338,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:451",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -460,26 +350,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeCommentSearchLinks
-        setOnCheckedChangeListener { _, isChecked ->
-            removeCommentSearchLinks = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write comment search prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_COMMENT_SEARCH_LINKS, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:481",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -487,8 +363,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:490",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -499,26 +375,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeCommentEmptyGuide
-        setOnCheckedChangeListener { _, isChecked ->
-            removeCommentEmptyGuide = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write comment empty guide prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_COMMENT_EMPTY_GUIDE, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:520",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -526,8 +388,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:529",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -538,26 +400,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeCommentVoteWidgets
-        setOnCheckedChangeListener { _, isChecked ->
-            removeCommentVoteWidgets = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write comment vote prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_COMMENT_VOTE_WIDGETS, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:559",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -565,8 +413,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:568",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -577,26 +425,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeCommentFollowButtons
-        setOnCheckedChangeListener { _, isChecked ->
-            removeCommentFollowButtons = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write comment follow prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_COMMENT_FOLLOW_BUTTONS, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:598",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -604,8 +438,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:607",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -616,26 +450,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeCommentQoe
-        setOnCheckedChangeListener { _, isChecked ->
-            removeCommentQoe = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_COMMENT_QOE,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write comment qoe prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_COMMENT_QOE, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:637",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -643,8 +463,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:646",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -655,26 +475,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeCommentOperations
-        setOnCheckedChangeListener { _, isChecked ->
-            removeCommentOperations = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_COMMENT_OPERATIONS,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write comment operation prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_COMMENT_OPERATIONS, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:676",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -683,8 +489,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textSize = 12f
     }
     commentReplyButtonSettingsRows(this, removeCommentReplyButton) { removeCommentReplyButton = it }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:686",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -696,14 +502,13 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = commentSemanticFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            commentSemanticFilterEnabled = checked
-            writeSemanticSwitch(FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED, checked)
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.COMMENT_SEMANTIC_FILTER_ENABLED, checked, button)
         }
     }
     semanticFilterDetails(this, SemanticSurface.COMMENT, SettingsCatalog.ID_COMMENT_SEMANTIC_RULES, R.string.comment_semantic_filter_tip)
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:705",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -714,26 +519,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = commentKeywordFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            commentKeywordFilterEnabled = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write comment keyword filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.COMMENT_KEYWORD_FILTER_ENABLED, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:735",
+        lparams = params(widthMatchParent = true)
     ) {
         bindSettingDestination(this, FeaturePreferences.COMMENT_FILTER_KEYWORDS)
         commentKeywordSummaryView = this
@@ -783,8 +574,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
             }
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:786",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -792,8 +583,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:795",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -804,26 +595,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = commentMinLevelFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            commentMinLevelFilterEnabled = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write comment minimum level filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.COMMENT_MIN_LEVEL_FILTER_ENABLED, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:825",
+        lparams = params(widthMatchParent = true)
     ) {
         bindSettingDestination(this, FeaturePreferences.COMMENT_MIN_LEVEL)
         commentLevelSummaryView = this
@@ -836,8 +613,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         isFocusable = true
         setOnClickListener { showCommentMinLevelDialog(it) }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:839",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -846,8 +623,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textSize = 12f
     }
     // @ 整条与发布者过滤跟随关键词/等级过滤，共用同一批列表边界。
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:849",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -858,26 +635,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeAtOnlyComments
-        setOnCheckedChangeListener { _, checked ->
-            removeAtOnlyComments = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_AT_ONLY_COMMENTS,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write at-only comment prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_AT_ONLY_COMMENTS, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:879",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -885,8 +648,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:888",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -897,26 +660,12 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = commentUserFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            commentUserFilterEnabled = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.COMMENT_USER_FILTER_ENABLED,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write comment author filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.COMMENT_USER_FILTER_ENABLED, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:918",
+        lparams = params(widthMatchParent = true)
     ) {
         bindSettingDestination(this, FeaturePreferences.COMMENT_USER_FILTER_RULES)
         commentUserFilterSummaryView = this
@@ -949,8 +698,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
             }
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:952",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -961,13 +710,8 @@ internal fun MainActivity.purifyCommentsCategory(scope: Hikage.Performer<NativeL
 }
 
 /** 进阶净化 · PURIFY_PLAYBACK 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.purifyPlaybackCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.PURIFY_PLAYBACK) {
         advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_PLAYBACK] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_purify_playback)
@@ -975,8 +719,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:978",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -986,26 +730,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hidePlayerPortraitControl
-        setOnCheckedChangeListener { _, isChecked ->
-            hidePlayerPortraitControl = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write player portrait prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_PLAYER_PORTRAIT_CONTROL, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1007",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -1013,8 +743,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1016",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -1026,26 +756,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hidePlayerInteractiveOverlays
-        setOnCheckedChangeListener { _, isChecked ->
-            hidePlayerInteractiveOverlays = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write player interactive overlays prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_PLAYER_INTERACTIVE_OVERLAYS, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1047",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -1053,8 +769,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1056",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -1066,26 +782,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hidePlayerPopupPromotion
-        setOnCheckedChangeListener { _, isChecked ->
-            hidePlayerPopupPromotion = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write player popup promotion prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_PLAYER_POPUP_PROMOTION, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1087",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -1093,8 +795,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1096",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -1106,26 +808,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hidePlayerEndPageRecommend
-        setOnCheckedChangeListener { _, isChecked ->
-            hidePlayerEndPageRecommend = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write player end page recommend prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_PLAYER_END_PAGE_RECOMMEND, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1127",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -1133,8 +821,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1136",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -1145,26 +833,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hidePgcAutoActivityPopup
-        setOnCheckedChangeListener { _, isChecked ->
-            hidePgcAutoActivityPopup = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write PGC auto activity popup prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_PGC_AUTO_ACTIVITY_POPUP, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1166",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -1172,8 +846,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+    linearLayout(key = "PurifySettingsSections:1175",
+        lparams = params(widthMatchParent = true) {
             topMargin = 14.dp
             bottomMargin = 8.dp
         },
@@ -1188,17 +862,17 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
             setOnClickListener { showDetailModuleFilterDialog(anchor = it) }
         }
     ) {
-        LinearLayout(
-            lparams = LayoutParams { weight = 1f },
+        linearLayout(key = "PurifySettingsSections:1191",
+            lparams = params { weight = 1f },
             init = { orientation = LinearLayout.VERTICAL }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PurifySettingsSections:1195", lparams = params(widthMatchParent = true)) {
                 text = stringResource(R.string.detail_module_purify_settings)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true) {
+            textView(key = "PurifySettingsSections:1200",
+                lparams = params(widthMatchParent = true) {
                     topMargin = 4.dp
                 }
             ) {
@@ -1209,7 +883,7 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
                 textSize = 12f
             }
             // 供设置项搜索命中子项：只做索引，不显示。
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PurifySettingsSections:1212", lparams = params(widthMatchParent = true)) {
                 visibility = View.GONE
                 text = listOf(
                     R.string.remove_detail_honor,
@@ -1224,15 +898,15 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
                 textSize = 12f
             }
         }
-        ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+        imageView(key = "PurifySettingsSections:1227", lparams = params(18.dp, 18.dp)) {
             setImageResource(R.drawable.ic_chevron_down)
             rotation = -90f
             alpha = 0.8f
             imageTintList = stateColorResource(R.color.colorTextGray)
         }
     }
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+    linearLayout(key = "PurifySettingsSections:1234",
+        lparams = params(widthMatchParent = true) {
             topMargin = 14.dp
             bottomMargin = 8.dp
         },
@@ -1249,17 +923,17 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
             setOnClickListener { showPortraitContentFilterDialog(it) }
         }
     ) {
-        LinearLayout(
-            lparams = LayoutParams { weight = 1f },
+        linearLayout(key = "PurifySettingsSections:1252",
+            lparams = params { weight = 1f },
             init = { orientation = LinearLayout.VERTICAL }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PurifySettingsSections:1256", lparams = params(widthMatchParent = true)) {
                 text = stringResource(R.string.portrait_content_filter_title)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true) {
+            textView(key = "PurifySettingsSections:1261",
+                lparams = params(widthMatchParent = true) {
                     topMargin = 4.dp
                 }
             ) {
@@ -1271,7 +945,7 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
             }
             // 供设置项搜索命中子项：13 个勾选都在弹窗里，开关本体已 GONE，
             // 没有这条索引就只有面板标题能被搜到（与其余四个弹窗面板的兜底同口径）。
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PurifySettingsSections:1274", lparams = params(widthMatchParent = true)) {
                 visibility = View.GONE
                 text = PortraitContentFilterCatalog.options.joinToString(separator = " ") { option ->
                     stringResource(portraitContentFilterLabel(option.preferenceKey))
@@ -1280,15 +954,15 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
                 textSize = 12f
             }
         }
-        ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+        imageView(key = "PurifySettingsSections:1283", lparams = params(18.dp, 18.dp)) {
             setImageResource(R.drawable.ic_chevron_down)
             rotation = -90f
             alpha = 0.8f
             imageTintList = stateColorResource(R.color.colorTextGray)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1290",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -1299,15 +973,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryAds
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryAds = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.REMOVE_STORY_ADS, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_ADS, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1309",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1319,15 +990,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryLive
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryLive = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.REMOVE_STORY_LIVE, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_LIVE, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1329",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1339,15 +1007,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryGames
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryGames = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.REMOVE_STORY_GAMES, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_GAMES, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1349",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1359,15 +1024,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryBangumi
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryBangumi = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.REMOVE_STORY_BANGUMI, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_BANGUMI, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1369",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1379,15 +1041,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryCourses
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryCourses = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.REMOVE_STORY_COURSES, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_COURSES, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1389",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1399,18 +1058,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryShortDrama
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryShortDrama = checked
-            prefs().edit {
-                putBoolean(
-                    FeaturePreferences.REMOVE_STORY_SHORT_DRAMA,
-                    checked
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_SHORT_DRAMA, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1412",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1422,18 +1075,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryShopping
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryShopping = checked
-            prefs().edit {
-                putBoolean(
-                    FeaturePreferences.REMOVE_STORY_SHOPPING,
-                    checked
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_SHOPPING, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1435",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1445,15 +1092,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryMovies
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryMovies = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.REMOVE_STORY_MOVIES, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_MOVIES, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1455",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1465,18 +1109,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryDocumentaries
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryDocumentaries = checked
-            prefs().edit {
-                putBoolean(
-                    FeaturePreferences.REMOVE_STORY_DOCUMENTARIES,
-                    checked
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_DOCUMENTARIES, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1478",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1488,15 +1126,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryTv
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryTv = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.REMOVE_STORY_TV, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_TV, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1498",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1508,15 +1143,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryVariety
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryVariety = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.REMOVE_STORY_VARIETY, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_VARIETY, checked, button)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1518",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1528,15 +1160,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeStoryMusic
-        setOnCheckedChangeListener { _, checked ->
-            removeStoryMusic = checked
-            prefs().edit {
-                putBoolean(FeaturePreferences.REMOVE_STORY_MUSIC, checked)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_STORY_MUSIC, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1538",
+        lparams = params(widthMatchParent = true)
     ) {
         visibility = View.GONE
         alpha = 0.6f
@@ -1545,8 +1174,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+    linearLayout(key = "PurifySettingsSections:1548",
+        lparams = params(widthMatchParent = true) {
             topMargin = 14.dp
             bottomMargin = 8.dp
         },
@@ -1561,17 +1190,17 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
             setOnClickListener { showStoryActionIconsDialog(anchor = it) }
         }
     ) {
-        LinearLayout(
-            lparams = LayoutParams { weight = 1f },
+        linearLayout(key = "PurifySettingsSections:1564",
+            lparams = params { weight = 1f },
             init = { orientation = LinearLayout.VERTICAL }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PurifySettingsSections:1568", lparams = params(widthMatchParent = true)) {
                 text = stringResource(R.string.story_action_icons_title)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true) {
+            textView(key = "PurifySettingsSections:1573",
+                lparams = params(widthMatchParent = true) {
                     topMargin = 4.dp
                 }
             ) {
@@ -1582,7 +1211,7 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
                 textSize = 12f
             }
             // 供设置项搜索命中子项：只做索引，不显示。
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PurifySettingsSections:1585", lparams = params(widthMatchParent = true)) {
                 visibility = View.GONE
                 text = StoryActionIcon.entries.joinToString(separator = " ") {
                     stringResource(storyActionIconLabel(it))
@@ -1591,15 +1220,15 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
                 textSize = 12f
             }
         }
-        ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+        imageView(key = "PurifySettingsSections:1594", lparams = params(18.dp, 18.dp)) {
             setImageResource(R.drawable.ic_chevron_down)
             rotation = -90f
             alpha = 0.8f
             imageTintList = stateColorResource(R.color.colorTextGray)
         }
     }
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+    linearLayout(key = "PurifySettingsSections:1601",
+        lparams = params(widthMatchParent = true) {
             topMargin = 14.dp
             bottomMargin = 8.dp
         },
@@ -1616,17 +1245,17 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
             setOnClickListener { showVideoRelateFilterDialog(it) }
         }
     ) {
-        LinearLayout(
-            lparams = LayoutParams { weight = 1f },
+        linearLayout(key = "PurifySettingsSections:1619",
+            lparams = params { weight = 1f },
             init = { orientation = LinearLayout.VERTICAL }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PurifySettingsSections:1623", lparams = params(widthMatchParent = true)) {
                 text = stringResource(R.string.video_relate_filter_settings)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true) {
+            textView(key = "PurifySettingsSections:1628",
+                lparams = params(widthMatchParent = true) {
                     topMargin = 4.dp
                 }
             ) {
@@ -1636,7 +1265,7 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
                 textColor = colorResource(R.color.colorTextDark)
                 textSize = 12f
             }
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PurifySettingsSections:1639", lparams = params(widthMatchParent = true)) {
                 visibility = View.GONE
                 text = listOf(
                     R.string.remove_relate_commercial,
@@ -1651,7 +1280,7 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
                 ).joinToString(" · ") { stringResource(it) }
             }
         }
-        ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+        imageView(key = "PurifySettingsSections:1654", lparams = params(18.dp, 18.dp)) {
             setImageResource(R.drawable.ic_chevron_down)
             rotation = -90f
             alpha = 0.8f
@@ -1659,7 +1288,7 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         }
     }
     // 详情页协议里没有标签 id，"按标签过滤"在这里退到 UP 主与标签名两档；判据是整串相等。
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "PurifySettingsSections:1662", lparams = params(widthMatchParent = true)) {
         videoRelateBlockedAuthorsSummaryView = this
         text = ruleEntryText(
             R.string.video_relate_blocked_authors,
@@ -1697,8 +1326,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
             }
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }
+    textView(key = "PurifySettingsSections:1700",
+        lparams = params(widthMatchParent = true) { topMargin = 4.dp }
     ) {
         videoRelateBlockedTagsSummaryView = this
         text = ruleEntryText(
@@ -1737,7 +1366,7 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
             }
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }) {
+    textView(key = "PurifySettingsSections:1740", lparams = params(widthMatchParent = true) { topMargin = 4.dp }) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.video_relate_blocked_tip)
@@ -1746,8 +1375,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
     }
     // 弹幕净化：内容流（DmSegMobileReply）侧的权重与会员彩字，
     // 与播放器互动组件（指令弹幕/角标）分属两条链路，各自独立开关。
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1749",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -1758,26 +1387,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = danmakuWeightFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            danmakuWeightFilterEnabled = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.DANMAKU_WEIGHT_FILTER_ENABLED,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write danmaku weight filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.DANMAKU_WEIGHT_FILTER_ENABLED, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1779",
+        lparams = params(widthMatchParent = true)
     ) {
         bindSettingDestination(this, FeaturePreferences.DANMAKU_WEIGHT_FILTER_MINIMUM)
         danmakuWeightSummaryView = this
@@ -1793,8 +1408,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         isFocusable = true
         setOnClickListener { showDanmakuWeightDialog(it) }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1796",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -1802,8 +1417,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1805",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -1814,26 +1429,12 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeVipColorfulDanmaku
-        setOnCheckedChangeListener { _, checked ->
-            removeVipColorfulDanmaku = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_VIP_COLORFUL_DANMAKU,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write vip colorful danmaku prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_VIP_COLORFUL_DANMAKU, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1835",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -1841,8 +1442,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1844",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -1854,9 +1455,8 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = danmakuSemanticFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            danmakuSemanticFilterEnabled = checked
-            writeSemanticSwitch(FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED, checked)
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.DANMAKU_SEMANTIC_FILTER_ENABLED, checked, button)
         }
     }
     semanticFilterDetails(this, SemanticSurface.DANMAKU, SettingsCatalog.ID_DANMAKU_SEMANTIC_RULES, R.string.danmaku_semantic_filter_tip)
@@ -1867,21 +1467,20 @@ internal fun MainActivity.purifyPlaybackCategory(scope: Hikage.Performer<NativeL
  * 开关本身在各调用点按常规写明（常用收藏护栏要求开关与初值字段一一对应）；
  * JEV 本身（Key / 地址 / 灵敏度 / 首屏等待）只在实验性功能 → 兼容配置一次。
  */
-@com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.semanticFilterDetails(
-    scope: Hikage.Performer<NativeLinearLayout.LayoutParams>,
+    scope: LinearSettingsScope,
     surface: SemanticSurface,
     rulesSettingId: String,
     tipRes: Int
 ) = with(scope) {
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "PurifySettingsSections:1877", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(tipRes)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }) {
+    textView(key = "PurifySettingsSections:1884", lparams = params(widthMatchParent = true) { topMargin = 4.dp }) {
         settingsDestinations.bind(rulesSettingId, this)
         settingsDestinations.bind(SettingsCatalog.semanticCustomRulesId(surface), this)
         text = semanticRulesEntryText(surface)
@@ -1897,7 +1496,7 @@ internal fun MainActivity.semanticFilterDetails(
         }
     }
     // 判定来源：自动分流或固定某个来源（来源本身在 实验性功能 → 兼容 → AI 语义判定 里填）。
-    TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 2.dp }) {
+    textView(key = "PurifySettingsSections:1900", lparams = params(widthMatchParent = true) { topMargin = 2.dp }) {
         settingsDestinations.bind(SettingsCatalog.semanticRouteId(surface), this)
         text = semanticRouteEntryText(surface)
         textColor = colorResource(R.color.colorTextGray)
@@ -1914,13 +1513,8 @@ internal fun MainActivity.semanticFilterDetails(
 }
 
 /** 进阶净化 · PURIFY_MINE 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.purifyMineCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.purifyMineCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.PURIFY_MINE) {
         advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_MINE] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_purify_mine)
@@ -1928,8 +1522,8 @@ internal fun MainActivity.purifyMineCategory(scope: Hikage.Performer<NativeLinea
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1931",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -1939,26 +1533,12 @@ internal fun MainActivity.purifyMineCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hideMineVip
-        setOnCheckedChangeListener { _, isChecked ->
-            hideMineVip = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_MINE_VIP,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write mine vip prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_MINE_VIP, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1960",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -1966,8 +1546,8 @@ internal fun MainActivity.purifyMineCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:1969",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -1978,26 +1558,12 @@ internal fun MainActivity.purifyMineCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = keepMineVipSpace
-        setOnCheckedChangeListener { _, isChecked ->
-            keepMineVipSpace = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.KEEP_MINE_VIP_SPACE,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write mine vip space prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.KEEP_MINE_VIP_SPACE, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:1999",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2005,8 +1571,8 @@ internal fun MainActivity.purifyMineCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "PurifySettingsSections:2008",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
         }
     ) {
@@ -2028,8 +1594,8 @@ internal fun MainActivity.purifyMineCategory(scope: Hikage.Performer<NativeLinea
             )
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2031",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         text = stringResource(R.string.custom_mine_component_hide_tip)
@@ -2039,13 +1605,8 @@ internal fun MainActivity.purifyMineCategory(scope: Hikage.Performer<NativeLinea
 }
 
 /** 进阶净化 · PURIFY_SEARCH 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.purifySearchCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.PURIFY_SEARCH) {
         advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_SEARCH] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_purify_search)
@@ -2053,8 +1614,8 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2056",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2066,26 +1627,12 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hideSearchHomeRecommend
-        setOnCheckedChangeListener { _, checked ->
-            hideSearchHomeRecommend = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write search home recommend prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_SEARCH_HOME_RECOMMEND, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2087",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2093,8 +1640,8 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2096",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2105,26 +1652,12 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeSearchCommercial
-        setOnCheckedChangeListener { _, checked ->
-            removeSearchCommercial = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_SEARCH_COMMERCIAL,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write search commercial filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_SEARCH_COMMERCIAL, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2126",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2132,8 +1665,8 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2135",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2144,26 +1677,12 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = searchKeywordFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            searchKeywordFilterEnabled = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.SEARCH_KEYWORD_FILTER_ENABLED,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write search keyword filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.SEARCH_KEYWORD_FILTER_ENABLED, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2165",
+        lparams = params(widthMatchParent = true)
     ) {
         bindSettingDestination(this, FeaturePreferences.SEARCH_FILTER_KEYWORDS)
         searchKeywordSummaryView = this
@@ -2205,8 +1724,8 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
             }
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2208",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2214,8 +1733,8 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2217",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2226,26 +1745,12 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = searchAuthorFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            searchAuthorFilterEnabled = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.SEARCH_AUTHOR_FILTER_ENABLED,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write search author filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.SEARCH_AUTHOR_FILTER_ENABLED, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2247",
+        lparams = params(widthMatchParent = true)
     ) {
         bindSettingDestination(this, FeaturePreferences.SEARCH_AUTHOR_FILTER_RULES)
         searchAuthorSummaryView = this
@@ -2287,8 +1792,8 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
             }
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2290",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2299,13 +1804,8 @@ internal fun MainActivity.purifySearchCategory(scope: Hikage.Performer<NativeLin
 }
 
 /** 进阶净化 · PURIFY_NAVIGATION 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.purifyNavigationCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.PURIFY_NAVIGATION) {
         advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_NAVIGATION] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_purify_navigation)
@@ -2313,8 +1813,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "PurifySettingsSections:2316",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
         }
     ) {
@@ -2334,16 +1834,16 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
             queryComponentSnapshotAndOpenPicker(bottomBarPickerSurface())
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2337",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         text = stringResource(R.string.custom_bottom_bar_hide_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "PurifySettingsSections:2345",
+        lparams = params(widthMatchParent = true) {
             topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
             bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
         }
@@ -2351,8 +1851,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         text = stringResource(R.string.dynamic_page_settings)
         applyAdvancedSubsectionStyle()
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2354",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -2362,26 +1862,12 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hideDynamicCityTab
-        setOnCheckedChangeListener { _, isChecked ->
-            hideDynamicCityTab = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_DYNAMIC_CITY_TAB,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write dynamic city tab prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_DYNAMIC_CITY_TAB, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2383",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2389,8 +1875,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2392",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -2401,26 +1887,12 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hideDynamicSchoolTab
-        setOnCheckedChangeListener { _, isChecked ->
-            hideDynamicSchoolTab = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write dynamic school tab prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_DYNAMIC_SCHOOL_TAB, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2422",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2429,8 +1901,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textSize = 12f
     }
     // 动态内容过滤与上面的页签净化同属动态页，放在同一区域。
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "PurifySettingsSections:2432",
+        lparams = params(widthMatchParent = true) {
             topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
             bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
         }
@@ -2438,8 +1910,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         text = stringResource(R.string.dynamic_content_settings)
         applyAdvancedSubsectionStyle()
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2441",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2451,14 +1923,13 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = dynamicSemanticFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            dynamicSemanticFilterEnabled = checked
-            writeSemanticSwitch(FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED, checked)
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.DYNAMIC_SEMANTIC_FILTER_ENABLED, checked, button)
         }
     }
     semanticFilterDetails(this, SemanticSurface.DYNAMIC, SettingsCatalog.ID_DYNAMIC_SEMANTIC_RULES, R.string.dynamic_semantic_filter_tip)
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2460",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2469,26 +1940,12 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = dynamicKeywordFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            dynamicKeywordFilterEnabled = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.DYNAMIC_KEYWORD_FILTER_ENABLED,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write dynamic keyword filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.DYNAMIC_KEYWORD_FILTER_ENABLED, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2490",
+        lparams = params(widthMatchParent = true)
     ) {
         bindSettingDestination(this, FeaturePreferences.DYNAMIC_FILTER_KEYWORDS)
         dynamicKeywordSummaryView = this
@@ -2530,8 +1987,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
             }
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2533",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2539,8 +1996,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2542",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2551,26 +2008,12 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = dynamicAuthorFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            dynamicAuthorFilterEnabled = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.DYNAMIC_AUTHOR_FILTER_ENABLED,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write dynamic author filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.DYNAMIC_AUTHOR_FILTER_ENABLED, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2572",
+        lparams = params(widthMatchParent = true)
     ) {
         bindSettingDestination(this, FeaturePreferences.DYNAMIC_AUTHOR_FILTER_RULES)
         dynamicAuthorSummaryView = this
@@ -2612,8 +2055,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
             }
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2615",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2621,8 +2064,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2624",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2633,26 +2076,12 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeDynamicPromotions
-        setOnCheckedChangeListener { _, checked ->
-            removeDynamicPromotions = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_DYNAMIC_PROMOTIONS,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write dynamic promotion filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_DYNAMIC_PROMOTIONS, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2654",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2660,8 +2089,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2663",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2672,26 +2101,12 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeDynamicChargeOnly
-        setOnCheckedChangeListener { _, checked ->
-            removeDynamicChargeOnly = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_DYNAMIC_CHARGE_ONLY,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write dynamic charge only filter prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_DYNAMIC_CHARGE_ONLY, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2693",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2699,8 +2114,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2702",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2712,26 +2127,12 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hideDynamicFrequentVisits
-        setOnCheckedChangeListener { _, checked ->
-            hideDynamicFrequentVisits = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_DYNAMIC_FREQUENT_VISITS,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write dynamic frequent visits prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_DYNAMIC_FREQUENT_VISITS, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2733",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2739,8 +2140,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2742",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2751,26 +2152,12 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hideDynamicTopicList
-        setOnCheckedChangeListener { _, checked ->
-            hideDynamicTopicList = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_DYNAMIC_TOPIC_LIST,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write dynamic topic list prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_DYNAMIC_TOPIC_LIST, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2772",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2778,8 +2165,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2781",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2790,26 +2177,12 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeDynamicLiveUpEntries
-        setOnCheckedChangeListener { _, checked ->
-            removeDynamicLiveUpEntries = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_DYNAMIC_LIVE_UP_ENTRIES,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write dynamic live up entries prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_DYNAMIC_LIVE_UP_ENTRIES, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2811",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2820,13 +2193,8 @@ internal fun MainActivity.purifyNavigationCategory(scope: Hikage.Performer<Nativ
 }
 
 /** 进阶净化 · PURIFY_HOME 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.purifyHomeCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.PURIFY_HOME) {
         advancedCategoryMarkers[AdvancedSettingsCategory.PURIFY_HOME] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_purify_home)
@@ -2834,8 +2202,8 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2837",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -2845,26 +2213,12 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hideHomeGameMenu
-        setOnCheckedChangeListener { _, isChecked ->
-            hideHomeGameMenu = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_HOME_GAME_MENU,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write home game menu prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_HOME_GAME_MENU, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2866",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2872,8 +2226,8 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2875",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2884,26 +2238,12 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hideHomeSearchDefaultWord
-        setOnCheckedChangeListener { _, isChecked ->
-            hideHomeSearchDefaultWord = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write home search word prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_HOME_SEARCH_DEFAULT_WORD, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2905",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -2911,8 +2251,8 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:2914",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -2923,24 +2263,19 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = hideLiveHomePromotion
-        setOnCheckedChangeListener { _, checked ->
-            hideLiveHomePromotion = checked
-            runCatching {
-                prefs().edit { putBoolean(FeaturePreferences.HIDE_LIVE_HOME_PROMOTION, checked) }
-            }.onFailure { throwable ->
-                Log.e("BilibiliInnocentLab", "write live home promotion prefs failed", throwable)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_LIVE_HOME_PROMOTION, checked, button)
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "PurifySettingsSections:2935", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.hide_live_home_promotion_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "PurifySettingsSections:2942",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
         }
     ) {
@@ -2960,16 +2295,16 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
             queryComponentSnapshotAndOpenPicker(homeTabPickerSurface())
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2963",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         text = stringResource(R.string.custom_home_tab_hide_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "PurifySettingsSections:2971",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
         }
     ) {
@@ -2991,16 +2326,16 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
             )
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:2994",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         text = stringResource(R.string.custom_home_component_hide_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "PurifySettingsSections:3002",
+        lparams = params(widthMatchParent = true) {
             topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
             bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
         }
@@ -3008,8 +2343,8 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         text = stringResource(R.string.home_recommend_purify_settings)
         applyAdvancedSubsectionStyle()
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:3011",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -3019,26 +2354,12 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = removeHomeRecommendCmV2
-        setOnCheckedChangeListener { _, isChecked ->
-            removeHomeRecommendCmV2 = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.REMOVE_HOME_RECOMMEND_CM_V2,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write home recommend cm_v2 prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REMOVE_HOME_RECOMMEND_CM_V2, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "PurifySettingsSections:3040",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 12.dp
         }
     ) {
@@ -3048,15 +2369,15 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+    linearLayout(key = "PurifySettingsSections:3051",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 8.dp
         },
         init = {
             homeRecommendFilterEntryView = this
-            settingsDestinations.bind("home.recommend.pgc.removed",this)
-            settingsDestinations.bind("home.recommend.comic.removed",this)
-            settingsDestinations.bind("home.recommend.special_cards.removed",this)
+            HomeRecommendFilterCatalog.preferenceKeys.forEach { key ->
+                settingsDestinations.bind(SettingsCatalog.byStorageKey.getValue(key).id, this)
+            }
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = selfRippleBackground(10f)
@@ -3069,17 +2390,17 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
             setOnClickListener { showHomeRecommendFilterDialog(anchor = it) }
         }
     ) {
-        LinearLayout(
-            lparams = LayoutParams { weight = 1f },
+        linearLayout(key = "PurifySettingsSections:3072",
+            lparams = params { weight = 1f },
             init = { orientation = LinearLayout.VERTICAL }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PurifySettingsSections:3076", lparams = params(widthMatchParent = true)) {
                 text = stringResource(R.string.home_recommend_filter_title)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true) {
+            textView(key = "PurifySettingsSections:3081",
+                lparams = params(widthMatchParent = true) {
                     topMargin = 4.dp
                 }
             ) {
@@ -3090,15 +2411,15 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
                 textSize = 12f
             }
         }
-        ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+        imageView(key = "PurifySettingsSections:3093", lparams = params(18.dp, 18.dp)) {
             setImageResource(R.drawable.ic_chevron_down)
             rotation = -90f
             alpha = 0.8f
             imageTintList = stateColorResource(R.color.colorTextGray)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:3100",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -3110,14 +2431,13 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = videoSemanticFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            videoSemanticFilterEnabled = checked
-            writeSemanticSwitch(FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED, checked)
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.VIDEO_SEMANTIC_FILTER_ENABLED, checked, button)
         }
     }
     semanticFilterDetails(this, SemanticSurface.VIDEO, SettingsCatalog.ID_VIDEO_SEMANTIC_RULES, R.string.video_semantic_filter_tip)
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "PurifySettingsSections:3119",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -3128,18 +2448,12 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = homeRecommendTitleFilterEnabled
-        setOnCheckedChangeListener { _, checked ->
-            homeRecommendTitleFilterEnabled = checked
-            prefs().edit {
-                putBoolean(
-                    FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED,
-                    checked
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_ENABLED, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:3141",
+        lparams = params(widthMatchParent = true)
     ) {
         bindSettingDestination(this, FeaturePreferences.HOME_RECOMMEND_TITLE_FILTER_KEYWORDS)
         homeRecommendTitleSummaryView = this
@@ -3190,8 +2504,8 @@ internal fun MainActivity.purifyHomeCategory(scope: Hikage.Performer<NativeLinea
             }
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "PurifySettingsSections:3193",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)

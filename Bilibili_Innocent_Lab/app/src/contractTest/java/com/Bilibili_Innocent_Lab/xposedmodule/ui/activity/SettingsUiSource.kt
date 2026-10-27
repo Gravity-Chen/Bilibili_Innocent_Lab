@@ -62,7 +62,7 @@ internal object SettingsUiSource {
      * 加后缀时同步更新 [SettingsUiSourceTest] 里那条"扫描集覆盖所有 MainActivity 扩展"
      * 的断言——它是这套约定唯一的强制力来源。
      */
-    // `Sections.kt`：设置页各分区的 Hikage 构建函数（2026-10-18 起从 MainActivity 外移）。
+    // `Sections.kt`：设置页各分区的强类型构建函数（2026-10-18 起从 MainActivity 外移）。
     private val VOLUME_SUFFIXES = listOf("Dialogs.kt", "Presenter.kt", "Summaries.kt", "Sections.kt")
 
     /** 所有外移分卷的文件名（含弹窗），排序后返回。 */
@@ -116,13 +116,13 @@ internal object SettingsUiSource {
     fun settingsPage(): String = settingsPageFiles().joinToString("\n") { it.second }
 
     /**
-     * 分区构建函数：名字 → 含签名的声明（已去注释）。MainActivity 里是 `Hikage.Performer` 的成员扩展，
-     * 外移后是带 `scope: Hikage.Performer<…>` 参数的顶层 `MainActivity` 扩展。
+     * 分区构建函数：名字 → 含签名的声明（已去注释）。
+     * 分卷通过 `LinearSettingsScope` 接收真实父容器与强类型父参数。
      */
     fun sectionBuilders(): List<Pair<String, String>> = settingsPageFiles().flatMap { (fileName, text) ->
         val indent = if (fileName == "MainActivity.kt") 4 else 0
         declaredFunctions(code(text), indent).filter { (_, decl) ->
-            decl.substringBefore('{').contains("Hikage.Performer")
+            decl.substringBefore('{').contains("LinearSettingsScope")
         }
     }
 

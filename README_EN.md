@@ -569,7 +569,7 @@ Use the fast check during local iteration:
 .\gradlew.bat :app:lintFast --console=plain --no-daemon
 ```
 
-The fast check skips only an explicit list of 32 BetterAndroid / KavaRef API replacement suggestions. Android correctness, permission, API compatibility, and Hikage checks remain enabled for production sources. Test sources are verified by compilation and tests, and are excluded from Lint. It does not replace the full gate. Before committing and in CI, run:
+The fast check skips only an explicit list of 32 BetterAndroid / KavaRef API replacement suggestions. Android correctness, permission, and API compatibility checks remain enabled for production sources. Test sources are verified by compilation and tests, and are excluded from Lint. It does not replace the full gate. Before committing and in CI, run:
 
 ```powershell
 .\gradlew.bat :app:lintDebug --console=plain --no-daemon
@@ -577,7 +577,7 @@ The fast check skips only an explicit list of 32 BetterAndroid / KavaRef API rep
 
 Fast reports are saved under `app/build/reports/lint/fast/`, and full reports under `app/build/reports/lint/full/`; both HTML files are named `lint-results-debug.html`. Use full task names. Only `assembleDebug`, `assembleDebugAndroidTest`, and `testDebugUnitTest` may accompany `lintFast`; run other tasks and full gates separately. On Linux / macOS, use `./gradlew` with the same tasks.
 
-Use `--no-daemon` consistently while retaining dependency and task caches. Avoid routine `clean`; clean the task's isolated build after Hikage BOM or plugin signature changes. Add `--offline` when dependencies are cached.
+Use `--no-daemon` consistently while retaining dependency and task caches. Avoid routine `clean`. Add `--offline` when dependencies are cached.
 
 **Verifying the artifact**
 

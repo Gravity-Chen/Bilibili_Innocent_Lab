@@ -26,7 +26,7 @@ class InteractiveOverdrawClipConventionTest {
 
     private companion object {
         /** 已知会溢出自身边界的交互控件：实例化签名字符串。 */
-        val OVERDRAW_CONTROLS = listOf("LogSegmentScrubBar(", "ModernNavigationBar(")
+        val OVERDRAW_CONTROLS = listOf("logSegmentScrubBar(", "ModernNavigationBar(")
     }
 
     /** MainActivity 与全部外移分卷的 builder 函数（类成员 4 缩进 + 顶层扩展 0 缩进，去重）。 */

@@ -2,6 +2,10 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.AdvancedSettingsCategory
+
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+
 import com.Bilibili_Innocent_Lab.xposedmodule.runtime.compat.CommunicationCompatibilityStore
 import android.content.Intent
 import android.graphics.Typeface
@@ -22,14 +26,6 @@ import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.toast
 import com.highcapable.betterandroid.ui.extension.view.updateMargins
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
-import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.widget.android.widget.ImageView
-import com.highcapable.hikage.widget.android.widget.LinearLayout
-import com.highcapable.hikage.widget.android.widget.FrameLayout
-import com.highcapable.hikage.widget.android.widget.TextView
-import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.LogSegmentScrubBar
-import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
@@ -50,10 +46,9 @@ import android.R as Android_R
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.SettingsSearchSection
 
 /** 设置备份入口卡片。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.settingsBackupEntryCard(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+internal fun MainActivity.settingsBackupEntryCard(scope: LinearSettingsScope) = with(scope) {
+    linearLayout(key = "SettingsCardSections:55",
+        lparams = params(widthMatchParent = true) {
             updateMargins(horizontal = 15.dp)
         },
         init = {
@@ -76,8 +71,8 @@ internal fun MainActivity.settingsBackupEntryCard(scope: Hikage.Performer<Native
             }
         }
     ) {
-        ImageView(
-            lparams = LayoutParams(22.dp, 22.dp) {
+        imageView(key = "SettingsCardSections:79",
+            lparams = params(22.dp, 22.dp) {
                 marginEnd = 12.dp
             }
         ) {
@@ -85,8 +80,8 @@ internal fun MainActivity.settingsBackupEntryCard(scope: Hikage.Performer<Native
             imageTintList = stateColorResource(R.color.colorTextGray)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        LinearLayout(
-            lparams = LayoutParams {
+        linearLayout(key = "SettingsCardSections:88",
+            lparams = params {
                 weight = 1f
             },
             init = {
@@ -95,7 +90,7 @@ internal fun MainActivity.settingsBackupEntryCard(scope: Hikage.Performer<Native
                     View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
             }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "SettingsCardSections:98", lparams = params(widthMatchParent = true)) {
                 settingsBackupEntryTitleView = this
                 text = stringResource(R.string.settings_backup_entry_title)
                 textColor = colorResource(R.color.colorTextGray)
@@ -111,8 +106,8 @@ internal fun MainActivity.settingsBackupEntryCard(scope: Hikage.Performer<Native
                     )
                 }
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true) {
+            textView(key = "SettingsCardSections:114",
+                lparams = params(widthMatchParent = true) {
                     topMargin = 4.dp
                 }
             ) {
@@ -122,7 +117,7 @@ internal fun MainActivity.settingsBackupEntryCard(scope: Hikage.Performer<Native
                 textSize = 12f
             }
         }
-        TextView(lparams = LayoutParams(28.dp, 40.dp)) {
+        textView(key = "SettingsCardSections:125", lparams = params(28.dp, 40.dp)) {
             gravity = Gravity.CENTER
             text = "›"
             textColor = colorResource(R.color.colorTextGray)
@@ -133,10 +128,9 @@ internal fun MainActivity.settingsBackupEntryCard(scope: Hikage.Performer<Native
 }
 
 /** 净化设置卡片；进阶子分区的分类标题在此注册 marker，顺序必须与 AdvancedSettingsCategory 一致。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+internal fun MainActivity.purifySettingsCard(scope: LinearSettingsScope) = with(scope) {
+    linearLayout(key = "SettingsCardSections:138",
+        lparams = params(widthMatchParent = true) {
             updateMargins(horizontal = 15.dp)
         },
         init = {
@@ -148,24 +142,24 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
         }
     ) {
         // 大类主标题：净化
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) {
+        linearLayout(key = "SettingsCardSections:151",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 12.dp
             },
             init = {
                 gravity = Gravity.CENTER or Gravity.START
             }
         ) {
-            ImageView(
-                lparams = LayoutParams(15.dp, 15.dp) {
+            imageView(key = "SettingsCardSections:159",
+                lparams = params(15.dp, 15.dp) {
                     marginEnd = 10.dp
                 }
             ) {
                 setImageResource(R.drawable.ic_purify)
                 imageTintList = stateColorResource(R.color.colorTextGray)
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true)
+            textView(key = "SettingsCardSections:167",
+                lparams = params(widthMatchParent = true)
             ) {
                 alpha = 0.85f
                 isSingleLine = true
@@ -175,8 +169,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             }
         }
         // 子项 1：视频提及游戏广告
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        textView(key = "SettingsCardSections:178",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 4.dp
             }
         ) {
@@ -186,8 +180,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textColor = colorResource(R.color.colorTextGray)
             textSize = 11f
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:189",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 5.dp
             }
         ) {
@@ -197,17 +191,12 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = gamecardAdEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                gamecardAdEnabled = isChecked
-                runCatching {
-                    prefs().edit { putBoolean(HookEntry.PREF_GAMECARD_ENABLED, isChecked) }
-                }.onFailure { t ->
-                    Log.e("BilibiliInnocentLab", "write gamecard prefs failed", t)
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(HookEntry.PREF_GAMECARD_ENABLED, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        }
+        textView(key = "SettingsCardSections:209",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 5.dp
             }
         ) {
@@ -217,8 +206,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:220",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -229,26 +218,12 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = hideVideoDetailAppPromotion
-            setOnCheckedChangeListener { _, isChecked ->
-                hideVideoDetailAppPromotion = isChecked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION,
-                            isChecked
-                        )
-                    }
-                }.onFailure { t ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write video detail app promotion prefs failed",
-                        t
-                    )
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HIDE_VIDEO_DETAIL_APP_PROMOTION, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
+        }
+        textView(key = "SettingsCardSections:250",
+            lparams = params(widthMatchParent = true)
         ) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
@@ -257,8 +232,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textSize = 12f
         }
         // 隐藏 UP主分享好物推广（简介区商品广告——归类到视频详细页广告下）
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:260",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -269,17 +244,12 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = merchAdEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                merchAdEnabled = isChecked
-                runCatching {
-                    prefs().edit { putBoolean(HookEntry.PREF_MERCH_ENABLED, isChecked) }
-                }.onFailure { t ->
-                    Log.e("BilibiliInnocentLab", "write merch prefs failed", t)
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(HookEntry.PREF_MERCH_ENABLED, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        }
+        textView(key = "SettingsCardSections:281",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 0.dp
             }
         ) {
@@ -290,8 +260,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textSize = 12f
         }
         // 视频暂停页广告（暂停视频后可能弹出的推广大卡；原实验性功能正式化）
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:293",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -302,17 +272,12 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = adskipEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                adskipEnabled = isChecked
-                runCatching {
-                    prefs().edit { putBoolean(HookEntry.PREF_ENABLED, isChecked) }
-                }.onFailure { t ->
-                    Log.e("BilibiliInnocentLab", "write paused page ad prefs failed", t)
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(HookEntry.PREF_ENABLED, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        }
+        textView(key = "SettingsCardSections:314",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 0.dp
             }
         ) {
@@ -323,8 +288,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textSize = 12f
         }
         // 功能区分隔线
-        FrameLayout(
-            lparams = LayoutParams(widthMatchParent = true, height = 1.dp) {
+        frameLayout(key = "SettingsCardSections:326",
+            lparams = params(widthMatchParent = true, height = 1.dp) {
                 topMargin = 14.dp
                 bottomMargin = 14.dp
             },
@@ -333,8 +298,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             }
         )
         // 子项 2：首页大卡轮播
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        textView(key = "SettingsCardSections:336",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 4.dp
             }
         ) {
@@ -344,8 +309,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textColor = colorResource(R.color.colorTextGray)
             textSize = 11f
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:347",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 5.dp
             }
         ) {
@@ -355,17 +320,12 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = bannerAdEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                bannerAdEnabled = isChecked
-                runCatching {
-                    prefs().edit { putBoolean(HookEntry.PREF_BANNER_ENABLED, isChecked) }
-                }.onFailure { t ->
-                    Log.e("BilibiliInnocentLab", "write banner prefs failed", t)
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(HookEntry.PREF_BANNER_ENABLED, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        }
+        textView(key = "SettingsCardSections:367",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 5.dp
             }
         ) {
@@ -375,8 +335,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) {
+        linearLayout(key = "SettingsCardSections:378",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 14.dp
             },
             init = {
@@ -391,24 +351,24 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
                 )
             }
         ) {
-            LinearLayout(
-                lparams = LayoutParams(widthMatchParent = true),
+            linearLayout(key = "SettingsCardSections:394",
+                lparams = params(widthMatchParent = true),
                 init = {
                     gravity = Gravity.CENTER or Gravity.START
                     updatePadding(vertical = 10.dp)
                     setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.PURIFICATION_ADVANCED) }
                 }
             ) {
-                ImageView(
-                    lparams = LayoutParams(15.dp, 15.dp) {
+                imageView(key = "SettingsCardSections:402",
+                    lparams = params(15.dp, 15.dp) {
                         marginEnd = 10.dp
                     }
                 ) {
                     setImageResource(R.drawable.ic_purify)
                     imageTintList = stateColorResource(R.color.colorTextGray)
                 }
-                TextView(
-                    lparams = LayoutParams { weight = 1f }
+                textView(key = "SettingsCardSections:410",
+                    lparams = params { weight = 1f }
                 ) {
                     alpha = 0.85f
                     maxLines = 2
@@ -416,8 +376,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
                     textColor = colorResource(R.color.colorTextGray)
                     textSize = 12f
                 }
-                ImageView(
-                    lparams = LayoutParams(18.dp, 18.dp)
+                imageView(key = "SettingsCardSections:419",
+                    lparams = params(18.dp, 18.dp)
                 ) {
                     purificationAdvancedChevron = this
                     setImageResource(R.drawable.ic_chevron_down)
@@ -425,8 +385,8 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
                     alpha = 0.85f
                 }
             }
-            LinearLayout(
-                lparams = LayoutParams(widthMatchParent = true),
+            linearLayout(key = "SettingsCardSections:428",
+                lparams = params(widthMatchParent = true),
                 init = {
                     orientation = LinearLayout.VERTICAL
                     visibility = View.GONE
@@ -434,15 +394,15 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
                     updatePadding(bottom = 10.dp)
                 }
             ) {
-                purifyHomeCategory(this)
-                purifyNavigationCategory(this)
-                purifySearchCategory(this)
-                purifyMineCategory(this)
-                purifyPlaybackCategory(this)
-                purifyCommentsCategory(this)
-                purifyStartupCategory(this)
-                purifyShareCategory(this)
-                purifySharedCategory(this)
+                purifyHomeCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_HOME))
+                purifyNavigationCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_NAVIGATION))
+                purifySearchCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_SEARCH))
+                purifyMineCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_MINE))
+                purifyPlaybackCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_PLAYBACK))
+                purifyCommentsCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_COMMENTS))
+                purifyStartupCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_STARTUP))
+                purifyShareCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_SHARE))
+                purifySharedCategory(advancedCategoryScope(AdvancedSettingsCategory.PURIFY_SHARED))
             }
         }
     }
@@ -454,13 +414,12 @@ internal fun MainActivity.purifySettingsCard(scope: Hikage.Performer<NativeLinea
  *   所以要把启动快照传进来。刻意用参数而不是字段：快照只在 `onCreate` 构建期有效，
  *   写回偏好之后它就是过期的（见 AGENTS.md 里 `uiSettings` 那条红线）。
  */
-@com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.enhancementSettingsCard(
-    scope: Hikage.Performer<NativeLinearLayout.LayoutParams>,
+    scope: LinearSettingsScope,
     uiSettings: ModuleUiSettings
 ) = with(scope) {
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+    linearLayout(key = "SettingsCardSections:462",
+        lparams = params(widthMatchParent = true) {
             updateMargins(horizontal = 15.dp)
         },
         init = {
@@ -471,24 +430,24 @@ internal fun MainActivity.enhancementSettingsCard(
             updatePadding(left = 15.dp, top = 15.dp, right = 15.dp, bottom = 15.dp)
         }
     ) {
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) {
+        linearLayout(key = "SettingsCardSections:474",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 12.dp
             },
             init = {
                 gravity = Gravity.CENTER or Gravity.START
             }
         ) {
-            ImageView(
-                lparams = LayoutParams(15.dp, 15.dp) {
+            imageView(key = "SettingsCardSections:482",
+                lparams = params(15.dp, 15.dp) {
                     marginEnd = 10.dp
                 }
             ) {
                 setImageResource(R.drawable.ic_enhancement)
                 imageTintList = stateColorResource(R.color.colorTextGray)
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true)
+            textView(key = "SettingsCardSections:490",
+                lparams = params(widthMatchParent = true)
             ) {
                 alpha = 0.85f
                 isSingleLine = true
@@ -498,8 +457,8 @@ internal fun MainActivity.enhancementSettingsCard(
             }
         }
         // 自由复制能力保留在增强栏，气泡外观由美化栏管理。
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        textView(key = "SettingsCardSections:501",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 4.dp
             }
         ) {
@@ -509,8 +468,8 @@ internal fun MainActivity.enhancementSettingsCard(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 11f
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:512",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 5.dp
             }
         ) {
@@ -520,26 +479,12 @@ internal fun MainActivity.enhancementSettingsCard(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = freeCopyEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                freeCopyEnabled = isChecked
-                refreshCopyAppearanceOptions()
-                runCatching {
-                    val revision = System.currentTimeMillis().coerceAtLeast(1L)
-                    prefs().edit {
-                        putBoolean(HookEntry.PREF_FREE_COPY_ENABLED, isChecked)
-                        putLong(HookEntry.PREF_FREE_COPY_CONFIG_REVISION, revision)
-                    }
-                    check(FreeCopyConfigStore.write(
-                        applicationContext, freeCopyEnabled,
-                        freeCopyDescEnabled, revision
-                    )) { "atomic mirror write returned false" }
-                }.onFailure { t ->
-                    Log.e("BilibiliInnocentLab", "write free copy prefs failed", t)
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(HookEntry.PREF_FREE_COPY_ENABLED, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        }
+        textView(key = "SettingsCardSections:541",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 5.dp
             }
         ) {
@@ -550,8 +495,8 @@ internal fun MainActivity.enhancementSettingsCard(
             textSize = 12f
         }
         // 简介长按自由复制（与评论复制并列，共用同一气泡样式）
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:553",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 5.dp
                 bottomMargin = 5.dp
             }
@@ -562,26 +507,12 @@ internal fun MainActivity.enhancementSettingsCard(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = freeCopyDescEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                freeCopyDescEnabled = isChecked
-                refreshCopyAppearanceOptions()
-                runCatching {
-                    val revision = System.currentTimeMillis().coerceAtLeast(1L)
-                    prefs().edit {
-                        putBoolean(HookEntry.PREF_FREE_COPY_DESC_ENABLED, isChecked)
-                        putLong(HookEntry.PREF_FREE_COPY_CONFIG_REVISION, revision)
-                    }
-                    check(FreeCopyConfigStore.write(
-                        applicationContext, freeCopyEnabled,
-                        freeCopyDescEnabled, revision
-                    )) { "atomic mirror write returned false" }
-                }.onFailure { t ->
-                    Log.e("BilibiliInnocentLab", "write free copy desc prefs failed", t)
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(HookEntry.PREF_FREE_COPY_DESC_ENABLED, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        }
+        textView(key = "SettingsCardSections:583",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 0.dp
             }
         ) {
@@ -591,8 +522,8 @@ internal fun MainActivity.enhancementSettingsCard(
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) {
+        linearLayout(key = "SettingsCardSections:594",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 14.dp
             },
             init = {
@@ -607,24 +538,24 @@ internal fun MainActivity.enhancementSettingsCard(
                 )
             }
         ) {
-            LinearLayout(
-                lparams = LayoutParams(widthMatchParent = true),
+            linearLayout(key = "SettingsCardSections:610",
+                lparams = params(widthMatchParent = true),
                 init = {
                     gravity = Gravity.CENTER or Gravity.START
                     updatePadding(vertical = 10.dp)
                     setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.ENHANCEMENT_ADVANCED) }
                 }
             ) {
-                ImageView(
-                    lparams = LayoutParams(15.dp, 15.dp) {
+                imageView(key = "SettingsCardSections:618",
+                    lparams = params(15.dp, 15.dp) {
                         marginEnd = 10.dp
                     }
                 ) {
                     setImageResource(R.drawable.ic_enhancement)
                     imageTintList = stateColorResource(R.color.colorTextGray)
                 }
-                TextView(
-                    lparams = LayoutParams { weight = 1f }
+                textView(key = "SettingsCardSections:626",
+                    lparams = params { weight = 1f }
                 ) {
                     alpha = 0.85f
                     maxLines = 2
@@ -632,8 +563,8 @@ internal fun MainActivity.enhancementSettingsCard(
                     textColor = colorResource(R.color.colorTextGray)
                     textSize = 12f
                 }
-                ImageView(
-                    lparams = LayoutParams(18.dp, 18.dp)
+                imageView(key = "SettingsCardSections:635",
+                    lparams = params(18.dp, 18.dp)
                 ) {
                     enhancementAdvancedChevron = this
                     setImageResource(R.drawable.ic_chevron_down)
@@ -641,8 +572,8 @@ internal fun MainActivity.enhancementSettingsCard(
                     alpha = 0.85f
                 }
             }
-            LinearLayout(
-                lparams = LayoutParams(widthMatchParent = true),
+            linearLayout(key = "SettingsCardSections:644",
+                lparams = params(widthMatchParent = true),
                 init = {
                     orientation = LinearLayout.VERTICAL
                     visibility = View.GONE
@@ -651,22 +582,21 @@ internal fun MainActivity.enhancementSettingsCard(
                     updatePadding(bottom = 10.dp)
                 }
             ) {
-                enhanceBrowsingCategory(this)
-                enhancePlaybackCategory(this, uiSettings)
-                enhanceLiveCategory(this)
-                enhanceCommentsCategory(this)
-                enhanceDisplayCategory(this)
-                enhanceSystemCategory(this)
+                enhanceBrowsingCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_BROWSING))
+                enhancePlaybackCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_PLAYBACK), uiSettings)
+                enhanceLiveCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_LIVE))
+                enhanceCommentsCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_COMMENTS))
+                enhanceDisplayCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_DISPLAY))
+                enhanceSystemCategory(advancedCategoryScope(AdvancedSettingsCategory.ENHANCE_SYSTEM))
             }
         }
     }
 }
 
 /** 宿主外观统一入口；复用原控件、偏好键及收藏监听器。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+internal fun MainActivity.beautificationSettingsCard(scope: LinearSettingsScope) = with(scope) {
+    linearLayout(key = "SettingsCardSections:668",
+        lparams = params(widthMatchParent = true) {
             updateMargins(horizontal = 15.dp)
         },
         init = {
@@ -685,8 +615,8 @@ internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<Nat
         hostVideoCardAppearanceRows(this)
         hostBackgroundAppearanceRows(this)
         hostAppearanceHeading(this, R.string.host_appearance_player)
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:688",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -697,26 +627,12 @@ internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<Nat
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = transparentPlayerStatusBar
-            setOnCheckedChangeListener { _, isChecked ->
-                transparentPlayerStatusBar = isChecked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR,
-                            isChecked
-                        )
-                    }
-                }.onFailure { t ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write player status bar prefs failed",
-                        t
-                    )
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.TRANSPARENT_PLAYER_STATUS_BAR, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
+        }
+        textView(key = "SettingsCardSections:718",
+            lparams = params(widthMatchParent = true)
         ) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
@@ -725,31 +641,26 @@ internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<Nat
             textSize = 12f
         }
         hostAppearanceHeading(this, R.string.host_appearance_splash)
-        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
+        materialSwitch(key = "SettingsCardSections:728", lparams = params(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
             bindFavoriteSwitch(this, FeaturePreferences.BRAND_SPLASH_CUSTOM, directToggle = true)
             text = stringResource(R.string.brand_splash_custom)
             isAllCaps = false
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = brandSplashCustom
-            setOnCheckedChangeListener { _, checked ->
-                runCatching { prefs().edit { putBoolean(FeaturePreferences.BRAND_SPLASH_CUSTOM, checked) } }
-                    .onSuccess { brandSplashCustom = checked }
-                    .onFailure { throwable ->
-                        Log.e("BilibiliInnocentLab", "write brand splash custom prefs failed", throwable)
-                        isChecked = brandSplashCustom
-                    }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.BRAND_SPLASH_CUSTOM, checked, button)
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        }
+        textView(key = "SettingsCardSections:744", lparams = params(widthMatchParent = true)) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.brand_splash_custom_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:751",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -760,26 +671,12 @@ internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<Nat
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = splashAutoNight
-            setOnCheckedChangeListener { _, checked ->
-                splashAutoNight = checked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.SPLASH_AUTO_NIGHT,
-                            checked
-                        )
-                    }
-                }.onFailure { throwable ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write splash auto night prefs failed",
-                        throwable
-                    )
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.SPLASH_AUTO_NIGHT, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
+        }
+        textView(key = "SettingsCardSections:781",
+            lparams = params(widthMatchParent = true)
         ) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
@@ -791,8 +688,8 @@ internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<Nat
         val copyOptions = DependentAppearanceOptions { freeCopyEnabled || freeCopyDescEnabled }
         refreshCopyAppearanceOptions = copyOptions::refresh
         // 复制气泡外观同时控制评论与简介。
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        textView(key = "SettingsCardSections:794",
+            lparams = params(widthMatchParent = true) {
                 topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
                 bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
             }
@@ -800,8 +697,8 @@ internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<Nat
             text = stringResource(R.string.free_copy_appearance_settings)
             applyAdvancedSubsectionStyle()
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:803",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -812,22 +709,14 @@ internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<Nat
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = freeCopyAutoLight
-            setOnCheckedChangeListener { _, isChecked ->
-                if (programmaticSwitch) return@setOnCheckedChangeListener
-                freeCopyAutoLight = isChecked
-                runCatching {
-                    prefs().edit { putBoolean(HookEntry.PREF_FREE_COPY_AUTO_LIGHT, isChecked) }
-                }.onFailure { t ->
-                    Log.e("BilibiliInnocentLab", "write free copy auto light failed", t)
-                }
-                // tip 动画切换（不重建界面）：淡出 → 换文本 → 淡入
-                animateLightModeTip()
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(HookEntry.PREF_FREE_COPY_AUTO_LIGHT, checked, button)
+        }
             autoLightSwitch = this
             copyOptions.add(this)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        textView(key = "SettingsCardSections:829",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 0.dp
             }
         ) {
@@ -838,8 +727,8 @@ internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<Nat
             textSize = 12f
             copyOptions.add(this)
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:841",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 5.dp
                 bottomMargin = 5.dp
             }
@@ -850,49 +739,12 @@ internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<Nat
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = freeCopyLightMode
-            setOnCheckedChangeListener { button, isChecked ->
-                if (programmaticSwitch) return@setOnCheckedChangeListener
-                // 手动优先：自动跟随开启时切换手动开关 → 二次确认，
-                // 确认后自动关闭跟随（手动接管）；取消则复位开关 UI
-                if (freeCopyAutoLight && !autoLightConfirmInProgress) {
-                    val target = isChecked
-                    autoLightConfirmInProgress = true
-                    // 确认：关闭自动跟随 + 手动值生效 + tip 切回普通描述
-                    showAutoLightConfirmDialog(
-                        anchor = button,
-                        onConfirm = {
-                            autoLightConfirmInProgress = false
-                            freeCopyAutoLight = false
-                            runCatching {
-                                prefs().edit { putBoolean(HookEntry.PREF_FREE_COPY_AUTO_LIGHT, false) }
-                            }.onFailure { t ->
-                                Log.e("BilibiliInnocentLab", "write free copy auto light prefs failed", t)
-                            }
-                            onFreeCopyLightModeChanged(target)
-                            // 自动跟随开关 UI 同步为关（程序化，防 listener 回触发）
-                            programmaticSwitch = true
-                            autoLightSwitch?.isChecked = false
-                            programmaticSwitch = false
-                            // tip 动画：淡出 → 换文本 → 淡入
-                            animateLightModeTip()
-                        },
-                        onCancel = {
-                            autoLightConfirmInProgress = false
-                            // 取消：复位手动开关 UI（不重建界面，避免整页排版割裂）
-                            programmaticSwitch = true
-                            manualLightSwitch?.isChecked = freeCopyLightMode
-                            programmaticSwitch = false
-                        }
-                    )
-                    return@setOnCheckedChangeListener
-                }
-                onFreeCopyLightModeChanged(isChecked)
-            }
+            setOnCheckedChangeListener { button, checked -> applyModeledToggle(HookEntry.PREF_FREE_COPY_LIGHT_MODE, checked, button) }
             manualLightSwitch = this
             copyOptions.add(this)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        textView(key = "SettingsCardSections:894",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 0.dp
             }
         ) {
@@ -910,13 +762,12 @@ internal fun MainActivity.beautificationSettingsCard(scope: Hikage.Performer<Nat
     }
 }
 
-@com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.hostAppearanceHeading(
-    scope: Hikage.Performer<NativeLinearLayout.LayoutParams>,
+    scope: LinearSettingsScope,
     @StringRes title: Int
 ) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "appearance-heading:$title",
+        lparams = params(widthMatchParent = true) {
             topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
             bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
         }
@@ -927,13 +778,12 @@ internal fun MainActivity.hostAppearanceHeading(
 }
 
 /** 实验性功能卡片（含外观、风格与配色等子区）。 */
-@com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.experimentalFeaturesCard(
-    scope: Hikage.Performer<NativeLinearLayout.LayoutParams>,
+    scope: LinearSettingsScope,
     uiSettings: ModuleUiSettings
 ) = with(scope) {
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+    linearLayout(key = "SettingsCardSections:935",
+        lparams = params(widthMatchParent = true) {
             updateMargins(horizontal = 15.dp)
         },
         init = {
@@ -943,24 +793,24 @@ internal fun MainActivity.experimentalFeaturesCard(
             updatePadding(vertical = 15.dp)
         }
     ) {
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) {
+        linearLayout(key = "SettingsCardSections:946",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 12.dp
             },
             init = {
                 gravity = Gravity.CENTER or Gravity.START
             }
         ) {
-            ImageView(
-                lparams = LayoutParams(15.dp, 15.dp) {
+            imageView(key = "SettingsCardSections:954",
+                lparams = params(15.dp, 15.dp) {
                     marginEnd = 10.dp
                 }
             ) {
                 setImageResource(R.drawable.ic_science)
                 imageTintList = stateColorResource(R.color.colorTextGray)
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true)
+            textView(key = "SettingsCardSections:962",
+                lparams = params(widthMatchParent = true)
             ) {
                 alpha = 0.85f
                 isSingleLine = true
@@ -969,8 +819,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                 textSize = 12f
             }
         }
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) {
+        linearLayout(key = "SettingsCardSections:972",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 10.dp
             },
             init = {
@@ -979,8 +829,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                 updatePadding(horizontal = SettingsMenuSpacing.EXPERIMENTAL_SHELL_DP.dp, vertical = 4.dp)
             }
         ) {
-            LinearLayout(
-                lparams = LayoutParams(widthMatchParent = true),
+            linearLayout(key = "SettingsCardSections:982",
+                lparams = params(widthMatchParent = true),
                 init = {
                     gravity = Gravity.CENTER_VERTICAL
                     minimumHeight = 52.dp
@@ -994,8 +844,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.APPEARANCE) }
                 }
             ) {
-                ImageView(
-                    lparams = LayoutParams(20.dp, 20.dp) {
+                imageView(key = "SettingsCardSections:997",
+                    lparams = params(20.dp, 20.dp) {
                         marginEnd = 10.dp
                     }
                 ) {
@@ -1003,18 +853,18 @@ internal fun MainActivity.experimentalFeaturesCard(
                     imageTintList = stateColorResource(R.color.colorTextGray)
                     importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 }
-                LinearLayout(
-                    lparams = LayoutParams { weight = 1f },
+                linearLayout(key = "SettingsCardSections:1006",
+                    lparams = params { weight = 1f },
                     init = { orientation = LinearLayout.VERTICAL }
                 ) {
-                    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                    textView(key = "SettingsCardSections:1010", lparams = params(widthMatchParent = true)) {
                         text = stringResource(R.string.experimental_appearance)
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 14f
                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     }
-                    TextView(
-                        lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }
+                    textView(key = "SettingsCardSections:1016",
+                        lparams = params(widthMatchParent = true) { topMargin = 4.dp }
                     ) {
                         text = stringResource(R.string.experimental_appearance_summary)
                         textColor = colorResource(R.color.colorTextDark)
@@ -1024,8 +874,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                         ellipsize = TextUtils.TruncateAt.END
                     }
                 }
-                ImageView(
-                    lparams = LayoutParams(18.dp, 18.dp) { marginStart = 8.dp }
+                imageView(key = "SettingsCardSections:1027",
+                    lparams = params(18.dp, 18.dp) { marginStart = 8.dp }
                 ) {
                     appearanceChevron = this
                     setImageResource(R.drawable.ic_chevron_down)
@@ -1034,8 +884,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 }
             }
-            LinearLayout(
-                lparams = LayoutParams(widthMatchParent = true),
+            linearLayout(key = "SettingsCardSections:1037",
+                lparams = params(widthMatchParent = true),
                 init = {
                     orientation = LinearLayout.VERTICAL
                     visibility = View.GONE
@@ -1044,8 +894,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     updatePadding(left = 4.dp, right = 4.dp, bottom = 10.dp)
                 }
             ) {
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1047",
+                    lparams = params(widthMatchParent = true) {
                         topMargin = 10.dp
                         bottomMargin = 6.dp
                     }
@@ -1055,11 +905,12 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textSize = 12f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 }
-                MaterialSwitch(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                materialSwitch(key = "SettingsCardSections:1058",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 5.dp
                     }
                 ) {
+                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.ADVANCED_MATERIAL, this)
                     updatePadding(horizontal = 0.dp)
                     text = stringResource(R.string.advanced_material_title)
                     isAllCaps = false
@@ -1073,8 +924,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                         setAdvancedMaterial(button, checked)
                     }
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1076",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 10.dp
                     }
                 ) {
@@ -1084,8 +935,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textColor = colorResource(R.color.colorTextDark)
                     textSize = 12f
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1087",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 10.dp
                     }
                 ) {
@@ -1095,8 +946,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textColor = colorResource(R.color.colorTextDark)
                     textSize = 12f
                 }
-                LinearLayout(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                linearLayout(key = "SettingsCardSections:1098",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 10.dp
                     },
                     init = {
@@ -1108,16 +959,16 @@ internal fun MainActivity.experimentalFeaturesCard(
                         setOnClickListener { showLiquidBackgroundDialog(it) }
                     }
                 ) {
-                    TextView(
-                        lparams = LayoutParams(widthMatchParent = true)
+                    textView(key = "SettingsCardSections:1111",
+                        lparams = params(widthMatchParent = true)
                     ) {
                         updatePadding(horizontal = 0.dp)
                         text = stringResource(R.string.liquid_background_setting_title)
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 15f
                     }
-                    TextView(
-                        lparams = LayoutParams(widthMatchParent = true) {
+                    textView(key = "SettingsCardSections:1119",
+                        lparams = params(widthMatchParent = true) {
                             topMargin = 4.dp
                         }
                     ) {
@@ -1128,11 +979,12 @@ internal fun MainActivity.experimentalFeaturesCard(
                         textSize = 12f
                     }
                 }
-                MaterialSwitch(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                materialSwitch(key = "SettingsCardSections:1131",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 5.dp
                     }
                 ) {
+                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.MATERIAL_COLOR_SPEC, this)
                     updatePadding(horizontal = 0.dp)
                     text = stringResource(R.string.material_color_spec_title)
                     isAllCaps = false
@@ -1161,8 +1013,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                         }
                     }
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1164",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 10.dp
                     }
                 ) {
@@ -1172,11 +1024,12 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textColor = colorResource(R.color.colorTextDark)
                     textSize = 12f
                 }
-                MaterialSwitch(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                materialSwitch(key = "SettingsCardSections:1175",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 5.dp
                     }
                 ) {
+                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.MODAL_BACKDROP_BLUR, this)
                     updatePadding(horizontal = 0.dp)
                     text = stringResource(R.string.panel_window_blur_title)
                     isAllCaps = false
@@ -1190,8 +1043,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                         }
                     }
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1193",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 10.dp
                     }
                 ) {
@@ -1201,8 +1054,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textColor = colorResource(R.color.colorTextDark)
                     textSize = 12f
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1204",
+                    lparams = params(widthMatchParent = true) {
                         topMargin = 10.dp
                         bottomMargin = 6.dp
                     }
@@ -1212,8 +1065,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textSize = 12f
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 }
-                LinearLayout(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                linearLayout(key = "SettingsCardSections:1215",
+                    lparams = params(widthMatchParent = true) {
                         topMargin = 8.dp
                     },
                     init = {
@@ -1225,16 +1078,16 @@ internal fun MainActivity.experimentalFeaturesCard(
                         setOnClickListener { showAppLanguageDialog(it) }
                     }
                 ) {
-                    TextView(
-                        lparams = LayoutParams(widthMatchParent = true)
+                    textView(key = "SettingsCardSections:1228",
+                        lparams = params(widthMatchParent = true)
                     ) {
                         updatePadding(horizontal = 0.dp)
                         text = stringResource(R.string.app_language)
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 15f
                     }
-                    TextView(
-                        lparams = LayoutParams(widthMatchParent = true) {
+                    textView(key = "SettingsCardSections:1236",
+                        lparams = params(widthMatchParent = true) {
                             topMargin = 4.dp
                         }
                     ) {
@@ -1244,8 +1097,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                         textSize = 12f
                     }
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1247",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 5.dp
                     }
                 ) {
@@ -1255,9 +1108,10 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textColor = colorResource(R.color.colorTextDark)
                     textSize = 12f
                 }
-                MaterialSwitch(
-                    lparams = LayoutParams(widthMatchParent = true)
+                materialSwitch(key = "SettingsCardSections:1258",
+                    lparams = params(widthMatchParent = true)
                 ) {
+                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.LAUNCHER_ICON, this)
                     updatePadding(horizontal = 0.dp)
                     text = stringResource(R.string.hide_app_icon_on_launcher)
                     isAllCaps = false
@@ -1268,8 +1122,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                         if (button.isPressed) hideOrShowLauncherIcon(!isChecked)
                     }
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1271",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 10.dp
                     }
                 ) {
@@ -1279,8 +1133,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textColor = colorResource(R.color.colorTextDark)
                     textSize = 12f
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1282",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 10.dp
                     }
                 ) {
@@ -1292,8 +1146,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                 }
             }
         }
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) {
+        linearLayout(key = "SettingsCardSections:1295",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 10.dp
             },
             init = {
@@ -1302,8 +1156,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                 updatePadding(horizontal = SettingsMenuSpacing.EXPERIMENTAL_SHELL_DP.dp, vertical = 4.dp)
             }
         ) {
-            LinearLayout(
-                lparams = LayoutParams(widthMatchParent = true),
+            linearLayout(key = "SettingsCardSections:1305",
+                lparams = params(widthMatchParent = true),
                 init = {
                     gravity = Gravity.CENTER_VERTICAL
                     minimumHeight = 52.dp
@@ -1315,8 +1169,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     setOnClickListener { toggleSecondaryMenu(SettingsSearchSection.COMPATIBILITY) }
                 }
             ) {
-                ImageView(
-                    lparams = LayoutParams(20.dp, 20.dp) {
+                imageView(key = "SettingsCardSections:1318",
+                    lparams = params(20.dp, 20.dp) {
                         marginEnd = 10.dp
                     }
                 ) {
@@ -1324,18 +1178,18 @@ internal fun MainActivity.experimentalFeaturesCard(
                     imageTintList = stateColorResource(R.color.colorTextGray)
                     importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 }
-                LinearLayout(
-                    lparams = LayoutParams { weight = 1f },
+                linearLayout(key = "SettingsCardSections:1327",
+                    lparams = params { weight = 1f },
                     init = { orientation = LinearLayout.VERTICAL }
                 ) {
-                    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+                    textView(key = "SettingsCardSections:1331", lparams = params(widthMatchParent = true)) {
                         text = stringResource(R.string.experimental_compatibility)
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 14f
                         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     }
-                    TextView(
-                        lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }
+                    textView(key = "SettingsCardSections:1337",
+                        lparams = params(widthMatchParent = true) { topMargin = 4.dp }
                     ) {
                         text = stringResource(R.string.experimental_compatibility_summary)
                         textColor = colorResource(R.color.colorTextDark)
@@ -1345,8 +1199,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                         ellipsize = TextUtils.TruncateAt.END
                     }
                 }
-                ImageView(
-                    lparams = LayoutParams(18.dp, 18.dp) { marginStart = 8.dp }
+                imageView(key = "SettingsCardSections:1348",
+                    lparams = params(18.dp, 18.dp) { marginStart = 8.dp }
                 ) {
                     compatibilityChevron = this
                     setImageResource(R.drawable.ic_chevron_down)
@@ -1355,8 +1209,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 }
             }
-            LinearLayout(
-                lparams = LayoutParams(widthMatchParent = true),
+            linearLayout(key = "SettingsCardSections:1358",
+                lparams = params(widthMatchParent = true),
                 init = {
                     orientation = LinearLayout.VERTICAL
                     visibility = View.GONE
@@ -1369,7 +1223,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     updatePadding(left = contentPadding, right = contentPadding, bottom = 10.dp)
                 }
             ) {
-                MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                materialSwitch(key = "SettingsCardSections:1372", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.COMMUNICATION_COMPATIBILITY, this)
                     text = stringResource(R.string.communication_compatibility_mode)
                     textColor = colorResource(R.color.colorTextGray)
                     textSize = 15f
@@ -1386,14 +1241,14 @@ internal fun MainActivity.experimentalFeaturesCard(
                         else setCommunicationCompatibilityEnabled(false)
                     }
                 }
-                TextView(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                textView(key = "SettingsCardSections:1389", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
                     alpha = 0.6f
                     setLineSpacing(6f, 1f)
                     text = stringResource(R.string.communication_compatibility_tip)
                     textColor = colorResource(R.color.colorTextDark)
                     textSize = 12f
                 }
-                MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                materialSwitch(key = "SettingsCardSections:1396", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
                     text = stringResource(R.string.bili_access_key_authorize)
                     settingsDestinations.bind(SettingsCatalog.ID_BILI_ACCESS_KEY_AUTHORIZED, this)
                     textColor = colorResource(R.color.colorTextGray)
@@ -1411,7 +1266,7 @@ internal fun MainActivity.experimentalFeaturesCard(
                         else setBiliAccessKeyAuthorized(false)
                     }
                 }
-                TextView(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                textView(key = "SettingsCardSections:1414", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
                     alpha = 0.6f
                     setLineSpacing(6f, 1f)
                     text = stringResource(R.string.bili_access_key_authorize_tip)
@@ -1419,7 +1274,7 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textSize = 12f
                 }
                 // JEV 语义判定配置：Key / 地址 / 灵敏度 / 首屏等待，都在同一个面板里保存。
-                TextView(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 5.dp }) {
+                textView(key = "SettingsCardSections:1422", lparams = params(widthMatchParent = true) { bottomMargin = 5.dp }) {
                     semanticJevSummaryView = this
                     settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_ENDPOINT, this)
                     settingsDestinations.bind(SettingsCatalog.ID_SEMANTIC_JEV_SENSITIVITY, this)
@@ -1448,14 +1303,14 @@ internal fun MainActivity.experimentalFeaturesCard(
                         }
                     }
                 }
-                TextView(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                textView(key = "SettingsCardSections:1451", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
                     alpha = 0.6f
                     setLineSpacing(6f, 1f)
                     text = stringResource(R.string.semantic_jev_tip)
                     textColor = colorResource(R.color.colorTextDark)
                     textSize = 12f
                 }
-                TextView(lparams = LayoutParams(widthMatchParent = true) { bottomMargin = 12.dp }) {
+                textView(key = "SettingsCardSections:1458", lparams = params(widthMatchParent = true) { bottomMargin = 12.dp }) {
                     text = stringResource(R.string.agent_title)
                     textColor = colorResource(R.color.colorTextGray)
                     textSize = 15f
@@ -1466,11 +1321,12 @@ internal fun MainActivity.experimentalFeaturesCard(
                     bindSettingDestination(this, com.Bilibili_Innocent_Lab.xposedmodule.agent.AgentPreferences.ENABLED)
                     setOnClickListener { showAgentDialog(anchor = it) }
                 }
-                MaterialSwitch(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                materialSwitch(key = "SettingsCardSections:1469",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 5.dp
                     }
                 ) {
+                    settingsDestinations.bind(RuntimeSettingsNavigationCatalog.NO_ROOT_SUPPORT, this)
                     text = stringResource(R.string.no_root_support_enable)
                     isAllCaps = false
                     textColor = colorResource(R.color.colorTextGray)
@@ -1489,8 +1345,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     }
                     noRootSwitch = this
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true)
+                textView(key = "SettingsCardSections:1492",
+                    lparams = params(widthMatchParent = true)
                 ) {
                     alpha = 0.6f
                     setLineSpacing(6f, 1f)
@@ -1498,8 +1354,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textColor = colorResource(R.color.colorTextDark)
                     textSize = 12f
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1501",
+                    lparams = params(widthMatchParent = true) {
                         topMargin = 4.dp
                         bottomMargin = 10.dp
                     }
@@ -1511,8 +1367,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textSize = 12f
                     noRootStatusView = this
                 }
-                MaterialSwitch(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                materialSwitch(key = "SettingsCardSections:1514",
+                    lparams = params(widthMatchParent = true) {
                         bottomMargin = 5.dp
                     }
                 ) {
@@ -1522,28 +1378,12 @@ internal fun MainActivity.experimentalFeaturesCard(
                     textColor = colorResource(R.color.colorTextGray)
                     textSize = 15f
                     isChecked = roamingCompatEnabled
-                    setOnCheckedChangeListener { _, isChecked ->
-                        roamingCompatEnabled = isChecked
-                        runCatching {
-                            prefs().edit { putBoolean(HookEntry.PREF_ROAMING_COMPAT_ENABLED, isChecked) }
-                        }.onFailure { t ->
-                            Log.e("BilibiliInnocentLab", "write roaming compat prefs failed", t)
-                        }
-                        // 同步给正在运行的 B 站进程（HookEntry 在 B 站进程内注册了接收器，
-                        // 收到后写入其自身缓存，下次启动即生效）。
-                        runCatching {
-                            val intent = Intent(RoamingCompatHook.ACTION_SET_ROAMING_COMPAT)
-                                .setPackage(HookEntry.TARGET_PACKAGE)
-                                .putExtra(RoamingCompatHook.EXTRA_ENABLED, isChecked)
-                            // 这里的 this 是开关 View，sendBroadcast 落到外层的 MainActivity 接收者上。
-                            sendBroadcast(intent)
-                        }.onFailure { t ->
-                            Log.e("BilibiliInnocentLab", "send roaming compat broadcast failed", t)
-                        }
-                    }
+                    setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(HookEntry.PREF_ROAMING_COMPAT_ENABLED, checked, button)
+        }
                 }
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "SettingsCardSections:1545",
+                    lparams = params(widthMatchParent = true) {
                         topMargin = 5.dp
                     }
                 ) {
@@ -1559,8 +1399,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                 // 预测性返回（隐藏 API 的关闭调用被忽略），开关失去实际效果，
                 // 此时整组隐藏；偏好键与备份 catalog 条目保留以兼容旧备份。
                 if (!PredictiveBack.isSystemEnforced) {
-                    MaterialSwitch(
-                        lparams = LayoutParams(widthMatchParent = true) {
+                    materialSwitch(key = "SettingsCardSections:1562",
+                        lparams = params(widthMatchParent = true) {
                             topMargin = 5.dp
                             bottomMargin = 5.dp
                         }
@@ -1571,19 +1411,12 @@ internal fun MainActivity.experimentalFeaturesCard(
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 15f
                         isChecked = predictiveBackEnabled
-                        setOnCheckedChangeListener { _, isChecked ->
-                            predictiveBackEnabled = isChecked
-                            runCatching {
-                                prefs().edit { putBoolean(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, isChecked) }
-                            }.onFailure { t ->
-                                Log.e("BilibiliInnocentLab", "write predictive back prefs failed", t)
-                            }
-                            // 立即作用于当前 window（无需重启界面）
-                            applyPredictiveBack()
-                        }
+                        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(HookEntry.PREF_PREDICTIVE_BACK_ENABLED, checked, button)
+        }
                     }
-                    TextView(
-                        lparams = LayoutParams(widthMatchParent = true) {
+                    textView(key = "SettingsCardSections:1585",
+                        lparams = params(widthMatchParent = true) {
                             topMargin = 0.dp
                         }
                     ) {
@@ -1597,8 +1430,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                 // 手动重新适配：清除版本适配缓存，重启哔哩哔哩后自动重新定位 hook 点。
                 // 风格与「实验性功能」分区标题行统一：图标 + 文字 + 水波纹点击反馈；
                 // 点击弹出二级确认菜单（与「重启哔哩哔哩」确认弹窗同规格）
-                LinearLayout(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                linearLayout(key = "SettingsCardSections:1600",
+                    lparams = params(widthMatchParent = true) {
                         topMargin = 12.dp
                         bottomMargin = 2.dp
                     },
@@ -1612,8 +1445,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                         setOnClickListener { showAdaptConfirmDialog(it) }
                     }
                 ) {
-                    ImageView(
-                        lparams = LayoutParams(17.dp, 17.dp) {
+                    imageView(key = "SettingsCardSections:1615",
+                        lparams = params(17.dp, 17.dp) {
                             marginEnd = 9.dp
                         }
                     ) {
@@ -1621,8 +1454,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                         imageTintList = stateColorResource(R.color.colorTextGray)
                         alpha = 0.8f
                     }
-                    TextView(
-                        lparams = LayoutParams {
+                    textView(key = "SettingsCardSections:1624",
+                        lparams = params {
                             weight = 1f
                         }
                     ) {
@@ -1631,8 +1464,8 @@ internal fun MainActivity.experimentalFeaturesCard(
                         textColor = colorResource(R.color.colorTextGray)
                         textSize = 14f
                     }
-                    ImageView(
-                        lparams = LayoutParams(16.dp, 16.dp)
+                    imageView(key = "SettingsCardSections:1634",
+                        lparams = params(16.dp, 16.dp)
                     ) {
                         alpha = 0.55f
                         setImageResource(R.drawable.ic_chevron_down)
@@ -1646,10 +1479,9 @@ internal fun MainActivity.experimentalFeaturesCard(
 }
 
 /** 日志设置卡片。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.logSettingsCard(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+internal fun MainActivity.logSettingsCard(scope: LinearSettingsScope) = with(scope) {
+    linearLayout(key = "SettingsCardSections:1651",
+        lparams = params(widthMatchParent = true) {
             updateMargins(horizontal = 15.dp)
         },
         init = {
@@ -1663,24 +1495,24 @@ internal fun MainActivity.logSettingsCard(scope: Hikage.Performer<NativeLinearLa
             clipToPadding = false
         }
     ) {
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) {
+        linearLayout(key = "SettingsCardSections:1666",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 10.dp
             },
             init = {
                 gravity = Gravity.CENTER or Gravity.START
             }
         ) {
-            ImageView(
-                lparams = LayoutParams(15.dp, 15.dp) {
+            imageView(key = "SettingsCardSections:1674",
+                lparams = params(15.dp, 15.dp) {
                     marginEnd = 10.dp
                 }
             ) {
                 setImageResource(R.drawable.ic_article)
                 imageTintList = stateColorResource(R.color.colorTextGray)
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true)
+            textView(key = "SettingsCardSections:1682",
+                lparams = params(widthMatchParent = true)
             ) {
                 alpha = 0.85f
                 isSingleLine = true
@@ -1689,8 +1521,8 @@ internal fun MainActivity.logSettingsCard(scope: Hikage.Performer<NativeLinearLa
                 textSize = 12f
             }
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "SettingsCardSections:1692",
+            lparams = params(widthMatchParent = true) {
                 bottomMargin = 5.dp
             }
         ) {
@@ -1700,17 +1532,12 @@ internal fun MainActivity.logSettingsCard(scope: Hikage.Performer<NativeLinearLa
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = logEnabled
-            setOnCheckedChangeListener { _, isChecked ->
-                logEnabled = isChecked
-                runCatching {
-                    prefs().edit { putBoolean(HookEntry.PREF_LOG_ENABLED, isChecked) }
-                }.onFailure { t ->
-                    Log.e("BilibiliInnocentLab", "write log enabled failed", t)
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(HookEntry.PREF_LOG_ENABLED, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        }
+        textView(key = "SettingsCardSections:1712",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 5.dp
             }
         ) {
@@ -1721,8 +1548,8 @@ internal fun MainActivity.logSettingsCard(scope: Hikage.Performer<NativeLinearLa
             textSize = 12f
         }
         // 详细度档位选择器（精简 / 完整）
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        textView(key = "SettingsCardSections:1724",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 6.dp
             }
@@ -1736,8 +1563,8 @@ internal fun MainActivity.logSettingsCard(scope: Hikage.Performer<NativeLinearLa
         // 详细度档位选择器：底栏同款 scrub 控件（长按拖动切换 + 触点高光 + 弹簧回弹）。
         // 不走 skinSelectionControl：它会把这里整份替换成 surface 系表面，
         // 轨道与滑块就都成了灰白系，滑块的 primary 填充随之丢失。
-        LogSegmentScrubBar(
-            lparams = LayoutParams(widthMatchParent = true),
+        logSegmentScrubBar(key = "SettingsCardSections:1739",
+            lparams = params(widthMatchParent = true),
             init = {
                 bindSettingDestination(this, HookEntry.PREF_LOG_LEVEL)
                 // 控件整体接管触摸（轻点/拖动/回弹），与全局长按弹性手势互斥，
@@ -1764,8 +1591,8 @@ internal fun MainActivity.logSettingsCard(scope: Hikage.Performer<NativeLinearLa
             }
         )
         // 档位描述（随选中项动态更新）
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        textView(key = "SettingsCardSections:1767",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 6.dp
             }
         ) {

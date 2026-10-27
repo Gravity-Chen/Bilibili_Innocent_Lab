@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+
 import android.app.Dialog
 import android.os.Build
 import android.util.Log
@@ -14,9 +16,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassMater
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostGlassRenderer
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.widget.android.widget.TextView
 
 private fun MainActivity.glassAppearance(bottom: Boolean) =
     if (bottom) hostBottomBarGlassAppearance else hostTopBarGlassAppearance
@@ -30,8 +29,7 @@ private fun materialLabel(material: HostGlassMaterial) = when (material) {
 }
 private fun rendererLabel(renderer: HostGlassRenderer) = if (renderer == HostGlassRenderer.AUTO) R.string.host_glass_auto else R.string.host_glass_software
 
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.hostGlassConfigurationRows(performer: Hikage.Performer<LinearLayout.LayoutParams>, bottom: Boolean): () -> Unit {
+internal fun MainActivity.hostGlassConfigurationRows(performer: LinearSettingsScope, bottom: Boolean): () -> Unit {
     lateinit var material: NativeTextView
     lateinit var renderer: NativeTextView
     fun refresh() {
@@ -45,7 +43,7 @@ internal fun MainActivity.hostGlassConfigurationRows(performer: Hikage.Performer
         renderer.alpha = if (renderer.isEnabled) 1f else .45f
     }
     with(performer) {
-        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 6.dp }) {
+        textView(key = "glass-material:$bottom", lparams = params(widthMatchParent = true) { topMargin = 6.dp }) {
             material = this
             bindSettingDestination(this, materialKey(bottom))
             textColor = colorResource(R.color.colorTextGray)
@@ -55,7 +53,7 @@ internal fun MainActivity.hostGlassConfigurationRows(performer: Hikage.Performer
             isClickable = true; isFocusable = true
             setOnClickListener { if (isEnabled) showHostGlassChoiceDialog(this, bottom, rendering = false, onSaved = ::refresh) }
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "glass-renderer:$bottom", lparams = params(widthMatchParent = true)) {
             renderer = this
             bindSettingDestination(this, rendererKey(bottom))
             textColor = colorResource(R.color.colorTextGray)

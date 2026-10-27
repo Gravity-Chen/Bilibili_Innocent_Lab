@@ -32,7 +32,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesMarkdownRen
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.release.ReleaseNotesScrollView
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.toast
-import com.highcapable.hikage.core.layout.LayoutParams
 import java.lang.ref.WeakReference
 import android.widget.FrameLayout as NativeFrameLayout
 import android.widget.LinearLayout as NativeLinearLayout

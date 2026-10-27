@@ -17,6 +17,13 @@ class SwitchConfirmationMotionTest {
 
     @Test fun theSwitchPassesItsOwnViewAsTheAnimationAnchor() {
         val main = SettingsUiSource.code(SettingsUiSource.settingsPage())
-        assertTrue(Regex("showAutoLightConfirmDialog\\(\\s*anchor = button,").containsMatchIn(main))
+        assertTrue(Regex("applyModeledToggle\\(HookEntry\\.PREF_FREE_COPY_LIGHT_MODE,\\s*checked,\\s*button\\)")
+            .containsMatchIn(main))
+        assertTrue(SettingsUiSource.function("applyModeledToggle")
+            .contains("requestSettingCommand(descriptor.id, requested, button)"))
+        assertTrue(SettingsUiSource.function("requestSettingCommand")
+            .contains("requestManualLightSetting(id, requested, anchor)"))
+        assertTrue(Regex("showAutoLightConfirmDialog\\(\\s*anchor = anchor,")
+            .containsMatchIn(SettingsUiSource.function("requestManualLightSetting")))
     }
 }

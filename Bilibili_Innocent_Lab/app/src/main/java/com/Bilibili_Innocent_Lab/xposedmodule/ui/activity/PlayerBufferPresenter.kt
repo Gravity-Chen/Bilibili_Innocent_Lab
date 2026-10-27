@@ -1,15 +1,13 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+
 import android.widget.LinearLayout as NativeLinearLayout
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.PlayerBufferMode
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
-import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.widget.android.widget.LinearLayout
-import com.highcapable.hikage.widget.android.widget.TextView
 
 internal fun MainActivity.playerBufferModeLabel(value: Int): String = getString(when (PlayerBufferMode.fromValue(value)) {
     PlayerBufferMode.FOLLOW_HOST -> R.string.player_buffer_follow_host
@@ -25,11 +23,10 @@ internal fun MainActivity.updatePlayerBufferSummary() {
 }
 
 /** 共用一行导航入口，草稿和生命周期仍由当前 MainActivity 的模态底座持有。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.playerBufferSettingsRows(performer: Hikage.Performer<NativeLinearLayout.LayoutParams>) {
+internal fun MainActivity.playerBufferSettingsRows(performer: LinearSettingsScope) {
     with(performer) {
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp },
+        linearLayout(key = "PlayerBufferPresenter:31",
+            lparams = params(widthMatchParent = true) { topMargin = 12.dp },
             init = {
                 orientation = NativeLinearLayout.VERTICAL
                 background = selfRippleBackground(10f)
@@ -44,12 +41,12 @@ internal fun MainActivity.playerBufferSettingsRows(performer: Hikage.Performer<N
                 ).forEach { key -> bindSettingDestination(this, key) }
             }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PlayerBufferPresenter:47", lparams = params(widthMatchParent = true)) {
                 text = stringResource(R.string.player_buffer_strategy)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 5.dp }) {
+            textView(key = "PlayerBufferPresenter:52", lparams = params(widthMatchParent = true) { topMargin = 5.dp }) {
                 alpha = 0.6f
                 textColor = colorResource(R.color.colorTextDark)
                 textSize = 12f
@@ -57,7 +54,7 @@ internal fun MainActivity.playerBufferSettingsRows(performer: Hikage.Performer<N
                 updatePlayerBufferSummary()
             }
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "PlayerBufferPresenter:60", lparams = params(widthMatchParent = true)) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.player_buffer_tip)

@@ -42,7 +42,7 @@ class ControlDrawableStateHandoffTest {
     @Test fun theSelfAppliedMonetStyleRefreshesStateToo() {
         val view = source("ui/view/MaterialSwitch.kt")
         val apply = view.substringAfter("private fun applyMonetStyle()", "MISSING")
-            .before("private fun trackColors(")
+            .before("    init {")
         assertNotEquals("MISSING", apply)
         assertTrue("弹窗里的开关自取 Monet 配色后同样要刷新状态",
             apply.contains("refreshDrawableState()"))

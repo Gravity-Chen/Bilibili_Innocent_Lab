@@ -1,0 +1,4 @@
+<resources>
+    <!-- MaterialSwitch 的轻量默认样式；未声明时回退 switchStyle。 -->
+    <attr name="bilMaterialSwitchStyle" format="reference" />
+</resources>

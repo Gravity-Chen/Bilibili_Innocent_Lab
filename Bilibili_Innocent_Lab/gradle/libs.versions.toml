@@ -1,11 +1,9 @@
 [versions]
 agp = "9.4.1"
 kotlin = "2.4.21"
-ksp = "2.3.12"
-hikage-plugin = "1.0.1"
 libxposed = "102.0.0"
 meguviz-ref = "1.0.0"
-hikage-bom = "1.1.1"
+meguviz-ui = "1.0.0"
 betterandroid-ui-component = "1.1.6"
 betterandroid-ui-component-adapter = "1.1.6"
 betterandroid-ui-extension = "1.1.6"
@@ -29,20 +27,14 @@ json = "20260814"
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-kotlin-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
-hikage = { id = "com.highcapable.hikage", version.ref = "hikage-plugin" }
 
 [libraries]
 libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "libxposed" }
 libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "libxposed" }
 meguviz-ref-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ref-core", version.ref = "meguviz-ref" }
+meguviz-ui-core = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-core", version.ref = "meguviz-ui" }
+meguviz-ui-prewarm = { group = "io.github.jichuo1.meguviz", name = "meguviz-ui-prewarm", version.ref = "meguviz-ui" }
 dexkit = { group = "org.luckypray", name = "dexkit", version.ref = "dexkit" }
-hikage-bom = { group = "com.highcapable.hikage", name = "hikage-bom", version.ref = "hikage-bom" }
-hikage-core = { group = "com.highcapable.hikage", name = "hikage-core" }
-hikage-extension = { group = "com.highcapable.hikage", name = "hikage-extension" }
-hikage-runtime-attribute = { group = "com.highcapable.hikage", name = "hikage-runtime-attribute" }
-hikage-widget-androidx = { group = "com.highcapable.hikage", name = "hikage-widget-androidx" }
-hikage-widget-material = { group = "com.highcapable.hikage", name = "hikage-widget-material" }
 betterandroid-ui-component = { group = "com.highcapable.betterandroid", name = "ui-component", version.ref = "betterandroid-ui-component" }
 betterandroid-ui-component-adapter = { group = "com.highcapable.betterandroid", name = "ui-component-adapter", version.ref = "betterandroid-ui-component-adapter" }
 betterandroid-ui-extension = { group = "com.highcapable.betterandroid", name = "ui-extension", version.ref = "betterandroid-ui-extension" }

@@ -1,6 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import java.io.File
+import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,11 +20,8 @@ class PredictiveBackApi33IsolationTest {
     private val isolationFile = "PredictiveBackApi33.kt"
 
     private fun mainSources(): List<File> {
-        // 从测试类自己的位置回推到模块根，避免依赖 CI 与本地不同的工作目录。
-        val location = checkNotNull(javaClass.protectionDomain?.codeSource?.location) {
-            "Could not resolve this test class's own location"
-        }
-        var dir = File(location.toURI())
+        // Gradle 可把 class 输出移到模块外；从已验证的源码锚点定位，保持完整扫描范围。
+        var dir = checkNotNull(SourceContract.file("ui/activity/$isolationFile").canonicalFile.parentFile)
         while (!File(dir, "src/main/java").isDirectory) {
             dir = dir.parentFile ?: error("Could not locate the Gradle module root from $dir")
         }

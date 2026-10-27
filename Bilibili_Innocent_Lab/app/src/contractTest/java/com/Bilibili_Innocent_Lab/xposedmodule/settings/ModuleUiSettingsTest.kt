@@ -109,7 +109,19 @@ class ModuleUiSettingsTest {
         val unresolved = mutableListOf<String>()
         val unregistered = mutableListOf<String>()
         val typeMismatch = mutableListOf<String>()
-        used.forEach { (accessor, symbol) ->
+        val expanded = used.flatMap { (accessor, symbol) ->
+            if (symbol != "it.storageKey") return@flatMap listOf(accessor to symbol)
+            assertEquals("UI model initialization must read Boolean descriptors", "bool", accessor)
+            assertTrue("Navigation descriptors must not be read as Boolean preferences",
+                Regex("""descriptors\.filter\s*\{\s*it\.favoriteEligible\s*}\s*\.associate\s*\{\s*it\.storageKey to uiSettings\.bool\(it\.storageKey\)""")
+                    .containsMatchIn(main))
+            val catalog = sourceOf("ui/activity/SettingsUiCatalog.kt")
+            val symbols = Regex("""\badd\(\s*((?:FeaturePreferences|HookEntry)\.\w+)\s*,""")
+                .findAll(catalog).map { it.groupValues[1] }.toList()
+            assertTrue("The explicit UI metadata must cover existing switches", symbols.size >= 100)
+            symbols.map { "bool" to it }
+        }
+        expanded.forEach { (accessor, symbol) ->
             // 局部变量（循环里的动态 key）不在常量表里，按设计跳过。
             val key = constants[symbol] ?: run {
                 if (symbol.contains('.')) unresolved += symbol

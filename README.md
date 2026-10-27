@@ -520,7 +520,7 @@ cd Bilibili_Innocent_Lab
 .\gradlew.bat :app:lintFast --console=plain --no-daemon
 ```
 
-快速检查仅跳过明确列出的 32 条 BetterAndroid / KavaRef API 替换建议，生产源码的 Android 正确性、权限、API 兼容性和 Hikage 规则保持启用；测试源码由编译与测试任务验证，不纳入 Lint。它不是完整门禁；提交前和 CI 使用完整检查：
+快速检查仅跳过明确列出的 32 条 BetterAndroid / KavaRef API 替换建议，生产源码的 Android 正确性、权限和 API 兼容性规则保持启用；测试源码由编译与测试任务验证，不纳入 Lint。它不是完整门禁；提交前和 CI 使用完整检查：
 
 ```powershell
 .\gradlew.bat :app:lintDebug --console=plain --no-daemon
@@ -528,7 +528,7 @@ cd Bilibili_Innocent_Lab
 
 快速报告保存到 `app/build/reports/lint/fast/`，完整报告保存到 `app/build/reports/lint/full/`，HTML 文件均为 `lint-results-debug.html`。使用完整任务名；`lintFast` 仅允许与 `assembleDebug`、`assembleDebugAndroidTest`、`testDebugUnitTest` 同时运行，其他任务和完整门禁分开执行。Linux / macOS 使用 `./gradlew` 执行相同任务。
 
-本项目构建统一使用 `--no-daemon`，保留任务与依赖缓存；日常不随意 `clean`。Hikage BOM 或插件签名变化后，在本次隔离工程执行 `clean`。缓存完整时可添加 `--offline`。
+本项目构建统一使用 `--no-daemon`，保留任务与依赖缓存；日常不随意 `clean`。缓存完整时可添加 `--offline`。
 
 **产物校验**
 

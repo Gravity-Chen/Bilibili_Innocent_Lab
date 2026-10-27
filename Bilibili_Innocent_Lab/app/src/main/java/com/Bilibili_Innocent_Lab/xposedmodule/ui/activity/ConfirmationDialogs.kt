@@ -29,8 +29,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.AnchorSty
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.Companion.openBilibiliAppDetails
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.toast
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.extension.setContentView
 import java.io.File
 import java.lang.ref.WeakReference
 import android.widget.FrameLayout as NativeFrameLayout
@@ -352,7 +350,7 @@ internal fun MainActivity.showAdaptConfirmDialog(anchor: View? = null) {
     presentModalDialog(dialog, container, anchor)
 }
 
-/** Hikage 属性运行时异常时提供不依赖 DSL 的可退出页面，并保留全部用户状态。 */
+/** 界面初始化异常时提供原生可退出页面，并保留全部用户状态。 */
 internal fun MainActivity.showSettingsUiCompatibilityFallback(reason: String, failure: Throwable? = null) {
     if (failure == null) {
         Log.e("BilibiliInnocentLab", "settings UI compatibility fallback: $reason")

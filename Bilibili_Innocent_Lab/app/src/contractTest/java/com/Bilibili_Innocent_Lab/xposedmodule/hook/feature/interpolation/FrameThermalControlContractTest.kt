@@ -3,6 +3,7 @@ package com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.interpolation
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.SourceContract
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.SettingsUiSource
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -25,9 +26,21 @@ class FrameThermalControlContractTest {
             .after("val thermalKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL")
             .before("val statusKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST")
         val listener = ui.after("setOnCheckedChangeListener { button, checked ->")
-        assertTrue(listener.indexOf("button.isChecked = savedDisabled") < listener.indexOf("showFrameInterpolationThermalConfirmDialog"))
-        assertTrue(listener.contains("if (checked) showFrameInterpolationThermalConfirmDialog(button) { saveThermalDisabled(true) }"))
-        assertTrue(listener.contains("else saveThermalDisabled(false)"))
+        assertTrue(listener.contains("applyModeledToggle(thermalKey, checked, button)"))
+        val route = SettingsUiSource.function("requestSettingCommand")
+        assertTrue(route.contains("descriptor.storageKey == FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL"))
+        assertTrue(route.contains("requestThermalControlSetting(id, requested, anchor)"))
+        val command = SettingsUiSource.function("requestThermalControlSetting")
+        val rollback = command.indexOf("(anchor as? MaterialSwitch)?.renderModelState(store.state(id))")
+        val confirmation = command.indexOf("showFrameInterpolationThermalConfirmDialog")
+        assertTrue("The animation anchor must show confirmed state before the dialog is created", rollback >= 0 && confirmation > rollback)
+        assertTrue(command.contains("if (requested) showFrameInterpolationThermalConfirmDialog(anchor) { save(true) }"))
+        assertTrue(command.contains("else save(false)"))
+        val save = SettingsUiSource.functions(command, "save").single()
+        assertTrue(save.contains("preferences.edit { putBoolean(key, value) }"))
+        assertTrue(save.contains("check(preferences.getBoolean(key, !value) == value)"))
+        assertTrue(save.contains("if (saved) value else previous"))
+        assertFalse("No write may escape the confirmation's save command", command.replace(save, "").contains("putBoolean("))
         val dialog = SourceContract.read("ui/activity/PlayerPickerDialogs.kt")
             .after("internal fun MainActivity.showFrameInterpolationThermalConfirmDialog(")
             .before("/** apply()")

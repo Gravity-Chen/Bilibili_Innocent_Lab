@@ -2,6 +2,9 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.settingsComponent
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.setMeguvizContentView
+
 import com.lumen.coacervation.engine.motion.LumenAnimator
 
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.hostui.cards.HostVideoCardStyleSpec
@@ -81,18 +84,6 @@ import com.highcapable.betterandroid.ui.extension.view.textToString
 import com.highcapable.betterandroid.ui.extension.view.toast
 import com.highcapable.betterandroid.ui.extension.view.updateMargins
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
-import com.highcapable.hikage.core.base.Hikagable
-import com.highcapable.hikage.core.layout.Layout
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.extension.setContentView
-import com.highcapable.hikage.runtime.attribute.AttributeSetResolver
-import com.highcapable.hikage.widget.android.widget.ImageView
-import com.highcapable.hikage.widget.android.widget.LinearLayout
-import com.highcapable.hikage.widget.android.widget.FrameLayout
-import com.highcapable.hikage.widget.android.widget.Space
-import com.highcapable.hikage.widget.android.widget.TextView
-import com.highcapable.hikage.widget.androidx.core.widget.NestedScrollView
-import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.HookEntry
@@ -186,6 +177,8 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 
 class MainActivity : SkinnedActivity() {
+    private var meguvizSession: io.github.jichuo1.meguviz.ui.UiSession? = null
+
 
     // internal：只放常量与无状态帮助函数；外移的弹窗文件需要按名导入其中几个
     // （扩展函数里 companion 成员不在作用域内）。这里没有可变状态，放宽不引入共享风险。
@@ -232,7 +225,7 @@ class MainActivity : SkinnedActivity() {
         ENGLISH("en", R.string.app_language_english)
     }
 
-    private val homeComponent by lazy { ComponentName(packageName, "${BuildConfig.APPLICATION_ID}.Home") } 
+    private val homeComponent by lazy { ComponentName(packageName, "${BuildConfig.APPLICATION_ID}.Home") }
 
     private val settingsBackupLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -595,6 +588,14 @@ class MainActivity : SkinnedActivity() {
     private val advancedCategorySections =
         linkedMapOf<AdvancedSettingsCategory, AdvancedCategorySection>()
 
+    private val expansionSecondarySections = setOf(
+        SettingsSearchSection.PURIFICATION_ADVANCED,
+        SettingsSearchSection.ENHANCEMENT_ADVANCED,
+        SettingsSearchSection.APPEARANCE,
+        SettingsSearchSection.COMPATIBILITY,
+    )
+    private var settingsExpansionState = createSettingsExpansionState()
+
     /** 免 Root 配置只在用户明确开启后同步；回调不得持有 Activity 或 View。 */
     internal var noRootPrefsBridge: SharedPreferences? = null
     internal var noRootSwitch: com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch? = null
@@ -720,6 +721,20 @@ class MainActivity : SkinnedActivity() {
     private var settingsSearchRoot: ViewGroup? = null
     private var settingsSearchScrollView: androidx.core.widget.NestedScrollView? = null
     internal var settingsHome: SettingsHomePresenter? = null
+    internal var settingStore: SettingStore? = null
+    private var settingModelPreferences: SharedPreferences? = null
+    private val settingModelListener = SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
+        runOnUiThread {
+            val store = settingStore ?: return@runOnUiThread
+            val snapshot = ModuleUiSettings.read(preferences)
+            store.descriptors.filter { it.favoriteEligible && (key == null || it.storageKey == key) }.forEach {
+                val confirmed = snapshot.bool(it.storageKey)
+                synchronizeSettingField(it.storageKey, confirmed)
+                store.checked(it.id, confirmed)
+            }
+            refreshSettingAvailability()
+        }
+    }
     private val settingsRevealRequest = SettingsRevealRequest()
     private var settingsSearchHighlightView: View? = null
     private var settingsSearchHighlightDrawable: GradientDrawable? = null
@@ -1613,6 +1628,7 @@ class MainActivity : SkinnedActivity() {
             pendingHighlightDestination = settingId
             return
         }
+        settingStore?.descriptor(settingId)?.let { settingsHome?.ensurePage(it.page) }
         val target = collectSettingsSearchTargets().singleOrNull { settingId in it.settingIds }
         if (target == null || settingsDestinations.resolve(settingId) { it === target.view && it.isAttachedToWindow } == null) {
             pendingHighlightDestination = null
@@ -1641,6 +1657,7 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        saveSettingsExpansionState(outState)
         settingsHome?.saveState(outState)
         outState.putLong("compat_retry_revision", compatibilityRetryTracker.pendingRevision ?: 0L)
         outState.putInt("compat_retry_failures", compatibilityRetryTracker.failures)
@@ -3402,28 +3419,36 @@ class MainActivity : SkinnedActivity() {
         val chevron: View
         when (section) {
             SettingsSearchSection.PURIFICATION_ADVANCED -> {
-                if (purificationAdvancedExpanded == expanded) return false
+                val changed = purificationAdvancedExpanded != expanded
+                purificationAdvancedExpanded = expanded
+                settingsExpansionState.setSecondary(section.name, expanded)
+                if (!changed) return false
                 content = purificationAdvancedContent ?: return false
                 chevron = purificationAdvancedChevron ?: return false
-                purificationAdvancedExpanded = expanded
             }
             SettingsSearchSection.ENHANCEMENT_ADVANCED -> {
-                if (enhancementAdvancedExpanded == expanded) return false
+                val changed = enhancementAdvancedExpanded != expanded
+                enhancementAdvancedExpanded = expanded
+                settingsExpansionState.setSecondary(section.name, expanded)
+                if (!changed) return false
                 content = enhancementAdvancedContent ?: return false
                 chevron = enhancementAdvancedChevron ?: return false
-                enhancementAdvancedExpanded = expanded
             }
             SettingsSearchSection.APPEARANCE -> {
-                if (appearanceExpanded == expanded) return false
+                val changed = appearanceExpanded != expanded
+                appearanceExpanded = expanded
+                settingsExpansionState.setSecondary(section.name, expanded)
+                if (!changed) return false
                 content = appearanceContent ?: return false
                 chevron = appearanceChevron ?: return false
-                appearanceExpanded = expanded
             }
             SettingsSearchSection.COMPATIBILITY -> {
-                if (compatibilityExpanded == expanded) return false
+                val changed = compatibilityExpanded != expanded
+                compatibilityExpanded = expanded
+                settingsExpansionState.setSecondary(section.name, expanded)
+                if (!changed) return false
                 content = compatibilityContent ?: return false
                 chevron = compatibilityChevron ?: return false
-                compatibilityExpanded = expanded
             }
             else -> return false
         }
@@ -3442,185 +3467,94 @@ class MainActivity : SkinnedActivity() {
         ViewCompat.setAccessibilityHeading(this, true)
     }
 
-    /** 首帧前用同一套折叠卡片分组净化与增强控件，保留原监听器和独立展开状态。 */
-    private fun installAdvancedCategorySections() {
-        installAdvancedCategorySections(
-            purificationAdvancedContent as? ViewGroup ?: return,
-            SettingsSearchSection.PURIFICATION_ADVANCED
-        )
-        installAdvancedCategorySections(
-            enhancementAdvancedContent as? ViewGroup ?: return,
-            SettingsSearchSection.ENHANCEMENT_ADVANCED
-        )
-    }
-
-    private fun installAdvancedCategorySections(root: ViewGroup, section: SettingsSearchSection) {
-        val categories = AdvancedSettingsCategory.entries.filter { it.section == section }
-        if (categories.any { it in advancedCategorySections }) return
-
-        val originalChildren = List(root.childCount, root::getChildAt)
-        // 下面两条失败路径都会让进阶设置**安静地退回平铺**（不再折叠成分类）：
-        // 编译不报错、单测不红，只有真机上肉眼能看出来。拆 DSL 树时最容易踩的就是它们，
-        // 所以必须留日志。前置条件由 AdvancedCategoryTreeTest 静态钉住。
-        val markers = categories.map { category ->
-            advancedCategoryMarkers[category] ?: run {
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "advanced category marker missing for $category; " +
-                        "the settings tree no longer registers it, falling back to a flat layout"
-                )
-                return
-            }
-        }
-        val markerIndices = markers.map(originalChildren::indexOf)
-        val ranges = AdvancedCategoryLayoutPolicy.resolve(
-            markerIndices = markerIndices,
-            childCount = originalChildren.size
-        ) ?: run {
-            Log.e(
-                "BilibiliInnocentLab",
-                "advanced category layout unresolved for $section (markers=$markerIndices, " +
-                    "children=${originalChildren.size}); the first child must be the first " +
-                    "category title and markers must follow the enum order"
-            )
-            return
-        }
-
+    /** Each category builds directly into its final content parent and independent key namespace. */
+    internal fun advancedCategoryScope(category: AdvancedSettingsCategory): com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope {
+        check(category !in advancedCategorySections) { "Category already constructed: $category" }
+        val root = when (category.section) {
+            SettingsSearchSection.PURIFICATION_ADVANCED -> purificationAdvancedContent
+            SettingsSearchSection.ENHANCEMENT_ADVANCED -> enhancementAdvancedContent
+            else -> error("Category does not own an advanced section")
+        } as NativeLinearLayout
+        val categories = AdvancedSettingsCategory.entries.filter { it.section == category.section }
+        val index = categories.indexOf(category)
         val density = resources.displayMetrics.density
         val horizontalPadding = SettingsMenuSpacing.referenceContentPaddingPx(density)
         val headerVerticalPadding = (11f * density).toInt()
-        root.removeAllViews()
-
-        categories.forEachIndexed { index, category ->
-            val title = markers[index].apply {
-                alpha = 0.92f
-                textColor = getColor(R.color.colorTextGray)
-                textSize = 14f
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            }
+        val scope = com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.SettingsScope(
+            checkNotNull(meguvizSession), root,
+            object : io.github.jichuo1.meguviz.ui.ParentPolicy<NativeLinearLayout, NativeLinearLayout.LayoutParams> {}
+        ) { width, height -> NativeLinearLayout.LayoutParams(width, height) }
+        lateinit var body: com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+        with(scope) {
             if (!category.collapsible) {
-                title.textColor = monetColors.primary
-                title.textSize = 12f
-                root.addView(title, NativeLinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
+                val title = textView(key = "category:${category.name}:title", lparams = params(widthMatchParent = true) {
                     topMargin = ((if (index == 0) 4f else 18f) * density).toInt()
                     bottomMargin = (6f * density).toInt()
                 })
-                val content = NativeLinearLayout(this).apply {
-                    orientation = NativeLinearLayout.VERTICAL
-                    val range = ranges[index]
-                    for (childIndex in range.startInclusive until range.endExclusive) {
-                        addView(originalChildren[childIndex])
-                    }
-                }
-                root.addView(content)
-                advancedCategorySections[category] = AdvancedCategorySection(
-                    title, content, chevron = null, expanded = true
-                )
-                return@forEachIndexed
-            }
-            val chevron = android.widget.ImageView(this).apply {
-                setImageResource(R.drawable.ic_chevron_down)
-                imageTintList = ColorStateList.valueOf(getColor(R.color.colorTextGray))
-                alpha = 0.82f
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }
-            val content = NativeLinearLayout(this).apply {
-                orientation = NativeLinearLayout.VERTICAL
-                visibility = View.GONE
-                setPadding(
-                    horizontalPadding,
-                    0,
-                    horizontalPadding,
-                    (12f * density).toInt()
-                )
-                ranges[index].let { range ->
-                    for (childIndex in range.startInclusive until range.endExclusive) {
-                        addView(originalChildren[childIndex])
-                    }
-                }
-            }
-            val header = NativeLinearLayout(this).apply {
-                orientation = NativeLinearLayout.HORIZONTAL
-                // 折叠卡标题参与全局长按弹性：长按后拖动时原生流会收到 CANCEL
-                // （涟漪退场、不触发折叠），轻点仍在 UP 前恢复几何后正常折叠。
-                gravity = Gravity.CENTER_VERTICAL
-                minimumHeight = (48f * density).toInt()
-                setPadding(
-                    horizontalPadding,
-                    headerVerticalPadding,
-                    horizontalPadding,
-                    headerVerticalPadding
-                )
-                foreground = selfRippleBackground(12f)
-                isClickable = true
-                isFocusable = true
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-                contentDescription = title.text
-                addView(
-                    View(this@MainActivity).apply {
-                        background = GradientDrawable().apply {
-                            cornerRadius = 2f * density
-                            setColor(monetColors.primary)
-                        }
-                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                    },
-                    NativeLinearLayout.LayoutParams(
-                        (3f * density).toInt().coerceAtLeast(1),
-                        (18f * density).toInt()
-                    ).apply { marginEnd = (10f * density).toInt() }
-                )
-                addView(
-                    title,
-                    NativeLinearLayout.LayoutParams(
-                        0,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        1f
-                    )
-                )
-                addView(
-                    chevron,
-                    NativeLinearLayout.LayoutParams(
-                        (18f * density).toInt(),
-                        (18f * density).toInt()
-                    )
-                )
-                setOnClickListener { toggleAdvancedCategory(category) }
-            }
-            val card = NativeLinearLayout(this).apply {
-                orientation = NativeLinearLayout.VERTICAL
-                background = skinCardBackground(monetColors.surface, 12f)
-                addView(
-                    header,
-                    NativeLinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    )
-                )
-                addView(
-                    content,
-                    NativeLinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    )
-                )
-            }
-            root.addView(
-                card,
-                NativeLinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply {
+                advancedCategoryMarkers[category] = title
+                val content = linearLayout(key = "category:${category.name}:content", lparams = params(widthMatchParent = true),
+                    init = { orientation = NativeLinearLayout.VERTICAL }) { body = this }
+                advancedCategorySections[category] = AdvancedCategorySection(title, content, chevron = null, expanded = true)
+            } else {
+                lateinit var header: NativeLinearLayout
+                lateinit var chevron: android.widget.ImageView
+                lateinit var content: NativeLinearLayout
+                linearLayout(key = "category:${category.name}:card", lparams = params(widthMatchParent = true) {
                     topMargin = ((if (index == 0) 4f else 8f) * density).toInt()
+                }, init = {
+                    orientation = NativeLinearLayout.VERTICAL
+                    background = skinCardBackground(monetColors.surface, 12f)
+                }) {
+                    header = linearLayout(key = "category:${category.name}:header", lparams = params(widthMatchParent = true), init = {
+                        orientation = NativeLinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        minimumHeight = (48f * density).toInt()
+                        setPadding(horizontalPadding, headerVerticalPadding, horizontalPadding, headerVerticalPadding)
+                        foreground = selfRippleBackground(12f)
+                        isClickable = true
+                        isFocusable = true
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                        setOnClickListener { toggleAdvancedCategory(category) }
+                    }) {
+                        view(key = "category:${category.name}:accent", lparams = params(
+                            (3f * density).toInt().coerceAtLeast(1), (18f * density).toInt()
+                        ) { marginEnd = (10f * density).toInt() }) {
+                            background = GradientDrawable().apply {
+                                cornerRadius = 2f * density
+                                setColor(monetColors.primary)
+                            }
+                            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        }
+                        advancedCategoryMarkers[category] = textView(key = "category:${category.name}:title",
+                            lparams = params(0, ViewGroup.LayoutParams.WRAP_CONTENT) { weight = 1f })
+                        chevron = imageView(key = "category:${category.name}:chevron",
+                            lparams = params((18f * density).toInt(), (18f * density).toInt())) {
+                            setImageResource(R.drawable.ic_chevron_down)
+                            imageTintList = ColorStateList.valueOf(getColor(R.color.colorTextGray))
+                            alpha = 0.82f
+                            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        }
+                    }
+                    content = linearLayout(key = "category:${category.name}:content", lparams = params(widthMatchParent = true), init = {
+                        orientation = NativeLinearLayout.VERTICAL
+                        visibility = View.GONE
+                        setPadding(horizontalPadding, 0, horizontalPadding, (12f * density).toInt())
+                    }) { body = this }
                 }
-            )
-            advancedCategorySections[category] = AdvancedCategorySection(
-                header = header,
-                content = content,
-                chevron = chevron
-            )
+                advancedCategorySections[category] = AdvancedCategorySection(header, content, chevron)
+            }
         }
+        return body
+    }
+
+    internal fun advancedCategoryTitle(category: AdvancedSettingsCategory, configure: NativeTextView.() -> Unit) {
+        val title = checkNotNull(advancedCategoryMarkers[category]) { "Build the final category container before its rows" }
+        title.configure()
+        title.alpha = 0.92f
+        title.textColor = if (category.collapsible) getColor(R.color.colorTextGray) else monetColors.primary
+        title.textSize = if (category.collapsible) 14f else 12f
+        title.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        if (category.collapsible) advancedCategorySections.getValue(category).header.contentDescription = title.text
     }
 
     /** 各分类独立切换；展开一个分类时保留其他分类的当前状态。 */
@@ -3633,6 +3567,8 @@ class MainActivity : SkinnedActivity() {
         category: AdvancedSettingsCategory,
         expanded: Boolean
     ) {
+        if (!category.collapsible) return
+        settingsExpansionState.setCategory(category.name, expanded)
         val section = advancedCategorySections[category] ?: return
         if (section.expanded == expanded) return
         val chevron = section.chevron ?: return
@@ -3672,7 +3608,8 @@ class MainActivity : SkinnedActivity() {
     private fun animateSecondarySection(
         content: View,
         chevron: View,
-        expanded: Boolean
+        expanded: Boolean,
+        animate: Boolean = true,
     ) {
         val card = content.parent as? ViewGroup
         val contentGroup = content as? ViewGroup
@@ -3690,7 +3627,7 @@ class MainActivity : SkinnedActivity() {
                 notifyPositionChanged = ::notifyPreparedSkinPositionChanged
             )
         }
-        controller.setExpanded(expanded)
+        controller.setExpanded(expanded, animate = animate)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -3800,7 +3737,8 @@ class MainActivity : SkinnedActivity() {
         val item: SettingsSearchItem,
         val view: View,
         val section: SettingsSearchSection,
-        val settingIds: Set<String> = emptySet()
+        val settingIds: Set<String> = emptySet(),
+        val deferredSettingId: String? = null,
     )
 
     private fun settingsSearchSectionLabel(section: SettingsSearchSection): String =
@@ -3904,6 +3842,15 @@ class MainActivity : SkinnedActivity() {
         }
 
         (settingsHome?.searchRoots ?: listOf(root)).forEach { visit(it, SettingsSearchSection.GENERAL) }
+        val indexedIds = targets.flatMap { it.settingIds }.toSet()
+        val home = settingsHome
+        if (home != null) settingStore?.descriptors?.filter { it.id !in indexedIds }?.forEach { descriptor ->
+            val section = SettingsSearchSection.valueOf(descriptor.section)
+            targets += RuntimeSettingsSearchTarget(
+                SettingsSearchItem("model:${descriptor.id}", getString(descriptor.titleRes), "", settingsSearchSectionLabel(section)),
+                home.pageRoot(descriptor.page), section, setOf(descriptor.id), descriptor.id,
+            )
+        }
         return targets
     }
 
@@ -3993,6 +3940,14 @@ class MainActivity : SkinnedActivity() {
         fromHighlight: Boolean = false,
         afterReveal: (() -> Unit)? = null
     ) {
+        target.deferredSettingId?.let { id ->
+            val descriptor = settingStore?.descriptor(id) ?: return
+            settingsHome?.ensurePage(descriptor.page)
+            val built = collectSettingsSearchTargets().singleOrNull { it.deferredSettingId == null && id in it.settingIds }
+            if (built != null) revealSettingsSearchTarget(built, fromHighlight, afterReveal)
+            else toast(getString(R.string.highlights_unavailable))
+            return
+        }
         if (fromHighlight) {
             settingsRevealRequest.cancel()
             clearSettingsSearchTargetHighlight()
@@ -4140,6 +4095,12 @@ class MainActivity : SkinnedActivity() {
     }
 
     override fun onDestroy() {
+        settingModelPreferences?.unregisterOnSharedPreferenceChangeListener(settingModelListener)
+        settingModelPreferences = null
+        settingStore?.close()
+        settingStore = null
+        meguvizSession?.close()
+        meguvizSession = null
         settingDependencies.dispose()
         settingsHome?.dispose()
         settingsHome = null
@@ -4271,6 +4232,7 @@ class MainActivity : SkinnedActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restoreSettingsExpansionState(savedInstanceState)
         pendingHighlightsFrom = ReleaseHighlightsStore.prepare(applicationContext)
         if (savedInstanceState?.containsKey("highlights_from") == true) {
             savedInstanceState.getInt("highlights_from",-1)
@@ -4301,14 +4263,6 @@ class MainActivity : SkinnedActivity() {
                 userTermsDecision == UserTermsDecision.DECLINED -> showUserTermsDeclinedPage()
                 else -> Unit
             }
-            return
-        }
-        val attributeRuntimeCheck = runCatching { classOf<AttributeSetResolver>() }
-        if (attributeRuntimeCheck.isFailure) {
-            showSettingsUiCompatibilityFallback(
-                reason = "attribute-runtime-unavailable",
-                failure = attributeRuntimeCheck.exceptionOrNull()
-            )
             return
         }
         prepareSkinSession()
@@ -4560,20 +4514,26 @@ class MainActivity : SkinnedActivity() {
         logVerbose =
             uiSettings.string(HookEntry.PREF_LOG_LEVEL) != HookEntry.LOG_LEVEL_MINIMAL
 
-        // UI view based on Hikage DSL
-        // See: https://github.com/BetterAndroid/Hikage
+        val descriptors = (SettingsUiCatalog.descriptors() + SettingsActionCatalog.descriptors() + RuntimeSettingsNavigationCatalog.descriptors()).distinctBy { it.id }
+        settingStore = SettingStore(descriptors, descriptors.filter { it.favoriteEligible }
+            .associate { it.storageKey to uiSettings.bool(it.storageKey) })
+        settingModelPreferences = modulePrefs
+        modulePrefs?.registerOnSharedPreferenceChangeListener(settingModelListener)
+        refreshSettingAvailability()
+
+        // Direct typed View factories; Lumen retains visual and motion ownership.
         // Don't like it or want to switch back to XML writing? Can refer to res/layout/activity_main.xml
         // 不喜欢或者想切换回 XML 写法？可以参考 res/layout/activity_main.xml
         try {
-            setContentView {
-                LinearLayout(
-                lparams = LayoutParams(matchParent = true),
+            meguvizSession = setMeguvizContentView {
+                linearLayout(key = "MainActivity:4569",
+                lparams = params(matchParent = true),
                 init = {
                     orientation = LinearLayout.VERTICAL
                 }
             ) {
-                LinearLayout(
-                    lparams = LayoutParams(widthMatchParent = true),
+                linearLayout(key = "MainActivity:4575",
+                    lparams = params(widthMatchParent = true),
                     init = {
                         gravity = Gravity.CENTER or Gravity.START
                         // presenter 把工具栏包进 58dp 高的长胶囊悬浮栏（48dp 按钮 +
@@ -4588,8 +4548,8 @@ class MainActivity : SkinnedActivity() {
                         settingsFloatingToolbar = this
                     }
                 ) {
-                    ImageView(
-                        lparams = LayoutParams(48.dp, 48.dp) {
+                    imageView(key = "MainActivity:4591",
+                        lparams = params(48.dp, 48.dp) {
                             marginStart = 5.dp
                         }
                     ) {
@@ -4601,9 +4561,9 @@ class MainActivity : SkinnedActivity() {
                         contentDescription = stringResource(R.string.settings_search_description)
                         setOnClickListener { showSettingsSearchDialog(it) }
                     }
-                    Space(lparams = LayoutParams { weight = 1f })
-                    ImageView(
-                        lparams = LayoutParams(48.dp, 48.dp) {
+                    space(key = "MainActivity:4604", lparams = params { weight = 1f })
+                    imageView(key = "MainActivity:4605",
+                        lparams = params(48.dp, 48.dp) {
                             marginEnd = 12.dp
                         }
                     ) {
@@ -4616,15 +4576,15 @@ class MainActivity : SkinnedActivity() {
                         setOnClickListener { showRestartConfirmDialog(it) }
                     }
                     // The badge stays outside the circular button and does not change its anchor geometry.
-                    FrameLayout(
-                        lparams = LayoutParams(48.dp, 48.dp) { marginEnd = 5.dp },
+                    frameLayout(key = "MainActivity:4619",
+                        lparams = params(48.dp, 48.dp) { marginEnd = 5.dp },
                         init = {
                             clipChildren = false
                             clipToPadding = false
                         }
                     ) {
-                        ImageView(
-                            lparams = LayoutParams(48.dp, 48.dp)
+                        imageView(key = "MainActivity:4626",
+                            lparams = params(48.dp, 48.dp)
                         ) {
                             background = skinChromeOverlayBackground(monetColors.surface, 24f)
                             foreground = selfRippleBackground(24f)
@@ -4634,8 +4594,8 @@ class MainActivity : SkinnedActivity() {
                             contentDescription = stringResource(R.string.github_menu_description)
                             setOnClickListener { showGitHubMenuDialog(it) }
                         }
-                        TextView(
-                            lparams = LayoutParams(22.dp, 15.dp) {
+                        textView(key = "MainActivity:4637",
+                            lparams = params(22.dp, 15.dp) {
                                 gravity = Gravity.END or Gravity.TOP
                                 marginEnd = -5.dp
                                 topMargin = -5.dp
@@ -4681,212 +4641,8 @@ class MainActivity : SkinnedActivity() {
                         }
                     }
                 }
-                LinearLayout(
-                    lparams = LayoutParams(widthMatchParent = true) {
-                        updateMargins(horizontal = 15.dp)
-                        updateMargins(top = 10.dp, bottom = 5.dp)
-                    },
-                    init = {
-                        gravity = Gravity.CENTER or Gravity.START
-                        // 首次绘制使用中性确认态；布局完成后由单快照 renderer 统一收敛。
-                        background = roundedColor(monetColors.surfaceVariant)
-                        // 整卡参与全局长按弹性（与「设置备份与恢复」同款）：涟漪放前景，
-                        // renderActivationUi 会在未激活态把 accent 光晕叠在它上面
-                        // （光晕只画边缘，不挡按压反馈）。
-                        // 可点击只为接住按下、成为弹性目标；轻点整卡**不**打开诊断，入口只有
-                        // 右侧「统一功能诊断」按钮（2026-09-24 用户要求，原先整卡都会跳转）。
-                        foreground = selfRippleBackground(ActivationCardVisualSpec.CORNER_RADIUS_DP)
-                        isClickable = true
-                        isFocusable = false
-                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-                        activationCardView = this
-                        // 读屏不播报"可激活"：卡片只是状态展示。
-                        ViewCompat.replaceAccessibilityAction(this,
-                            androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
-                            null, null)
-                    }
-                ) {
-                    ImageView(
-                        lparams = LayoutParams(25.dp, 25.dp) {
-                            marginStart = 25.dp
-                            marginEnd = 5.dp
-                        }
-                    ) {
-                        activationIconView = this
-                        setImageResource(R.mipmap.ic_warn)
-                        imageTintList = stateColorResource(R.color.white)
-                    }
-                    LinearLayout(
-                        lparams = LayoutParams(widthMatchParent = true),
-                        init = {
-                            orientation = LinearLayout.HORIZONTAL
-                            gravity = Gravity.CENTER_VERTICAL
-                            updatePadding(horizontal = 20.dp, vertical = 10.dp)
-                        }
-                    ) {
-                        LinearLayout(
-                            lparams = LayoutParams { weight = 1f },
-                            init = {
-                                orientation = LinearLayout.VERTICAL
-                            }
-                        ) {
-                            TextView(
-                                lparams = LayoutParams {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                activationTitleView = this
-                                isSingleLine = true
-                                ellipsize = TextUtils.TruncateAt.END
-                                textColor = colorResource(R.color.white)
-                                textSize = 18f
-                                text = stringResource(R.string.module_activation_checking)
-                            }
-                            TextView(
-                                lparams = LayoutParams {
-                                    bottomMargin = 5.dp
-                                }
-                            ) {
-                                activationSourceView = this
-                                alpha = 0.6f
-                                isSingleLine = true
-                                ellipsize = TextUtils.TruncateAt.END
-                                textColor = colorResource(R.color.white)
-                                textSize = 11f
-                                text = stringResource(R.string.module_activation_waiting_framework)
-                                isVisible = true
-                            }
-                            LinearLayout(
-                                lparams = LayoutParams {
-                                    bottomMargin = 5.dp
-                                },
-                                init = {
-                                    gravity = Gravity.CENTER or Gravity.START
-                                }
-                            ) {
-                                TextView {
-                                    activationVersionView = this
-                                    alpha = 0.8f
-                                    isSingleLine = true
-                                    ellipsize = TextUtils.TruncateAt.END
-                                    textColor = colorResource(R.color.white)
-                                    textSize = 13f
-                                    text = stringResource(
-                                        R.string.module_version,
-                                        BuildConfig.VERSION_NAME
-                                    )
-                                }
-                                TextView(
-                                    lparams = LayoutParams {
-                                        leftMargin = 5.dp
-                                    }
-                                ) {
-                                    background = roundedColor(monetColors.tertiary)
-                                    updatePadding(horizontal = 5.dp, vertical = 2.dp)
-                                    isSingleLine = true
-                                    ellipsize = TextUtils.TruncateAt.END
-                                    textColor = colorResource(R.color.white)
-                                    textSize = 11f
-                                    isVisible = false
-                                }
-                            }
-                            // 模板遗留占位文本：隐藏（无实际信息，与整体 UI 不一致）
-                            TextView {
-                                alpha = 0.8f
-                                isSingleLine = true
-                                ellipsize = TextUtils.TruncateAt.END
-                                textColor = colorResource(R.color.white)
-                                textSize = 13f
-                                isVisible = false
-                            }
-                        }
-                        LinearLayout(
-                            lparams = LayoutParams(96.dp, 72.dp) {
-                                marginStart = 10.dp
-                            },
-                            init = {
-                                orientation = LinearLayout.VERTICAL
-                                gravity = Gravity.CENTER
-                                val density = resources.displayMetrics.density
-                                val neutralColor = colorResource(R.color.colorTextGray)
-                                val darkTheme = (resources.configuration.uiMode and
-                                    android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-                                    android.content.res.Configuration.UI_MODE_NIGHT_YES
-                                val surfaceColor = DiagnosticsEntryVisualSpec.surfaceColor(
-                                    darkTheme, neutralColor, monetColors.surface
-                                )
-                                background = skinMotionSurfaceBackground(
-                                    surfaceColor,
-                                    DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP
-                                )
-                                val outline = GradientDrawable().apply {
-                                    cornerRadius = DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP * density
-                                    setColor(android.graphics.Color.TRANSPARENT)
-                                    setStroke(
-                                        (DiagnosticsEntryVisualSpec.STROKE_WIDTH_DP * density)
-                                            .toInt()
-                                            .coerceAtLeast(2),
-                                        ColorUtils.setAlphaComponent(
-                                            neutralColor,
-                                            DiagnosticsEntryVisualSpec.STROKE_ALPHA
-                                        )
-                                    )
-                                }
-                                foreground = android.graphics.drawable.LayerDrawable(
-                                    arrayOf(
-                                        outline,
-                                        selfRippleBackground(
-                                            DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP
-                                        )
-                                    )
-                                )
-                                updatePadding(horizontal = 9.dp, vertical = 7.dp)
-                                isClickable = true
-                                isFocusable = true
-                                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-                                contentDescription = stringResource(R.string.diagnostics_title)
-                                diagnosticsEntryView = this
-                                setOnClickListener { launchDiagnostics() }
-                            }
-                        ) {
-                            TextView(lparams = LayoutParams(widthMatchParent = true)) {
-                                diagnosticsEntryTitleView = this
-                                gravity = Gravity.CENTER
-                                text = stringResource(R.string.diagnostics_title)
-                                textColor = colorResource(R.color.colorTextGray)
-                                textSize = 12f
-                                setTypeface(typeface, Typeface.BOLD)
-                                isSingleLine = true
-                                ellipsize = TextUtils.TruncateAt.END
-                                post {
-                                    val entry = diagnosticsEntryView ?: return@post
-                                    DiagnosticsTransitionOriginRegistry.register(
-                                        entry,
-                                        this,
-                                        this@MainActivity.findViewById(Android_R.id.content)
-                                    )
-                                }
-                            }
-                            TextView(
-                                lparams = LayoutParams(widthMatchParent = true) {
-                                    topMargin = 5.dp
-                                }
-                            ) {
-                                diagnosticsSummaryView = this
-                                gravity = Gravity.CENTER
-                                alpha = 1f
-                                isSingleLine = true
-                                ellipsize = TextUtils.TruncateAt.END
-                                textColor = colorResource(R.color.colorTextDark)
-                                textSize = 11f
-                                setTypeface(typeface, Typeface.BOLD)
-                                text = stringResource(R.string.diagnostics_entry_checking)
-                            }
-                        }
-                    }
-                }
-                NestedScrollView(
-                    lparams = LayoutParams(matchParent = true) {
+                nestedScrollView(key = "MainActivity:4888",
+                    lparams = params(matchParent = true) {
                         updateMargins(vertical = 10.dp)
                     },
                     init = {
@@ -4896,28 +4652,14 @@ class MainActivity : SkinnedActivity() {
                         isVerticalFadingEdgeEnabled = true
                     }
                 ) {
-                    LinearLayout(
-                        lparams = LayoutParams(widthMatchParent = true),
+                    linearLayout(key = "MainActivity:4899",
+                        lparams = params(widthMatchParent = true),
                         init = {
                             orientation = LinearLayout.VERTICAL
                             settingsSearchRoot = this
                         }
                     ) {
-                        settingsBackupEntryCard(this)
-                        Space(lparams = LayoutParams(height = 10.dp))
-                        purifySettingsCard(this)
-                        Space(lparams = LayoutParams(height = 10.dp))
-                        enhancementSettingsCard(this, uiSettings)
-                        Space(lparams = LayoutParams(height = 10.dp))
-                        beautificationSettingsCard(this)
-                        Space(lparams = LayoutParams(height = 10.dp))
-                        experimentalFeaturesCard(this, uiSettings)
-                        Space(lparams = LayoutParams(height = 10.dp))
-                        logSettingsCard(this)
-                        Space(lparams = LayoutParams(height = 10.dp))
-                        Layout(createPromotionItem(R.string.about_module, R.mipmap.ic_yukihookapi))
-                        Space(lparams = LayoutParams(height = 10.dp))
-                        Layout(createPromotionItem(R.string.about_module_extension, R.mipmap.ic_kavaref))
+
                     }
                 }
                 }
@@ -4938,12 +4680,320 @@ class MainActivity : SkinnedActivity() {
             ::handleSkinRendererFailure
         )
         // 两个进阶菜单已在各自大类末尾；首帧前只整理区域分组，不移动顶层卡片。
-        installAdvancedCategorySections()
         settingsDestinations.forEachTarget { id, view -> settingDependencies.bind(view, id) }
         settingDependencies.start(modulePrefs)
         renderNoRootUi()
         // 首次连续前台停留十秒后，每进程至多一次自动检查；不在布局重建时重复启动。
         scheduleColdStartUpdate()
+    }
+
+    private fun activationPageCard(scope: com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope) = with(scope) {
+        linearLayout(key = "MainActivity:4684",
+            lparams = params(widthMatchParent = true) {
+                updateMargins(horizontal = 15.dp)
+                updateMargins(top = 10.dp, bottom = 5.dp)
+            },
+            init = {
+                gravity = Gravity.CENTER or Gravity.START
+                // 首次绘制使用中性确认态；布局完成后由单快照 renderer 统一收敛。
+                background = roundedColor(monetColors.surfaceVariant)
+                // 整卡参与全局长按弹性（与「设置备份与恢复」同款）：涟漪放前景，
+                // renderActivationUi 会在未激活态把 accent 光晕叠在它上面
+                // （光晕只画边缘，不挡按压反馈）。
+                // 可点击只为接住按下、成为弹性目标；轻点整卡**不**打开诊断，入口只有
+                // 右侧「统一功能诊断」按钮（2026-09-24 用户要求，原先整卡都会跳转）。
+                foreground = selfRippleBackground(ActivationCardVisualSpec.CORNER_RADIUS_DP)
+                isClickable = true
+                isFocusable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                activationCardView = this
+                // 读屏不播报"可激活"：卡片只是状态展示。
+                ViewCompat.replaceAccessibilityAction(this,
+                    androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
+                    null, null)
+            }
+        ) {
+            imageView(key = "MainActivity:4709",
+                lparams = params(25.dp, 25.dp) {
+                    marginStart = 25.dp
+                    marginEnd = 5.dp
+                }
+            ) {
+                activationIconView = this
+                setImageResource(R.mipmap.ic_warn)
+                imageTintList = stateColorResource(R.color.white)
+            }
+            linearLayout(key = "MainActivity:4719",
+                lparams = params(widthMatchParent = true),
+                init = {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    updatePadding(horizontal = 20.dp, vertical = 10.dp)
+                }
+            ) {
+                linearLayout(key = "MainActivity:4727",
+                    lparams = params { weight = 1f },
+                    init = {
+                        orientation = LinearLayout.VERTICAL
+                    }
+                ) {
+                    textView(key = "MainActivity:4733",
+                        lparams = params {
+                            bottomMargin = 5.dp
+                        }
+                    ) {
+                        activationTitleView = this
+                        isSingleLine = true
+                        ellipsize = TextUtils.TruncateAt.END
+                        textColor = colorResource(R.color.white)
+                        textSize = 18f
+                        text = stringResource(R.string.module_activation_checking)
+                    }
+                    textView(key = "MainActivity:4745",
+                        lparams = params {
+                            bottomMargin = 5.dp
+                        }
+                    ) {
+                        activationSourceView = this
+                        alpha = 0.6f
+                        isSingleLine = true
+                        ellipsize = TextUtils.TruncateAt.END
+                        textColor = colorResource(R.color.white)
+                        textSize = 11f
+                        text = stringResource(R.string.module_activation_waiting_framework)
+                        isVisible = true
+                    }
+                    linearLayout(key = "MainActivity:4759",
+                        lparams = params {
+                            bottomMargin = 5.dp
+                        },
+                        init = {
+                            gravity = Gravity.CENTER or Gravity.START
+                        }
+                    ) {
+                        textView(key = "MainActivity:4767") {
+                            activationVersionView = this
+                            alpha = 0.8f
+                            isSingleLine = true
+                            ellipsize = TextUtils.TruncateAt.END
+                            textColor = colorResource(R.color.white)
+                            textSize = 13f
+                            text = stringResource(
+                                R.string.module_version,
+                                BuildConfig.VERSION_NAME
+                            )
+                        }
+                        textView(key = "MainActivity:4779",
+                            lparams = params {
+                                leftMargin = 5.dp
+                            }
+                        ) {
+                            background = roundedColor(monetColors.tertiary)
+                            updatePadding(horizontal = 5.dp, vertical = 2.dp)
+                            isSingleLine = true
+                            ellipsize = TextUtils.TruncateAt.END
+                            textColor = colorResource(R.color.white)
+                            textSize = 11f
+                            isVisible = false
+                        }
+                    }
+                    // 模板遗留占位文本：隐藏（无实际信息，与整体 UI 不一致）
+                    textView(key = "MainActivity:4794") {
+                        alpha = 0.8f
+                        isSingleLine = true
+                        ellipsize = TextUtils.TruncateAt.END
+                        textColor = colorResource(R.color.white)
+                        textSize = 13f
+                        isVisible = false
+                    }
+                }
+                linearLayout(key = "MainActivity:4803",
+                    lparams = params(96.dp, 72.dp) {
+                        marginStart = 10.dp
+                    },
+                    init = {
+                        orientation = LinearLayout.VERTICAL
+                        gravity = Gravity.CENTER
+                        val density = resources.displayMetrics.density
+                        val neutralColor = colorResource(R.color.colorTextGray)
+                        val darkTheme = (resources.configuration.uiMode and
+                            android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                            android.content.res.Configuration.UI_MODE_NIGHT_YES
+                        val surfaceColor = DiagnosticsEntryVisualSpec.surfaceColor(
+                            darkTheme, neutralColor, monetColors.surface
+                        )
+                        background = skinMotionSurfaceBackground(
+                            surfaceColor,
+                            DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP
+                        )
+                        val outline = GradientDrawable().apply {
+                            cornerRadius = DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP * density
+                            setColor(android.graphics.Color.TRANSPARENT)
+                            setStroke(
+                                (DiagnosticsEntryVisualSpec.STROKE_WIDTH_DP * density)
+                                    .toInt()
+                                    .coerceAtLeast(2),
+                                ColorUtils.setAlphaComponent(
+                                    neutralColor,
+                                    DiagnosticsEntryVisualSpec.STROKE_ALPHA
+                                )
+                            )
+                        }
+                        foreground = android.graphics.drawable.LayerDrawable(
+                            arrayOf(
+                                outline,
+                                selfRippleBackground(
+                                    DiagnosticsEntryVisualSpec.CORNER_RADIUS_DP
+                                )
+                            )
+                        )
+                        updatePadding(horizontal = 9.dp, vertical = 7.dp)
+                        isClickable = true
+                        isFocusable = true
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                        contentDescription = stringResource(R.string.diagnostics_title)
+                        diagnosticsEntryView = this
+                        setOnClickListener { launchDiagnostics() }
+                    }
+                ) {
+                    textView(key = "MainActivity:4852", lparams = params(widthMatchParent = true)) {
+                        diagnosticsEntryTitleView = this
+                        gravity = Gravity.CENTER
+                        text = stringResource(R.string.diagnostics_title)
+                        textColor = colorResource(R.color.colorTextGray)
+                        textSize = 12f
+                        setTypeface(typeface, Typeface.BOLD)
+                        isSingleLine = true
+                        ellipsize = TextUtils.TruncateAt.END
+                        post {
+                            val entry = diagnosticsEntryView ?: return@post
+                            DiagnosticsTransitionOriginRegistry.register(
+                                entry,
+                                this,
+                                this@MainActivity.findViewById(Android_R.id.content)
+                            )
+                        }
+                    }
+                    textView(key = "MainActivity:4870",
+                        lparams = params(widthMatchParent = true) {
+                            topMargin = 5.dp
+                        }
+                    ) {
+                        diagnosticsSummaryView = this
+                        gravity = Gravity.CENTER
+                        alpha = 1f
+                        isSingleLine = true
+                        ellipsize = TextUtils.TruncateAt.END
+                        textColor = colorResource(R.color.colorTextDark)
+                        textSize = 11f
+                        setTypeface(typeface, Typeface.BOLD)
+                        text = stringResource(R.string.diagnostics_entry_checking)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun createSettingsExpansionState(
+        schemaVersion: Int = SettingsExpansionState.SCHEMA_VERSION,
+        savedValues: Map<String, Boolean> = emptyMap(),
+    ) = SettingsExpansionState(
+        secondaryNames = expansionSecondarySections.map { it.name }.toSet(),
+        categoryDefaults = AdvancedSettingsCategory.entries.associate { it.name to !it.collapsible },
+        fixedCategories = AdvancedSettingsCategory.entries.filterNot { it.collapsible }.map { it.name }.toSet(),
+        schemaVersion = schemaVersion,
+        savedValues = savedValues,
+    )
+
+    @Suppress("DEPRECATION")
+    private fun restoreSettingsExpansionState(savedState: Bundle?) {
+        val encoded = savedState?.getBundle(SettingsExpansionState.BUNDLE_KEY)
+        val schema = encoded?.getInt("schema", 0) ?: 0
+        val values = if (schema == SettingsExpansionState.SCHEMA_VERSION) encoded?.getBundle("values") else null
+        val restored = settingsExpansionState.snapshot().keys.mapNotNull { key ->
+            (values?.get(key) as? Boolean)?.let { key to it }
+        }.toMap()
+        settingsExpansionState = createSettingsExpansionState(schema, restored)
+        purificationAdvancedExpanded = settingsExpansionState.secondary(SettingsSearchSection.PURIFICATION_ADVANCED.name)
+        enhancementAdvancedExpanded = settingsExpansionState.secondary(SettingsSearchSection.ENHANCEMENT_ADVANCED.name)
+        appearanceExpanded = settingsExpansionState.secondary(SettingsSearchSection.APPEARANCE.name)
+        compatibilityExpanded = settingsExpansionState.secondary(SettingsSearchSection.COMPATIBILITY.name)
+    }
+
+    private fun saveSettingsExpansionState(outState: Bundle) {
+        val values = Bundle()
+        settingsExpansionState.snapshot().forEach { (key, expanded) -> values.putBoolean(key, expanded) }
+        outState.putBundle(SettingsExpansionState.BUNDLE_KEY, Bundle().apply {
+            putInt("schema", SettingsExpansionState.SCHEMA_VERSION)
+            putBundle("values", values)
+        })
+    }
+
+    /** Apply only this newly built page before its first layout and saved-scroll callback. */
+    private fun applyRestoredSettingsExpansion(index: Int) {
+        val sections = when (index) {
+            1 -> setOf(SettingsSearchSection.PURIFICATION_ADVANCED)
+            2 -> setOf(SettingsSearchSection.ENHANCEMENT_ADVANCED)
+            4 -> setOf(SettingsSearchSection.APPEARANCE, SettingsSearchSection.COMPATIBILITY)
+            else -> emptySet()
+        }
+        sections.forEach { section ->
+            val (content, chevron) = when (section) {
+                SettingsSearchSection.PURIFICATION_ADVANCED -> purificationAdvancedContent to purificationAdvancedChevron
+                SettingsSearchSection.ENHANCEMENT_ADVANCED -> enhancementAdvancedContent to enhancementAdvancedChevron
+                SettingsSearchSection.APPEARANCE -> appearanceContent to appearanceChevron
+                SettingsSearchSection.COMPATIBILITY -> compatibilityContent to compatibilityChevron
+                else -> null to null
+            }
+            if (content != null && chevron != null) {
+                animateSecondarySection(content, chevron, settingsExpansionState.secondary(section.name), animate = false)
+            }
+        }
+        advancedCategorySections.forEach { (category, section) ->
+            if (category.section !in sections) return@forEach
+            section.expanded = settingsExpansionState.category(category.name)
+            val chevron = section.chevron
+            if (chevron == null) {
+                section.content.visibility = View.VISIBLE
+            } else {
+                section.header.isActivated = section.expanded
+                animateSecondarySection(section.content, chevron, section.expanded, animate = false)
+            }
+        }
+    }
+
+    private fun buildSettingsPage(index: Int, parent: NativeLinearLayout) {
+        val session = checkNotNull(meguvizSession)
+        val uiSettings = ModuleUiSettings.read(runCatching { prefs() }.getOrNull())
+        val scope = com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.SettingsScope(
+            session, parent, object : io.github.jichuo1.meguviz.ui.ParentPolicy<NativeLinearLayout, NativeLinearLayout.LayoutParams> {}
+        ) { width, height -> NativeLinearLayout.LayoutParams(width, height) }
+        with(scope) {
+            when (index) {
+                1 -> purifySettingsCard(this)
+                2 -> enhancementSettingsCard(this, uiSettings)
+                3 -> beautificationSettingsCard(this)
+                4 -> {
+                    activationPageCard(this)
+                    settingsBackupEntryCard(this)
+                    space(key = "module:backup-gap", lparams = params(height = 10.dp))
+                    experimentalFeaturesCard(this, uiSettings)
+                    space(key = "module:experimental-gap", lparams = params(height = 10.dp))
+                    logSettingsCard(this)
+                    space(key = "module:log-gap", lparams = params(height = 10.dp))
+                    component(createPromotionItem("about-module", R.string.about_module, R.mipmap.ic_yukihookapi))
+                    space(key = "module:about-gap", lparams = params(height = 10.dp))
+                    component(createPromotionItem("about-module-extension", R.string.about_module_extension, R.mipmap.ic_kavaref))
+                }
+                else -> error("Unknown settings page: $index")
+            }
+        }
+        applyRestoredSettingsExpansion(index)
+        styleHomeControls(parent)
+        settingsDestinations.forEachTarget { id, view -> settingDependencies.bind(view, id) }
+        settingDependencies.start(settingModelPreferences)
+        refreshSettingAvailability()
+        if (index == 4) { renderActivationUi(); renderNoRootUi() }
     }
 
     private fun installSettingsHome(savedState: Bundle?) {
@@ -4954,11 +5004,8 @@ class MainActivity : SkinnedActivity() {
             activity = this,
             shell = shell,
             originalScroll = scroll,
-            originalContent = content,
-            purification = purificationSettingsRoot,
-            enhancement = enhancementSettingsRoot,
-            beautification = beautificationSettingsRoot,
-            activation = activationCardView,
+            store = checkNotNull(settingStore),
+            buildPage = ::buildSettingsPage,
             floatingToolbar = settingsFloatingToolbar,
             savedState = savedState,
             installStretch = { target, allowed -> installPreparedLiquidStretch(target, allowed) },
@@ -4971,7 +5018,8 @@ class MainActivity : SkinnedActivity() {
             },
             navigationTouched = {
                 if (settingsRevealRequest.isActive) cancelSettingsReveal()
-            }
+            },
+            prewarmSession = { meguvizSession }
         ).also {
             it.install()
             settingsSearchRoot = it.searchRoots.firstOrNull()
@@ -4988,6 +5036,8 @@ class MainActivity : SkinnedActivity() {
     ) {
         val id = SettingsCatalog.byStorageKey[storageKey]?.id ?: return
         view.settingId = id
+        settingStore?.takeIf { it.descriptor(id) != null }?.let { view.bindModel(it, id) }
+        settingsDestinations.bind(id, view)
         settingDependencies.bind(view, id)
         view.supportsFavoriteToggle = directToggle
     }
@@ -5026,12 +5076,13 @@ class MainActivity : SkinnedActivity() {
     }
 
     private fun createPromotionItem(
+        key: String,
         @StringRes stringResource: Int,
         @DrawableRes imageResource: Int
-    ) = Hikagable<MarginLayoutParams> {
+    ) = settingsComponent {
         var linkLabel: NativeTextView? = null
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) {
+        linearLayout(key = key,
+            lparams = params(widthMatchParent = true) {
                 updateMargins(left = 15.dp, right = 15.dp)
             },
             init = {
@@ -5044,15 +5095,15 @@ class MainActivity : SkinnedActivity() {
                 }
             }
         ) {
-            ImageView(
-                lparams = LayoutParams(35.dp, 35.dp) {
+            imageView(key = "MainActivity:5047",
+                lparams = params(35.dp, 35.dp) {
                     marginEnd = 10.dp
                 }
             ) {
                 setImageResource(imageResource)
             }
-            TextView(
-                lparams = LayoutParams(widthMatchParent = true)
+            textView(key = "MainActivity:5054",
+                lparams = params(widthMatchParent = true)
             ) {
                 autoLinkMask = Linkify.WEB_URLS
                 ellipsize = TextUtils.TruncateAt.END

@@ -20,6 +20,7 @@
         -->
         <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@drawable/ic_splash_icon</item>
         <!-- Customize your theme here. -->
+        <item name="bilMaterialSwitchStyle">@style/Widget.Bil.MaterialSwitch</item>
     </style>
 
     <!-- 设置备份页由代码绘制卡片到全屏的可 seek 形变；透明窗口用于在收缩时露出主界面。 -->

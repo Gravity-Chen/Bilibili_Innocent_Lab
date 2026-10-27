@@ -27,7 +27,6 @@ import android.widget.TextView
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.graphics.ColorUtils
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.widget.TouchGlowRenderer
-import com.highcapable.hikage.annotation.HikageView
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -46,7 +45,6 @@ private const val SCRUB_GLOW_BASE_ALPHA = 72
  * 打 [com.Bilibili_Innocent_Lab.xposedmodule.ui.interaction.ElasticInteractionController.EXCLUDED_TAG],
  * 避免与全局长按弹性手势冲突(底栏 dock 同款处理)。
  */
-@HikageView
 class LogSegmentScrubBar(context: Context, attrs: AttributeSet?) : FrameLayout(context, attrs) {
     private var count = 0
         set(value) { field = value.coerceIn(0, ModernNavigationMotion.MAX_ITEMS) }

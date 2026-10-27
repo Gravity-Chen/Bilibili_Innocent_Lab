@@ -1,0 +1,12 @@
+<resources>
+    <!--
+        与主题默认开关样式相同，只去掉构造期会被立即替换的 thumb/track 及着色：
+        MaterialSwitch 挂载时一定换成 LiquidChoiceDrawable，默认资源解析是首建设置页的主要开销之一。
+    -->
+    <style name="Widget.Bil.MaterialSwitch" parent="Widget.Material3.CompoundButton.Switch">
+        <item name="android:thumb">@null</item>
+        <item name="track">@null</item>
+        <item name="thumbTint">@null</item>
+        <item name="trackTint">@null</item>
+    </style>
+</resources>

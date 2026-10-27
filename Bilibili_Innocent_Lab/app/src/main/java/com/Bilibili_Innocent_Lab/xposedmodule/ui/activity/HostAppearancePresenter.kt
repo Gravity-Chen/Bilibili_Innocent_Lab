@@ -2,6 +2,8 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+
 import android.util.Log
 import android.widget.LinearLayout as NativeLinearLayout
 import androidx.core.content.edit
@@ -10,10 +12,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.appearance.HostCardMaterial
 import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.widget.android.widget.TextView
-import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 
 // 宿主美化设置的界面分卷；状态和收藏身份仍由当前 MainActivity 管理。
 
@@ -28,15 +26,14 @@ internal fun MainActivity.loadHostCardSettings(settings: com.Bilibili_Innocent_L
         settings.int(FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP))
 }
 
-@com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.hostBottomBarAppearanceRows(
-    performer: Hikage.Performer<NativeLinearLayout.LayoutParams>
+    performer: LinearSettingsScope
 ) {
     with(performer) {
         var refreshGlassSettings: () -> Unit = {}
         val capsuleOptions = DependentAppearanceOptions { hostBottomBarLiquidGlass }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "HostAppearancePresenter:38",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -47,30 +44,11 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = hostBottomBarLiquidGlass
-            setOnCheckedChangeListener { _, checked ->
-                hostBottomBarLiquidGlass = checked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS,
-                            checked
-                        )
-                        putString(FeaturePreferences.HOST_BOTTOM_BAR_GLASS_MATERIAL, hostBottomBarGlassAppearance.material.value)
-                        putString(FeaturePreferences.HOST_BOTTOM_BAR_GLASS_RENDERER, hostBottomBarGlassAppearance.renderer.value)
-                    }
-                }.onFailure { throwable ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write host bottom bar liquid glass prefs failed",
-                        throwable
-                    )
-                }
-                refreshGlassSettings()
-                capsuleOptions.refresh()
-            }
+            setOnCheckedChangeListener { button, checked -> applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_LIQUID_GLASS, checked, button) }
+            onModelStateRendered = { refreshGlassSettings(); capsuleOptions.refresh() }
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
+        textView(key = "HostAppearancePresenter:72",
+            lparams = params(widthMatchParent = true)
         ) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
@@ -79,8 +57,8 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             textSize = 12f
         }
         refreshGlassSettings = hostGlassConfigurationRows(this, bottom = true)
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "HostAppearancePresenter:82",
+            lparams = params(widthMatchParent = true) {
                 marginStart = 16.dp
                 topMargin = 12.dp
                 bottomMargin = 5.dp
@@ -93,37 +71,19 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = hostBottomBarCompact
-            setOnCheckedChangeListener { _, checked ->
-                if (!hostBottomBarLiquidGlass) {
-                    isChecked = hostBottomBarCompact
-                    return@setOnCheckedChangeListener
-                }
-                hostBottomBarCompact = checked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.HOST_BOTTOM_BAR_COMPACT,
-                            checked
-                        )
-                    }
-                }.onFailure { throwable ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write host bottom bar compact prefs failed",
-                        throwable
-                    )
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_COMPACT, checked, button)
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true) { marginStart = 16.dp }) {
+        }
+        textView(key = "HostAppearancePresenter:118", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
             alpha = 0.6f
             text = stringResource(R.string.host_bottom_bar_compact_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
             capsuleOptions.add(this)
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "HostAppearancePresenter:125",
+            lparams = params(widthMatchParent = true) {
                 marginStart = 16.dp
                 topMargin = 12.dp
                 bottomMargin = 5.dp
@@ -136,37 +96,19 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = hostBottomBarIconOnly
-            setOnCheckedChangeListener { _, checked ->
-                if (!hostBottomBarLiquidGlass) {
-                    isChecked = hostBottomBarIconOnly
-                    return@setOnCheckedChangeListener
-                }
-                hostBottomBarIconOnly = checked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY,
-                            checked
-                        )
-                    }
-                }.onFailure { throwable ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write host bottom bar icon_only prefs failed",
-                        throwable
-                    )
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_ICON_ONLY, checked, button)
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true) { marginStart = 16.dp }) {
+        }
+        textView(key = "HostAppearancePresenter:161", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
             alpha = 0.6f
             text = stringResource(R.string.host_bottom_bar_icon_only_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
             capsuleOptions.add(this)
         }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "HostAppearancePresenter:168",
+            lparams = params(widthMatchParent = true) {
                 marginStart = 16.dp
                 topMargin = 12.dp
                 bottomMargin = 5.dp
@@ -180,20 +122,11 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = hostMineGarbDim
-            setOnCheckedChangeListener { _, checked ->
-                if (!hostBottomBarLiquidGlass) {
-                    isChecked = hostMineGarbDim
-                    return@setOnCheckedChangeListener
-                }
-                hostMineGarbDim = checked
-                runCatching {
-                    prefs().edit { putBoolean(FeaturePreferences.HOST_MINE_GARB_DIM, checked) }
-                }.onFailure { throwable ->
-                    Log.e("BilibiliInnocentLab", "write host mine garb dim prefs failed", throwable)
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOST_MINE_GARB_DIM, checked, button)
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true) { marginStart = 16.dp }) {
+        }
+        textView(key = "HostAppearancePresenter:196", lparams = params(widthMatchParent = true) { marginStart = 16.dp }) {
             alpha = 0.6f
             text = stringResource(R.string.host_mine_garb_dim_tip)
             textColor = colorResource(R.color.colorTextDark)
@@ -201,8 +134,8 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             capsuleOptions.add(this)
         }
         capsuleOptions.refresh()
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "HostAppearancePresenter:204",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -213,26 +146,12 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = hostBottomBarTouchGlow
-            setOnCheckedChangeListener { _, checked ->
-                hostBottomBarTouchGlow = checked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW,
-                            checked
-                        )
-                    }
-                }.onFailure { throwable ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write host bottom bar touch glow prefs failed",
-                        throwable
-                    )
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOST_BOTTOM_BAR_TOUCH_GLOW, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
+        }
+        textView(key = "HostAppearancePresenter:234",
+            lparams = params(widthMatchParent = true)
         ) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
@@ -243,14 +162,13 @@ internal fun MainActivity.hostBottomBarAppearanceRows(
     }
 }
 
-@com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.hostTopBarAppearanceRows(
-    performer: Hikage.Performer<NativeLinearLayout.LayoutParams>
+    performer: LinearSettingsScope
 ) {
     with(performer) {
         var refreshGlassSettings: () -> Unit = {}
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "HostAppearancePresenter:252",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -261,29 +179,11 @@ internal fun MainActivity.hostTopBarAppearanceRows(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = hostTopBarLiquidGlass
-            setOnCheckedChangeListener { _, checked ->
-                hostTopBarLiquidGlass = checked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS,
-                            checked
-                        )
-                        putString(FeaturePreferences.HOST_TOP_BAR_GLASS_MATERIAL, hostTopBarGlassAppearance.material.value)
-                        putString(FeaturePreferences.HOST_TOP_BAR_GLASS_RENDERER, hostTopBarGlassAppearance.renderer.value)
-                    }
-                }.onFailure { throwable ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write host top bar liquid glass prefs failed",
-                        throwable
-                    )
-                }
-                refreshGlassSettings()
-            }
+            setOnCheckedChangeListener { button, checked -> applyModeledToggle(FeaturePreferences.HOST_TOP_BAR_LIQUID_GLASS, checked, button) }
+            onModelStateRendered = { refreshGlassSettings() }
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
+        textView(key = "HostAppearancePresenter:285",
+            lparams = params(widthMatchParent = true)
         ) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
@@ -292,8 +192,8 @@ internal fun MainActivity.hostTopBarAppearanceRows(
             textSize = 12f
         }
         refreshGlassSettings = hostGlassConfigurationRows(this, bottom = false)
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "HostAppearancePresenter:295",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -304,26 +204,12 @@ internal fun MainActivity.hostTopBarAppearanceRows(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = hostTopBarTouchGlow
-            setOnCheckedChangeListener { _, checked ->
-                hostTopBarTouchGlow = checked
-                runCatching {
-                    prefs().edit {
-                        putBoolean(
-                            FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW,
-                            checked
-                        )
-                    }
-                }.onFailure { throwable ->
-                    Log.e(
-                        "BilibiliInnocentLab",
-                        "write host top bar touch glow prefs failed",
-                        throwable
-                    )
-                }
-            }
+            setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOST_TOP_BAR_TOUCH_GLOW, checked, button)
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
+        }
+        textView(key = "HostAppearancePresenter:325",
+            lparams = params(widthMatchParent = true)
         ) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
@@ -334,14 +220,13 @@ internal fun MainActivity.hostTopBarAppearanceRows(
     }
 }
 
-@com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.hostVideoCardAppearanceRows(
-    performer: Hikage.Performer<NativeLinearLayout.LayoutParams>
+    performer: LinearSettingsScope
 ) {
     with(performer) {
         val cardOptions = DependentAppearanceOptions { hostVideoCards }
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "HostAppearancePresenter:343",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -352,21 +237,17 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = hostVideoCards
-            setOnCheckedChangeListener { _, checked ->
-                hostVideoCards = checked
-                runCatching { prefs().edit { putBoolean(FeaturePreferences.HOST_VIDEO_CARDS, checked) } }
-                    .onFailure { Log.e("BilibiliInnocentLab", "write host video card prefs failed", it) }
-                cardOptions.refresh()
-            }
+            setOnCheckedChangeListener { button, checked -> applyModeledToggle(FeaturePreferences.HOST_VIDEO_CARDS, checked, button) }
+            onModelStateRendered = { cardOptions.refresh() }
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "HostAppearancePresenter:362", lparams = params(widthMatchParent = true)) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.host_video_cards_tip)
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }) {
+        textView(key = "HostAppearancePresenter:369", lparams = params(widthMatchParent = true) { topMargin = 12.dp }) {
             bindSettingDestination(this, FeaturePreferences.HOST_CARD_MATERIAL)
             fun refresh() {
                 text = getString(R.string.host_card_material_current, getString(hostCardMaterialLabel(hostCardMaterial)))
@@ -380,7 +261,7 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
             setOnClickListener { if (hostVideoCards) showHostCardMaterialDialog(this, ::refresh) }
             cardOptions.add(this)
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "HostAppearancePresenter:383", lparams = params(widthMatchParent = true)) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.host_card_material_tip)
@@ -388,7 +269,7 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
             textSize = 12f
             cardOptions.add(this)
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }) {
+        textView(key = "HostAppearancePresenter:391", lparams = params(widthMatchParent = true) { topMargin = 12.dp }) {
             bindSettingDestination(this, FeaturePreferences.HOST_VIDEO_CARD_RADIUS_DP)
             fun refresh() {
                 text = getString(R.string.host_video_card_radius_current,
@@ -405,7 +286,7 @@ internal fun MainActivity.hostVideoCardAppearanceRows(
             setOnClickListener { if (hostVideoCards) showHostVideoCardRadiusDialog(this) { refresh() } }
             cardOptions.add(this)
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }) {
+        textView(key = "HostAppearancePresenter:408", lparams = params(widthMatchParent = true) { topMargin = 4.dp }) {
             bindSettingDestination(this, FeaturePreferences.HOST_HOME_CARD_HORIZONTAL_DP)
             bindSettingDestination(this, FeaturePreferences.HOST_HOME_CARD_VERTICAL_DP)
             fun refresh() {

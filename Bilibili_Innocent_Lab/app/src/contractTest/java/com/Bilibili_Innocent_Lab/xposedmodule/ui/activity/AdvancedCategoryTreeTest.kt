@@ -1,36 +1,13 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.after
 import com.Bilibili_Innocent_Lab.xposedmodule.contract.before
 
-/**
- * 进阶设置分类在**真实控件树**里的接线约束。
- *
- * `AdvancedCategoryLayoutPolicyTest` 只验证 `resolve()` 的下标算术；它拿到的
- * `markerIndices` 是不是对的，那条测试管不着。而 `installAdvancedCategorySections`
- * 在拿不到 marker 或 `resolve()` 返回 null 时会**安静地退回平铺**
- * （进阶设置不再折叠成分类）：编译不报错、单测不红，只有真机上肉眼能看出来。
- *
- * 拆 DSL 树时最容易踩的就是这个，所以把两条前置条件钉在这里：
- *
- * 1. 分类标题（marker）加入容器的**顺序**必须与 `AdvancedSettingsCategory` 的声明顺序一致
- *    （`installAdvancedCategorySections` 按 `entries.filter { section }` 取 marker，
- *    再用 `originalChildren.indexOf` 换成下标；顺序不一致会让下标非递增 ⇒ resolve 返回 null）。
- * 2. 每个分区容器的**第一个子控件**必须就是该分区首个分类的标题
- *    （`resolve()` 要求 `markerIndices.firstOrNull() == 0`；容器里塞一个前导
- *    Space/分隔线就会直接判空）。
- *
- * ### 为什么要顺着 builder 调用去看，而不是看源码里 marker 出现的先后
- *
- * 分类已经从内联的一长串控件抽成了 `Hikage.Performer` 上的 builder 函数，容器里只剩
- * `purifyHomeCategory()` 这样的调用，而函数体按可读性放在类体末尾 ——
- * **源码文本顺序与运行时子控件顺序不再是一回事**。
- * 早期版本用文本顺序做代理，抽完就误报了。这里改成解析"容器里依次调用了哪些 builder、
- * 每个 builder 注册哪些 marker"，与运行时的加入顺序一致。
- */
+/** 分类顺序、稳定标题与最终容器的源码合同；不以 JVM View stub 代替设备几何验收。 */
 class AdvancedCategoryTreeTest {
 
     private val main by lazy { SettingsUiSource.code(SettingsUiSource.settingsPage()) }
@@ -103,8 +80,8 @@ class AdvancedCategoryTreeTest {
     private fun contributions(block: String): Layout {
         val builders = builderMarkers()
         val widget = Regex(
-            """^\s*(?:TextView|LinearLayout|FrameLayout|ImageView|Space|MaterialSwitch|""" +
-                """NestedScrollView|View|EditText|CheckBox|Layout)\s*\("""
+            """^\s*(?:textView|linearLayout|frameLayout|imageView|space|materialSwitch|""" +
+                """nestedScrollView|View|EditText|CheckBox|component)\s*\("""
         )
         val lines = block.split("\n")
         val out = mutableListOf<String>()
@@ -186,19 +163,18 @@ class AdvancedCategoryTreeTest {
         }
     }
 
-    /** 两条会静默退回平铺的路径都必须留日志。 */
-    @Test fun `both degraded layout paths are logged instead of failing silently`() {
-        // 两个重载：无参入口 + 真正干活的 (root, section)。要的是后者。
-        val installer = SettingsUiSource
-            .functions(SettingsUiSource.mainActivity(), "installAdvancedCategorySections")
-            .single { it.contains("root: ViewGroup") }
-        assertTrue("a missing marker must be logged",
-            installer.contains("advanced category marker missing"))
-        assertTrue("an unresolved layout must be logged",
-            installer.contains("advanced category layout unresolved"))
-        // 幂等守卫那条 return 是正常路径（重复安装），不需要日志。
-        assertTrue(installer.contains("if (categories.any { it in advancedCategorySections }) return"))
-        assertEquals("no other silent early return may creep in",
-            0, Regex("""\?:\s*return\s*$""", RegexOption.MULTILINE).findAll(installer).count())
+    @Test fun `final category construction rejects duplicate or missing identity without reparents`() {
+        val factory = SettingsUiSource.function("advancedCategoryScope")
+        val title = SettingsUiSource.function("advancedCategoryTitle")
+        assertTrue(factory.contains("check(category !in advancedCategorySections)"))
+        assertTrue(factory.contains("advancedCategoryMarkers[category] = textView"))
+        assertTrue(factory.contains("advancedCategorySections[category] = AdvancedCategorySection"))
+        assertTrue(factory.contains("return body"))
+        assertTrue(title.contains("checkNotNull(advancedCategoryMarkers[category])"))
+        assertTrue(title.indexOf("checkNotNull") < title.indexOf("title.configure()"))
+        assertFalse(factory.contains("removeAllViews"))
+        assertFalse(factory.contains("removeView"))
+        assertFalse(factory.contains("originalChildren"))
+        assertTrue(SettingsUiSource.functions(SettingsUiSource.mainActivity(), "installAdvancedCategorySections").isEmpty())
     }
 }

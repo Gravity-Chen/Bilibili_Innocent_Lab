@@ -41,8 +41,8 @@ internal class SettingsDependencyBindings {
         if (disposed) return
         // Capture normal states once. A repeated start must not promote disabled/dimmed states
         // from the previous application to the new baseline.
-        if (!started) {
-            rows.values.forEach { row ->
+        run {
+            rows.values.filter { it.nodes.isEmpty() }.forEach { row ->
                 row.normalAlpha = row.view.alpha
                 val nodes = mutableListOf<Node>()
                 fun collect(view: View) {

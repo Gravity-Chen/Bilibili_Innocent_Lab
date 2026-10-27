@@ -2,6 +2,8 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+
 import android.graphics.Typeface
 import android.util.Log
 import android.text.TextUtils
@@ -14,12 +16,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.backup.SettingsCatalog
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
-import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.widget.android.widget.ImageView
-import com.highcapable.hikage.widget.android.widget.LinearLayout
-import com.highcapable.hikage.widget.android.widget.TextView
-import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.ModuleUiSettings
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.hook.feature.FeaturePreferences
@@ -30,13 +26,8 @@ import androidx.core.content.edit
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.MainActivity.AdvancedSettingsCategory
 
 /** 进阶增强 · ENHANCE_SYSTEM 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.enhanceSystemCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.enhanceSystemCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.ENHANCE_SYSTEM) {
         advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_SYSTEM] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_enhance_system)
@@ -44,31 +35,26 @@ internal fun MainActivity.enhanceSystemCategory(scope: Hikage.Performer<NativeLi
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
+    materialSwitch(key = "EnhanceSettingsSections:47", lparams = params(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
         bindFavoriteSwitch(this, FeaturePreferences.BRAND_SPLASH_SKIP, directToggle = true)
         text = stringResource(R.string.brand_splash_skip)
         isAllCaps = false
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = brandSplashSkip
-        setOnCheckedChangeListener { _, checked ->
-            runCatching { prefs().edit { putBoolean(FeaturePreferences.BRAND_SPLASH_SKIP, checked) } }
-                .onSuccess { brandSplashSkip = checked }
-                .onFailure { throwable ->
-                    Log.e("BilibiliInnocentLab", "write brand splash skip prefs failed", throwable)
-                    isChecked = brandSplashSkip
-                }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.BRAND_SPLASH_SKIP, checked, button)
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "EnhanceSettingsSections:63", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.brand_splash_skip_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:70",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -79,26 +65,12 @@ internal fun MainActivity.enhanceSystemCategory(scope: Hikage.Performer<NativeLi
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = systemMediaNotification
-        setOnCheckedChangeListener { _, checked ->
-            systemMediaNotification = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write system media notification prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.SYSTEM_MEDIA_NOTIFICATION, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:100",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -106,8 +78,8 @@ internal fun MainActivity.enhanceSystemCategory(scope: Hikage.Performer<NativeLi
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:109",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -118,26 +90,12 @@ internal fun MainActivity.enhanceSystemCategory(scope: Hikage.Performer<NativeLi
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = forceExternalBrowser
-        setOnCheckedChangeListener { _, checked ->
-            forceExternalBrowser = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.FORCE_EXTERNAL_BROWSER,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write external browser prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.FORCE_EXTERNAL_BROWSER, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:139",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -148,13 +106,8 @@ internal fun MainActivity.enhanceSystemCategory(scope: Hikage.Performer<NativeLi
 }
 
 /** 进阶增强 · ENHANCE_DISPLAY 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.enhanceDisplayCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.enhanceDisplayCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.ENHANCE_DISPLAY) {
         advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_DISPLAY] = this
         alpha = 0.9f
         text = stringResource(R.string.number_display_settings)
@@ -162,8 +115,8 @@ internal fun MainActivity.enhanceDisplayCategory(scope: Hikage.Performer<NativeL
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:165",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -173,26 +126,12 @@ internal fun MainActivity.enhanceDisplayCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = showFullNumbers
-        setOnCheckedChangeListener { _, isChecked ->
-            showFullNumbers = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.SHOW_FULL_NUMBERS,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write full number prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.SHOW_FULL_NUMBERS, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:194",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -201,8 +140,8 @@ internal fun MainActivity.enhanceDisplayCategory(scope: Hikage.Performer<NativeL
         textSize = 12f
     }
     // AV 号显示同样是"同一个数字换一种写法"，与完整播放量归在数字显示。
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:204",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -213,26 +152,12 @@ internal fun MainActivity.enhanceDisplayCategory(scope: Hikage.Performer<NativeL
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = showBvAsAv
-        setOnCheckedChangeListener { _, checked ->
-            showBvAsAv = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.SHOW_BV_AS_AV,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write bv to av prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.SHOW_BV_AS_AV, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:234",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -243,13 +168,8 @@ internal fun MainActivity.enhanceDisplayCategory(scope: Hikage.Performer<NativeL
 }
 
 /** 进阶增强 · ENHANCE_COMMENTS 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.enhanceCommentsCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.enhanceCommentsCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.ENHANCE_COMMENTS) {
         advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_COMMENTS] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_enhance_comments)
@@ -257,8 +177,8 @@ internal fun MainActivity.enhanceCommentsCategory(scope: Hikage.Performer<Native
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:260",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -268,13 +188,12 @@ internal fun MainActivity.enhanceCommentsCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = commentClassicStyle
-        setOnCheckedChangeListener { _, checked ->
-            commentClassicStyle = checked
-            prefs().edit { putBoolean(FeaturePreferences.COMMENT_CLASSIC_STYLE, checked) }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.COMMENT_CLASSIC_STYLE, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "EnhanceSettingsSections:276",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 12.dp
         }
     ) {
@@ -284,8 +203,8 @@ internal fun MainActivity.enhanceCommentsCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:287",
+        lparams = params(widthMatchParent = true) {
             bottomMargin = 5.dp
         }
     ) {
@@ -295,18 +214,12 @@ internal fun MainActivity.enhanceCommentsCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = replyTopologyEnabled
-        setOnCheckedChangeListener { _, checked ->
-            replyTopologyEnabled = checked
-            prefs().edit {
-                putBoolean(
-                    FeaturePreferences.REPLY_TOPOLOGY_ENABLED,
-                    checked
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.REPLY_TOPOLOGY_ENABLED, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:308",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -314,8 +227,8 @@ internal fun MainActivity.enhanceCommentsCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:317",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -326,26 +239,12 @@ internal fun MainActivity.enhanceCommentsCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = blockCommentQuickReply
-        setOnCheckedChangeListener { _, isChecked ->
-            blockCommentQuickReply = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write comment quick reply prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.BLOCK_COMMENT_QUICK_REPLY, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:347",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -356,13 +255,8 @@ internal fun MainActivity.enhanceCommentsCategory(scope: Hikage.Performer<Native
 }
 
 /** 进阶增强 · ENHANCE_LIVE 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.enhanceLiveCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.enhanceLiveCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.ENHANCE_LIVE) {
         advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_LIVE] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_enhance_live)
@@ -370,8 +264,8 @@ internal fun MainActivity.enhanceLiveCategory(scope: Hikage.Performer<NativeLine
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:373",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -382,26 +276,12 @@ internal fun MainActivity.enhanceLiveCategory(scope: Hikage.Performer<NativeLine
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = blockLiveRoomSwitch
-        setOnCheckedChangeListener { _, checked ->
-            blockLiveRoomSwitch = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.BLOCK_LIVE_ROOM_SWITCH,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write live room switch prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.BLOCK_LIVE_ROOM_SWITCH, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:403",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -409,8 +289,8 @@ internal fun MainActivity.enhanceLiveCategory(scope: Hikage.Performer<NativeLine
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:412",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -421,26 +301,12 @@ internal fun MainActivity.enhanceLiveCategory(scope: Hikage.Performer<NativeLine
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = liveRoomDoubleTapPause
-        setOnCheckedChangeListener { _, checked ->
-            liveRoomDoubleTapPause = checked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.LIVE_ROOM_DOUBLE_TAP_PAUSE,
-                        checked
-                    )
-                }
-            }.onFailure { throwable ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write live room double tap prefs failed",
-                    throwable
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.LIVE_ROOM_DOUBLE_TAP_PAUSE, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:442",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -451,21 +317,16 @@ internal fun MainActivity.enhanceLiveCategory(scope: Hikage.Performer<NativeLine
 }
 
 /** 进阶增强 · ENHANCE_PLAYBACK 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
 /**
  * @param uiSettings 播放能力那一组是**按动态 key 循环**建开关的，拿不到对应的镜像字段，
  *   所以要把启动快照传进来。刻意用参数而不是字段：快照只在 `onCreate` 构建期有效，
  *   写回偏好之后它就是过期的（见 AGENTS.md 里 `uiSettings` 那条红线）。
  */
 internal fun MainActivity.enhancePlaybackCategory(
-    scope: Hikage.Performer<NativeLinearLayout.LayoutParams>,
+    scope: LinearSettingsScope,
     uiSettings: ModuleUiSettings
 ) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+    advancedCategoryTitle(AdvancedSettingsCategory.ENHANCE_PLAYBACK) {
         advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_PLAYBACK] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_enhance_playback)
@@ -473,8 +334,8 @@ internal fun MainActivity.enhancePlaybackCategory(
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+    linearLayout(key = "EnhanceSettingsSections:476",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
         },
         init = {
@@ -486,15 +347,15 @@ internal fun MainActivity.enhancePlaybackCategory(
             setOnClickListener { showPlayerQualityDialog(it) }
         }
     ) {
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true)
+        textView(key = "EnhanceSettingsSections:489",
+            lparams = params(widthMatchParent = true)
         ) {
             text = stringResource(R.string.player_default_quality)
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
         }
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        textView(key = "EnhanceSettingsSections:496",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 5.dp
             }
         ) {
@@ -509,8 +370,8 @@ internal fun MainActivity.enhancePlaybackCategory(
             playerQualitySummaryView = this
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "EnhanceSettingsSections:512",
+        lparams = params(widthMatchParent = true) {
             topMargin = 4.dp
         }
     ) {
@@ -532,8 +393,8 @@ internal fun MainActivity.enhancePlaybackCategory(
             { anchor: View -> showPlayerDecodeModeDialog(anchor) }
         )
     ).forEachIndexed { index, (titleRes, tipRes, open) ->
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) {
+        linearLayout(key = "playback-choice:$titleRes",
+            lparams = params(widthMatchParent = true) {
                 topMargin = if (index == 0) 12.dp else 8.dp
             },
             init = {
@@ -545,12 +406,12 @@ internal fun MainActivity.enhancePlaybackCategory(
                 setOnClickListener { open(this) }
             }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "EnhanceSettingsSections:548", lparams = params(widthMatchParent = true)) {
                 text = stringResource(titleRes)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 5.dp }) {
+            textView(key = "EnhanceSettingsSections:553", lparams = params(widthMatchParent = true) { topMargin = 5.dp }) {
                 alpha = 0.6f
                 textColor = colorResource(R.color.colorTextDark)
                 textSize = 12f
@@ -570,7 +431,7 @@ internal fun MainActivity.enhancePlaybackCategory(
                 }
             }
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "playback-choice-tip:$titleRes", lparams = params(widthMatchParent = true)) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(tipRes)
@@ -580,8 +441,8 @@ internal fun MainActivity.enhancePlaybackCategory(
     }
     playerBufferSettingsRows(this)
     playerFrameInterpolationSettingsRows(this, uiSettings)
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "EnhanceSettingsSections:583",
+        lparams = params(widthMatchParent = true) {
             topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
             bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
         }
@@ -594,8 +455,8 @@ internal fun MainActivity.enhancePlaybackCategory(
         FeaturePreferences.PLAYER_UNLOCK_SMALL_WINDOW to R.string.player_unlock_small_window,
         FeaturePreferences.PLAYER_UNLOCK_CAST to R.string.player_unlock_cast
     ).forEach { (key, label) ->
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "setting:$key",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -606,21 +467,17 @@ internal fun MainActivity.enhancePlaybackCategory(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = uiSettings.bool(key)
-            setOnCheckedChangeListener { _, checked ->
-                runCatching { prefs().edit { putBoolean(key, checked) } }.onFailure {
-                    Log.e("BilibiliInnocentLab", "write player capability prefs failed", it)
-                }
-            }
+            setOnCheckedChangeListener { button, checked -> applyModeledToggle(key, checked, button) }
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "EnhanceSettingsSections:616", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.player_capabilities_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "EnhanceSettingsSections:623", lparams = params(widthMatchParent = true) {
         topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
         bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
     }) {
@@ -631,26 +488,16 @@ internal fun MainActivity.enhancePlaybackCategory(
         Triple(FeaturePreferences.PLAYER_SUBTITLE_STYLE, R.string.player_subtitle_style, R.string.player_subtitle_style_tip),
         Triple(FeaturePreferences.PLAYER_AI_SUBTITLE, R.string.player_ai_subtitle, R.string.player_ai_subtitle_tip)
     ).forEach { (key, label, tip) ->
-        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
+        materialSwitch(key = "setting:$key", lparams = params(widthMatchParent = true) { topMargin = 12.dp; bottomMargin = 5.dp }) {
             bindFavoriteSwitch(this, key)
             text = stringResource(label)
             isAllCaps = false
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = uiSettings.bool(key)
-            var savedChecked = isChecked
-            setOnCheckedChangeListener { _, checked ->
-                if (checked != savedChecked) {
-                    runCatching { prefs().edit { putBoolean(key, checked) } }
-                        .onSuccess { savedChecked = checked }
-                        .onFailure {
-                            Log.e("BilibiliInnocentLab", "write subtitle prefs failed", it)
-                            isChecked = savedChecked
-                        }
-                }
-            }
+            setOnCheckedChangeListener { button, checked -> applyModeledToggle(key, checked, button) }
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "setting-tip:$key", lparams = params(widthMatchParent = true)) {
             alpha = 0.6f
             text = stringResource(tip)
             textColor = colorResource(R.color.colorTextDark)
@@ -658,8 +505,8 @@ internal fun MainActivity.enhancePlaybackCategory(
             setLineSpacing(6f, 1f)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "EnhanceSettingsSections:661",
+        lparams = params(widthMatchParent = true) {
             topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
             bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
         }
@@ -667,8 +514,8 @@ internal fun MainActivity.enhancePlaybackCategory(
         text = stringResource(R.string.player_speed_title)
         applyAdvancedSubsectionStyle()
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:670",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -679,19 +526,13 @@ internal fun MainActivity.enhancePlaybackCategory(
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = playerDisableLongPress
-        setOnCheckedChangeListener { _, checked ->
-            playerDisableLongPress = checked
-            runCatching {
-                prefs().edit { putBoolean(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, checked) }
-            }.onFailure {
-                Log.e("BilibiliInnocentLab", "write player long press prefs failed", it)
-            }
-            updatePlayerSpeedSummaries()
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.PLAYER_DISABLE_LONG_PRESS, checked, button)
         }
     }
     listOf(true, false).forEach { longPress ->
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) { topMargin = 8.dp },
+        linearLayout(key = "playback-speed:$longPress",
+            lparams = params(widthMatchParent = true) { topMargin = 8.dp },
             init = {
                 orientation = LinearLayout.VERTICAL
                 background = selfRippleBackground(10f)
@@ -703,12 +544,12 @@ internal fun MainActivity.enhancePlaybackCategory(
                     else FeaturePreferences.PLAYER_DEFAULT_SPEED_PERCENT)
             }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "EnhanceSettingsSections:706", lparams = params(widthMatchParent = true)) {
                 text = stringResource(if (longPress) R.string.player_long_press_speed else R.string.player_default_speed)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 5.dp }) {
+            textView(key = "EnhanceSettingsSections:711", lparams = params(widthMatchParent = true) { topMargin = 5.dp }) {
                 alpha = 0.6f
                 textColor = colorResource(R.color.colorTextDark)
                 textSize = 12f
@@ -718,8 +559,8 @@ internal fun MainActivity.enhancePlaybackCategory(
             }
         }
     }
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) { topMargin = 8.dp },
+    linearLayout(key = "EnhanceSettingsSections:721",
+        lparams = params(widthMatchParent = true) { topMargin = 8.dp },
         init = {
             orientation = LinearLayout.VERTICAL
             background = selfRippleBackground(10f)
@@ -730,12 +571,12 @@ internal fun MainActivity.enhancePlaybackCategory(
             settingsDestinations.bind(SettingsCatalog.ID_PLAYER_SPEED_MENU, this)
         }
     ) {
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "EnhanceSettingsSections:733", lparams = params(widthMatchParent = true)) {
             text = stringResource(R.string.player_speed_menu)
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 5.dp }) {
+        textView(key = "EnhanceSettingsSections:738", lparams = params(widthMatchParent = true) { topMargin = 5.dp }) {
             alpha = 0.6f
             textColor = colorResource(R.color.colorTextDark)
             textSize = 12f
@@ -744,14 +585,14 @@ internal fun MainActivity.enhancePlaybackCategory(
             updatePlayerSpeedSummaries()
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "EnhanceSettingsSections:747", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.player_speed_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true) {
+    textView(key = "EnhanceSettingsSections:754", lparams = params(widthMatchParent = true) {
         topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
         bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
     }) {
@@ -760,7 +601,7 @@ internal fun MainActivity.enhancePlaybackCategory(
     }
     listOf(FeaturePreferences.SPONSORBLOCK_ENABLED to R.string.sponsorblock_enabled,
         FeaturePreferences.SPONSORBLOCK_AUTOMATIC to R.string.sponsorblock_automatic).forEach { (key, label) ->
-        MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "setting:$key", lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }) {
@@ -770,14 +611,10 @@ internal fun MainActivity.enhancePlaybackCategory(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = uiSettings.bool(key)
-            setOnCheckedChangeListener { _, checked ->
-                runCatching { prefs().edit { putBoolean(key, checked) } }.onFailure {
-                    Log.e("BilibiliInnocentLab", "write sponsorblock prefs failed", it)
-                }
-            }
+            setOnCheckedChangeListener { button, checked -> applyModeledToggle(key, checked, button) }
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "EnhanceSettingsSections:780", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.sponsorblock_tip)
@@ -787,13 +624,8 @@ internal fun MainActivity.enhancePlaybackCategory(
 }
 
 /** 进阶增强 · ENHANCE_BROWSING 分类；标题即 marker，必须是本组第一个子控件。 */
-@com.highcapable.hikage.annotation.Hikagable
-internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<NativeLinearLayout.LayoutParams>) = with(scope) {
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) {
-            bottomMargin = 4.dp
-        }
-    ) {
+internal fun MainActivity.enhanceBrowsingCategory(scope: LinearSettingsScope) = with(scope) {
+    advancedCategoryTitle(AdvancedSettingsCategory.ENHANCE_BROWSING) {
         advancedCategoryMarkers[AdvancedSettingsCategory.ENHANCE_BROWSING] = this
         alpha = 0.9f
         text = stringResource(R.string.advanced_enhance_browsing)
@@ -801,7 +633,7 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
         textSize = 12f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
-    MaterialSwitch(lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:804", lparams = params(widthMatchParent = true) {
         topMargin = 12.dp
         bottomMargin = 5.dp
     }) {
@@ -810,25 +642,19 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = homeRecommendSectionPickEnabled
-        setOnCheckedChangeListener { _, checked ->
-            homeRecommendSectionPickEnabled = checked
-            prefs().edit {
-                putBoolean(
-                    FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED,
-                    checked
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOME_RECOMMEND_SECTION_PICK_ENABLED, checked, button)
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "EnhanceSettingsSections:823", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.home_recommend_section_pick_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }
+    textView(key = "EnhanceSettingsSections:830",
+        lparams = params(widthMatchParent = true) { topMargin = 12.dp }
     ) {
         homeRecommendBlockedTidsSummaryView = this
         text = ruleEntryText(
@@ -874,8 +700,8 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
             }
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:877",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -883,8 +709,8 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }
+    textView(key = "EnhanceSettingsSections:886",
+        lparams = params(widthMatchParent = true) { topMargin = 12.dp }
     ) {
         homeRecommendBlockedAuthorsSummaryView = this
         text = ruleEntryText(
@@ -926,8 +752,8 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
             }
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:929",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -935,7 +761,7 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 12.dp }) {
+    textView(key = "EnhanceSettingsSections:938", lparams = params(widthMatchParent = true) { topMargin = 12.dp }) {
         text = stringResource(R.string.recommendation_blocklist_manage)
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
@@ -951,7 +777,7 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
             showRecommendationBlocklistDialog(anchor = it) { refreshRecommendationBlocklistSummaries() }
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "EnhanceSettingsSections:954", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.recommendation_blocklist_manage_tip)
@@ -960,8 +786,8 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
     }
     // 强力模式是总开关下面的二级勾选面板入口，总开关关着时置灰（宿主侧它只在总开关开着时生效）。
     // 面板里两项独立：屏蔽发布者；获取 access_key（推荐预检，实际生效还要通用授权）。
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:963",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -973,27 +799,19 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = blockAiDeclaredVideos
-        setOnCheckedChangeListener { _, isChecked ->
-            blockAiDeclaredVideos = isChecked
-            updateAiStrongModeEntry()
-            runCatching {
-                prefs().edit {
-                    putBoolean(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, isChecked)
-                }
-            }.onFailure { t ->
-                Log.e("BilibiliInnocentLab", "write ai declared videos prefs failed", t)
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.BLOCK_AI_DECLARED_VIDEOS, checked, button)
         }
     }
-    TextView(lparams = LayoutParams(widthMatchParent = true)) {
+    textView(key = "EnhanceSettingsSections:988", lparams = params(widthMatchParent = true)) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
         text = stringResource(R.string.block_ai_declared_videos_tip)
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    LinearLayout(
-        lparams = LayoutParams(widthMatchParent = true) {
+    linearLayout(key = "EnhanceSettingsSections:995",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         },
@@ -1013,16 +831,16 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
             alpha = if (blockAiDeclaredVideos) 1f else 0.5f
         }
     ) {
-        LinearLayout(
-            lparams = LayoutParams { weight = 1f },
+        linearLayout(key = "EnhanceSettingsSections:1016",
+            lparams = params { weight = 1f },
             init = { orientation = LinearLayout.VERTICAL }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "EnhanceSettingsSections:1020", lparams = params(widthMatchParent = true)) {
                 text = stringResource(R.string.block_ai_declared_videos_strong_mode)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 4.dp }) {
+            textView(key = "EnhanceSettingsSections:1025", lparams = params(widthMatchParent = true) { topMargin = 4.dp }) {
                 aiStrongModeSummaryView = this
                 alpha = 0.68f
                 text = aiStrongModeSummary()
@@ -1030,21 +848,21 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
                 textSize = 12f
             }
             // 供设置搜索命中面板里的两项。
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "EnhanceSettingsSections:1033", lparams = params(widthMatchParent = true)) {
                 visibility = View.GONE
                 text = listOf(R.string.ai_declared_block_author, R.string.ai_declared_precheck)
                     .joinToString(" · ") { stringResource(it) }
             }
         }
-        ImageView(lparams = LayoutParams(18.dp, 18.dp)) {
+        imageView(key = "EnhanceSettingsSections:1039", lparams = params(18.dp, 18.dp)) {
             setImageResource(R.drawable.ic_chevron_down)
             rotation = -90f
             alpha = 0.8f
             imageTintList = stateColorResource(R.color.colorTextGray)
         }
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:1046",
+        lparams = params(widthMatchParent = true) {
             topMargin = 12.dp
             bottomMargin = 5.dp
         }
@@ -1055,26 +873,12 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = homeVerticalOpenDetail
-        setOnCheckedChangeListener { _, isChecked ->
-            homeVerticalOpenDetail = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write home vertical detail prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.HOME_VERTICAL_OPEN_DETAIL, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:1076",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)
@@ -1082,8 +886,8 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextDark)
         textSize = 12f
     }
-    MaterialSwitch(
-        lparams = LayoutParams(widthMatchParent = true) {
+    materialSwitch(key = "EnhanceSettingsSections:1085",
+        lparams = params(widthMatchParent = true) {
             topMargin = 8.dp
             bottomMargin = 5.dp
         }
@@ -1094,26 +898,12 @@ internal fun MainActivity.enhanceBrowsingCategory(scope: Hikage.Performer<Native
         textColor = colorResource(R.color.colorTextGray)
         textSize = 15f
         isChecked = preferDynamicVideoTab
-        setOnCheckedChangeListener { _, isChecked ->
-            preferDynamicVideoTab = isChecked
-            runCatching {
-                prefs().edit {
-                    putBoolean(
-                        FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB,
-                        isChecked
-                    )
-                }
-            }.onFailure { t ->
-                Log.e(
-                    "BilibiliInnocentLab",
-                    "write preferred dynamic video prefs failed",
-                    t
-                )
-            }
+        setOnCheckedChangeListener { button, checked ->
+            applyModeledToggle(FeaturePreferences.PREFER_DYNAMIC_VIDEO_TAB, checked, button)
         }
     }
-    TextView(
-        lparams = LayoutParams(widthMatchParent = true)
+    textView(key = "EnhanceSettingsSections:1115",
+        lparams = params(widthMatchParent = true)
     ) {
         alpha = 0.6f
         setLineSpacing(6f, 1f)

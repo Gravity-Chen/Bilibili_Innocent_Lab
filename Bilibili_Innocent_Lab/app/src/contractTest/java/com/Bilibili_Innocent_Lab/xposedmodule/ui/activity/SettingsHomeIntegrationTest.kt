@@ -34,18 +34,26 @@ class SettingsHomeIntegrationTest {
         assertFalse(home.contains("settingsDestinations.bind"))
     }
 
-    @Test fun favoritesReuseTheOriginalListenerAndConfirmationSwitchRemainsNavigationOnly() {
+    @Test fun favoritesReadConfirmedModelAndConfirmationSwitchRemainsNavigationOnly() {
         val home = SettingsUiSource.file("SettingsHomePresenter")
         val callback = SettingsUiSource.functions(home, "renderFavorites").single()
             .after("peer.setOnCheckedChangeListener").before("card.addView(peer")
-        // Preserve the enabled guard without fixing whitespace, line breaks or optional braces.
-        val guardedWrite = Regex("""if\s*\(\s*source\.isEnabled\s*\)\s*(?:\{\s*)?source\.isChecked\s*=\s*checked\b""")
+        // The enabled gate and final-state readback remain mandatory after authority leaves the View.
+        val guardedWrite = Regex("""if\s*\(\s*store\.state\(id\)\.enabled\s*\)\s*activity\.requestFavoriteSetting\(id, checked, peer\)""")
         val write = guardedWrite.find(SettingsUiSource.code(callback))
-        assertNotNull("Favorites must route enabled writes through the original switch", write)
+        assertNotNull("Favorites must route enabled writes through the business command adapter", write)
         assertTrue(callback.indexOf("sync()") > requireNotNull(write).range.last)
-        assertTrue(home.contains("peer.alpha = source.alpha"))
-        assertTrue(home.contains("peer.isEnabled = source.isEnabled"))
-        assertTrue(home.contains("source.observeState(::sync)"))
+        assertTrue(home.contains("peer.alpha = if (finalState.enabled) 1f else .45f"))
+        assertTrue(home.contains("peer.isEnabled = finalState.enabled"))
+        assertTrue(home.contains("peer.isChecked = finalState.checked"))
+        assertTrue(home.contains("store.observe(id) { sync() }"))
+        assertFalse(home.contains("val source: MaterialSwitch"))
+        val adapter = SettingsUiSource.file("SettingsModelBindingsPresenter")
+        assertTrue(adapter.contains("store.request(id, requested)"))
+        assertTrue(adapter.contains("executeModeledToggle(descriptor.storageKey, requested)"))
+        assertFalse(adapter.contains("source.isChecked"))
+        assertTrue(adapter.contains("if (requested) showFrameInterpolationThermalConfirmDialog(anchor) { save(true) }"))
+        assertTrue(adapter.contains("store.checked(id, freeCopyLightMode)"))
         assertFalse(home.contains("putBoolean("))
         assertFalse(home.contains("prefs()"))
         val main = SettingsUiSource.settingsPage()
@@ -71,6 +79,20 @@ class SettingsHomeIntegrationTest {
         assertTrue(playback.contains("bindFavoriteSwitch(this, key)"))
     }
 
+    @Test fun unbuiltPagesHaveStableMetadataAndAreCreatedInTheirFinalContainer() {
+        val home = SettingsUiSource.file("SettingsHomePresenter")
+        val main = SettingsUiSource.file("MainActivity")
+        assertTrue(home.contains("store.descriptors.filter { it.favoriteEligible }"))
+        assertTrue(home.contains("buildPage(index, contents[index])"))
+        assertTrue(home.contains("builtPages[index] = true"))
+        assertFalse(home.contains("collect(originalContent)"))
+        assertFalse(home.contains("originalContent.removeAllViews()"))
+        assertTrue(main.contains("target.deferredSettingId"))
+        assertTrue(main.contains("settingsHome?.ensurePage(descriptor.page)"))
+        assertTrue(main.contains("it.deferredSettingId == null && id in it.settingIds"))
+        assertTrue(main.contains("SettingsSearchItem(\"model:${'$'}{descriptor.id}\""))
+    }
+
     @Test fun arrangementRoundTripKeepsUnavailableRowsDuringReordering() {
         val state = SettingsFavoritesState(listOf("future", "A", "removed", "B", "C"))
         val first = SettingsFavoritesPolicy.move(state, "C", state.ids.indexOf("C") - 1)!!
@@ -89,8 +111,11 @@ class SettingsHomeIntegrationTest {
         val home = SettingsUiSource.file("SettingsHomePresenter")
         assertTrue(home.contains("settings_home_page"))
         assertTrue(home.contains("settings_home_scroll_"))
-        assertTrue(home.contains("scrolls[0].doOnNextLayout"))
-        assertTrue(home.contains("if (!disposed && userNavigationGeneration == 0L)"))
+        assertTrue(home.contains("schedulePageRestore(0)"))
+        assertTrue(home.contains("schedulePageRestore(index)"))
+        assertTrue(home.contains("if (!disposed) scrollRestore.consume(ticket)"))
+        assertTrue(home.contains("scrollRestore.savedOffset(index, scroll.scrollY)"))
+        assertTrue(home.contains("scrollRestore.close()"))
         assertTrue(home.contains("if (disposed || activity.isFinishing || activity.isDestroyed) return"))
         assertTrue(home.contains("stretches.forEach(finishStretch)"))
         assertTrue(home.contains("peerDisposers.forEach { it() }"))

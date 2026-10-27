@@ -11,25 +11,84 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.text.TextUtils
 import android.util.AttributeSet
+import android.util.TypedValue
+import android.widget.CompoundButton
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.graphics.ColorUtils
 import com.Bilibili_Innocent_Lab.xposedmodule.R
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.SettingStore
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.activity.SettingState
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.liquid.LiquidChoiceDrawable
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.theme.ModernPalette
-import com.highcapable.betterandroid.ui.extension.component.base.isUiInNightMode
-import com.highcapable.betterandroid.ui.extension.component.base.toPx
-import com.highcapable.hikage.annotation.HikageView
-import top.defaults.drawabletoolbox.DrawableBuilder
 
-@HikageView
-class MaterialSwitch(context: Context, attrs: AttributeSet?) : SwitchCompat(context, attrs) {
+/**
+ * 优先使用主题里的轻量开关样式：它继承默认开关样式，只去掉 thumb/track 及其着色。
+ * 那两块默认资源在构造时解析成本最高，而挂载时 [applyMonetStyle]（或皮肤遍历）一定会整体替换，
+ * 从未被画出。主题未声明该属性时（例如独立透明窗口）退回 AppCompat 默认开关样式。
+ */
+private fun switchStyleAttr(context: Context): Int =
+    if (context.theme.resolveAttribute(R.attr.bilMaterialSwitchStyle, TypedValue(), true)) R.attr.bilMaterialSwitchStyle
+    else androidx.appcompat.R.attr.switchStyle
+
+class MaterialSwitch(context: Context, attrs: AttributeSet?) : SwitchCompat(context, attrs, switchStyleAttr(context)) {
 
     /** Explicit catalog identity; never inferred from localized text. */
     internal var settingId: String? = null
     internal var supportsFavoriteToggle: Boolean = false
     private var stateObservers: MutableList<() -> Unit>? = null
     private var monetStyleApplied = false
+    private var modelStore: SettingStore? = null
+    private var modelDisposer: (() -> Unit)? = null
+    private var modelReady = false
+    private var modelRendering = false
+    private var renderedModelState: SettingState? = null
+    internal var onModelStateRendered: (() -> Unit)? = null
+
+    internal fun bindModel(store: SettingStore, id: String) {
+        unbindModel()
+        modelStore = store
+        settingId = id
+    }
+
+    internal fun finishModelBinding() {
+        val store = modelStore ?: return
+        val id = settingId ?: return
+        store.confirm(id, store.state(id).copy(enabled = store.state(id).enabled && isEnabled))
+        modelReady = true
+        modelDisposer = store.observe(id, ::renderModelState)
+        renderModelState(store.state(id))
+    }
+
+    internal fun renderModelState(state: SettingState) {
+        val changed = renderedModelState != state
+        renderedModelState = state
+        modelRendering = true
+        try { isChecked = state.checked; isEnabled = state.enabled }
+        finally { modelRendering = false }
+        if (changed) onModelStateRendered?.invoke()
+    }
+
+    internal fun unbindModel() {
+        modelDisposer?.invoke()
+        modelDisposer = null
+        modelStore = null
+        modelReady = false
+        renderedModelState = null
+        onModelStateRendered = null
+    }
+
+    override fun setOnCheckedChangeListener(listener: CompoundButton.OnCheckedChangeListener?) {
+        super.setOnCheckedChangeListener(if (listener == null) null else CompoundButton.OnCheckedChangeListener { button, value ->
+            if (!modelRendering) listener.onCheckedChanged(button, value)
+        })
+    }
+
+    private fun publishModelState() {
+        if (!modelReady || modelRendering) return
+        val id = settingId ?: return
+        modelStore?.confirm(id, SettingState(isChecked, isEnabled))
+    }
 
     internal fun observeState(observer: () -> Unit): () -> Unit {
         val observers = stateObservers ?: mutableListOf<() -> Unit>().also { stateObservers = it }
@@ -39,12 +98,14 @@ class MaterialSwitch(context: Context, attrs: AttributeSet?) : SwitchCompat(cont
 
     override fun setChecked(checked: Boolean) {
         super.setChecked(checked)
+        publishModelState()
         // The existing listener may reject/revert a request. Peers see the final authoritative state.
         stateObservers?.toList()?.forEach { it() }
     }
 
     override fun setEnabled(enabled: Boolean) {
         super.setEnabled(enabled)
+        publishModelState()
         stateObservers?.toList()?.forEach { it() }
     }
 
@@ -90,40 +151,9 @@ class MaterialSwitch(context: Context, attrs: AttributeSet?) : SwitchCompat(cont
         )
     }
 
-    private fun trackColors(selected: Int, pressed: Int, normal: Int): ColorStateList {
-        val colors = intArrayOf(selected, pressed, normal)
-        val states = arrayOfNulls<IntArray>(3)
-        states[0] = intArrayOf(android.R.attr.state_checked)
-        states[1] = intArrayOf(android.R.attr.state_pressed)
-        states[2] = intArrayOf()
-        return ColorStateList(states, colors)
-    }
-
-    private val thumbColor
-        get() = if (resources.configuration.isUiInNightMode) 0xFF7C7C7C else 0xFFCCCCCC
-
     init {
-        trackDrawable = DrawableBuilder()
-            .rectangle()
-            .rounded()
-            .solidColor(0xFF656565.toInt())
-            .height(20.toPx(context))
-            .cornerRadius(15.toPx(context))
-            .build()
-        thumbDrawable = DrawableBuilder()
-            .rectangle()
-            .rounded()
-            .solidColor(Color.WHITE)
-            .size(20.toPx(context), 20.toPx(context))
-            .cornerRadius(20.toPx(context))
-            .strokeWidth(8.toPx(context))
-            .strokeColor(Color.TRANSPARENT)
-            .build()
-        trackTintList = trackColors(
-            0xFF656565.toInt(),
-            thumbColor.toInt(),
-            thumbColor.toInt()
-        )
+        // 构造期不再搭建占位 thumb/track：挂载时 applyMonetStyle（以及皮肤遍历）必定以
+        // 20dp 的 LiquidChoiceDrawable 整体替换，旧占位从未上屏；皮肤遍历按 20dp 下限取尺寸，结果不变。
         isSingleLine = true
         ellipsize = TextUtils.TruncateAt.END
     }

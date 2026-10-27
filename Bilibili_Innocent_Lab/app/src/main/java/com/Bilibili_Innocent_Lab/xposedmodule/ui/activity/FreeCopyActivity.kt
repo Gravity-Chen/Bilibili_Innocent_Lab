@@ -14,6 +14,8 @@
 
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.setMeguvizContentView
+
 import android.graphics.Typeface
 import android.os.Bundle
 import android.view.Gravity
@@ -21,17 +23,14 @@ import android.view.View
 import android.widget.LinearLayout
 import androidx.core.view.updatePadding
 import com.highcapable.betterandroid.ui.extension.view.textColor
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.extension.setContentView
-import com.highcapable.hikage.widget.android.widget.LinearLayout
-import com.highcapable.hikage.widget.android.widget.TextView
-import com.highcapable.hikage.widget.androidx.core.widget.NestedScrollView
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.Bilibili_Innocent_Lab.xposedmodule.R
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.terms.UserTermsConsentStore
 import com.Bilibili_Innocent_Lab.xposedmodule.ui.skin.activity.SkinnedActivity
 
 class FreeCopyActivity : SkinnedActivity() {
+    private var meguvizSession: io.github.jichuo1.meguviz.ui.UiSession? = null
+
 
     private var liquidStretchScrollTarget: View? = null
     private var liquidStretchViewport: View? = null
@@ -60,16 +59,16 @@ class FreeCopyActivity : SkinnedActivity() {
             return
         }
 
-        setContentView {
-            LinearLayout(
-                lparams = LayoutParams(matchParent = true),
+        meguvizSession = setMeguvizContentView {
+            linearLayout(key = "FreeCopyActivity:64",
+                lparams = params(matchParent = true),
                 init = {
                     orientation = LinearLayout.VERTICAL
                 }
             ) {
                 // ===== 顶部 AppBar =====
-                LinearLayout(
-                    lparams = LayoutParams(widthMatchParent = true),
+                linearLayout(key = "FreeCopyActivity:71",
+                    lparams = params(widthMatchParent = true),
                     init = {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = Gravity.CENTER or Gravity.START
@@ -78,8 +77,8 @@ class FreeCopyActivity : SkinnedActivity() {
                     }
                 ) {
                     // 关闭按钮（✕，48dp 点击热区）
-                    TextView(
-                        lparams = LayoutParams(48.dp, 48.dp),
+                    textView(key = "FreeCopyActivity:81",
+                        lparams = params(48.dp, 48.dp),
                         init = {
                             text = "✕"
                             contentDescription = stringResource(R.string.free_copy_close)
@@ -90,8 +89,8 @@ class FreeCopyActivity : SkinnedActivity() {
                         }
                     )
                     // 标题
-                    TextView(
-                        lparams = LayoutParams {
+                    textView(key = "FreeCopyActivity:93",
+                        lparams = params {
                             weight = 1f
                         },
                         init = {
@@ -103,8 +102,8 @@ class FreeCopyActivity : SkinnedActivity() {
                     )
                 }
                 // ===== 提示行 =====
-                TextView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                textView(key = "FreeCopyActivity:106",
+                    lparams = params(widthMatchParent = true) {
                         leftMargin = 20.dp
                         topMargin = 14.dp
                         rightMargin = 20.dp
@@ -117,8 +116,8 @@ class FreeCopyActivity : SkinnedActivity() {
                     }
                 )
                 // ===== 可选择文本区（卡片内 TextView，系统级选择复制）=====
-                NestedScrollView(
-                    lparams = LayoutParams(widthMatchParent = true) {
+                nestedScrollView(key = "FreeCopyActivity:120",
+                    lparams = params(widthMatchParent = true) {
                         weight = 1f
                         leftMargin = 15.dp
                         topMargin = 10.dp
@@ -129,8 +128,8 @@ class FreeCopyActivity : SkinnedActivity() {
                         liquidStretchScrollTarget = this
                     }
                 ) {
-                    TextView(
-                        lparams = LayoutParams(widthMatchParent = true),
+                    textView(key = "FreeCopyActivity:132",
+                        lparams = params(widthMatchParent = true),
                         init = {
                             text = commentText
                             textColor = colorResource(R.color.colorTextGray)
@@ -154,6 +153,8 @@ class FreeCopyActivity : SkinnedActivity() {
     }
 
     override fun onDestroy() {
+        meguvizSession?.close()
+        meguvizSession = null
         finishPreparedLiquidStretch(liquidStretchViewport)
         liquidStretchViewport = null
         liquidStretchScrollTarget = null

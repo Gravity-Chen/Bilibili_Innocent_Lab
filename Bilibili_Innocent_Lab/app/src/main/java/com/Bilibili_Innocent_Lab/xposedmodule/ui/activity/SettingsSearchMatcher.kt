@@ -16,7 +16,7 @@ internal data class SettingsSearchMatch(
     val sectionRanges: List<IntRange>
 )
 
-/** 纯文本匹配层；索引来自当前已渲染、已本地化的设置控件，不复制业务配置目录。 */
+/** 纯文本匹配层；索引合并已本地化的 UI 元数据和已构建页面的动态摘要。 */
 internal object SettingsSearchMatcher {
     fun search(
         query: String,

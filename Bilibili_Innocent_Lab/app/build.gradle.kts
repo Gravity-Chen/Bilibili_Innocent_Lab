@@ -26,8 +26,6 @@ import java.nio.file.Files
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.ksp)
-    alias(libs.plugins.hikage)
 }
 
 /** Build-owned stripped payloads and trusted specifications. No host/runtime input supplies hashes. */
@@ -148,13 +146,6 @@ if (hasAnyReleaseSigningValue && !hasCompleteReleaseSigningValues) {
 val releaseSigningStore = releaseSigningStoreFile?.let(project::file)
 if (hasCompleteReleaseSigningValues && releaseSigningStore?.isFile != true) {
     throw GradleException("Release signing keystore does not exist: $releaseSigningStore")
-}
-
-hikage {
-    compiler {
-        // 项目显式管理 Kotlin/KSP 版本，禁止 Hikage 插件启用内置 KSP 兜底。
-        useEmbeddedKsp = false
-    }
 }
 
 // Library API migration hints are expensive on the large Kotlin/UAST source tree.
@@ -432,10 +423,9 @@ tasks.withType<Test>().configureEach {
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
-// 测试源码不含 @Hikagable 注解，跳过无产出的测试 KSP 与测试 Lint 模型构建。
+// 测试 Lint 模型由现有独立测试门禁覆盖。
 tasks.matching {
-    (it.name.startsWith("ksp") && it.name.contains("Test")) ||
-        (it.name.contains("Lint") && (it.name.contains("UnitTest") || it.name.contains("AndroidTest")))
+    it.name.contains("Lint") && (it.name.contains("UnitTest") || it.name.contains("AndroidTest"))
 }.configureEach {
     enabled = false
 }
@@ -573,14 +563,10 @@ dependencies {
     // 仅在后台版本适配缺点时启用；不进入 quickLocate 与 Hook 热路径。
     implementation(libs.dexkit)
 
-    // Hikage via BOM (https://betterandroid.github.io/Hikage/zh-cn/library/hikage-bom.html)
-    // 插件已自动装配 KSP 与 hikage-compiler，无需手动 ksp 声明
-    implementation(platform(libs.hikage.bom))
-    implementation(libs.hikage.core)
-    implementation(libs.hikage.extension)
-    implementation(libs.hikage.runtime.attribute)
-    implementation(libs.hikage.widget.androidx)
-    implementation(libs.hikage.widget.material)
+    // MeguvizUI (https://github.com/jichuo1/MeguvizUI)：设置页视图工厂与挂载会话。
+    implementation(libs.meguviz.ui.core)
+    // 设置页空闲分帧预建；仅主线程有界调度，不把 View 构造挪到后台。
+    implementation(libs.meguviz.ui.prewarm)
 
     // Optional: BetterAndroid (https://github.com/BetterAndroid/BetterAndroid)
     implementation(libs.betterandroid.ui.component)

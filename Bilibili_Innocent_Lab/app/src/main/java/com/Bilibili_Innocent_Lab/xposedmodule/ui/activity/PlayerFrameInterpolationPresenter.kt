@@ -1,5 +1,7 @@
 package com.Bilibili_Innocent_Lab.xposedmodule.ui.activity
 
+import com.Bilibili_Innocent_Lab.xposedmodule.ui.meguviz.LinearSettingsScope
+
 import android.util.Log
 import android.view.View
 import android.widget.TextView as NativeTextView
@@ -19,25 +21,19 @@ import com.Bilibili_Innocent_Lab.xposedmodule.settings.remote.RemoteHookConfigSt
 import com.Bilibili_Innocent_Lab.xposedmodule.settings.prefs
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.updatePadding
-import com.highcapable.hikage.core.Hikage
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.widget.android.widget.LinearLayout
-import com.highcapable.hikage.widget.android.widget.TextView
-import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 
 /**
  * 播放页「视频插帧」：开关 + 模型下载行。入口只在 [FrameInterpolationEntryGate.entryOpen] 时渲染；
  * 模型只在用户点击后下载（[FrameModelDownloader]），检查与下载都在后台线程，结果回主线程刷新摘要。
  */
-@com.highcapable.hikage.annotation.Hikagable
 internal fun MainActivity.playerFrameInterpolationSettingsRows(
-    performer: Hikage.Performer<NativeLinearLayout.LayoutParams>,
+    performer: LinearSettingsScope,
     uiSettings: ModuleUiSettings
 ) {
     if (!FrameInterpolationEntryGate.entryOpen()) return
     with(performer) {
-        TextView(
-            lparams = LayoutParams(widthMatchParent = true) {
+        textView(key = "PlayerFrameInterpolationPresenter:39",
+            lparams = params(widthMatchParent = true) {
                 topMargin = AdvancedSubsectionStyle.TOP_MARGIN_DP.dp
                 bottomMargin = AdvancedSubsectionStyle.BOTTOM_MARGIN_DP.dp
             }
@@ -46,8 +42,8 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             applyAdvancedSubsectionStyle()
         }
         val key = FeaturePreferences.PLAYER_FRAME_INTERPOLATION
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "PlayerFrameInterpolationPresenter:49",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 12.dp
                 bottomMargin = 5.dp
             }
@@ -59,18 +55,14 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = uiSettings.bool(key)
-            setOnCheckedChangeListener { _, checked ->
-                runCatching { prefs().edit { putBoolean(key, checked) } }.onFailure {
-                    Log.e("BilibiliInnocentLab", "write frame interpolation prefs failed", it)
-                }
-            }
+            setOnCheckedChangeListener { button, checked -> applyModeledToggle(key, checked, button) }
         }
         val maxFpsKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_MAX_FPS
         var maxFps = uiSettings.int(maxFpsKey).takeIf { it in FrameRateTarget.CEILINGS } ?: 60
         var maxFpsSummary: NativeTextView? = null
         fun refreshMaxFps() { maxFpsSummary?.text = getString(R.string.player_frame_max_fps_current, maxFps) }
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) { topMargin = 8.dp },
+        linearLayout(key = "PlayerFrameInterpolationPresenter:72",
+            lparams = params(widthMatchParent = true) { topMargin = 8.dp },
             init = {
                 orientation = NativeLinearLayout.VERTICAL
                 background = selfRippleBackground(10f)
@@ -83,12 +75,12 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 }
             }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PlayerFrameInterpolationPresenter:86", lparams = params(widthMatchParent = true)) {
                 text = stringResource(R.string.player_frame_max_fps)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 5.dp }) {
+            textView(key = "PlayerFrameInterpolationPresenter:91", lparams = params(widthMatchParent = true) { topMargin = 5.dp }) {
                 alpha = 0.6f
                 textColor = colorResource(R.color.colorTextDark)
                 textSize = 12f
@@ -98,8 +90,8 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             }
         }
         val thermalKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_DISABLE_THERMAL_CONTROL
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) { topMargin = 8.dp; bottomMargin = 2.dp }
+        materialSwitch(key = "PlayerFrameInterpolationPresenter:101",
+            lparams = params(widthMatchParent = true) { topMargin = 8.dp; bottomMargin = 2.dp }
         ) {
             bindFavoriteSwitch(this, thermalKey)
             bindSettingDestination(this, thermalKey)
@@ -107,29 +99,10 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             isAllCaps = false
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
-            var savedDisabled = uiSettings.bool(thermalKey)
-            var programmatic = false
-            isChecked = savedDisabled
-            fun saveThermalDisabled(value: Boolean) {
-                val saved = runCatching {
-                    val preferences = prefs()
-                    preferences.edit { putBoolean(thermalKey, value) }
-                    check(preferences.getBoolean(thermalKey, !value) == value)
-                }.onFailure {
-                    Log.e("BilibiliInnocentLab", "write frame thermal control prefs failed", it)
-                }.isSuccess
-                if (saved) savedDisabled = value
-                programmatic = true; isChecked = savedDisabled; programmatic = false
-            }
-            setOnCheckedChangeListener { button, checked ->
-                if (programmatic) return@setOnCheckedChangeListener
-                // No enabling write until the secondary confirmation succeeds; cancel stays unchanged.
-                programmatic = true; button.isChecked = savedDisabled; programmatic = false
-                if (checked) showFrameInterpolationThermalConfirmDialog(button) { saveThermalDisabled(true) }
-                else saveThermalDisabled(false)
-            }
+            isChecked = uiSettings.bool(thermalKey)
+            setOnCheckedChangeListener { button, checked -> applyModeledToggle(thermalKey, checked, button) }
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "PlayerFrameInterpolationPresenter:132", lparams = params(widthMatchParent = true)) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.player_frame_disable_thermal_control_summary)
@@ -137,8 +110,8 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             textSize = 12f
         }
         val statusKey = FeaturePreferences.PLAYER_FRAME_INTERPOLATION_STATUS_TOAST
-        MaterialSwitch(
-            lparams = LayoutParams(widthMatchParent = true) {
+        materialSwitch(key = "PlayerFrameInterpolationPresenter:140",
+            lparams = params(widthMatchParent = true) {
                 topMargin = 8.dp
                 bottomMargin = 2.dp
             }
@@ -150,13 +123,9 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
             textColor = colorResource(R.color.colorTextGray)
             textSize = 15f
             isChecked = uiSettings.bool(statusKey)
-            setOnCheckedChangeListener { _, checked ->
-                runCatching { prefs().edit { putBoolean(statusKey, checked) } }.onFailure {
-                    Log.e("BilibiliInnocentLab", "write frame status toast prefs failed", it)
-                }
-            }
+            setOnCheckedChangeListener { button, checked -> applyModeledToggle(statusKey, checked, button) }
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "PlayerFrameInterpolationPresenter:159", lparams = params(widthMatchParent = true)) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.player_frame_status_toast_summary)
@@ -222,8 +191,8 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 else -> Unit
             }
         }
-        LinearLayout(
-            lparams = LayoutParams(widthMatchParent = true) { topMargin = 8.dp },
+        linearLayout(key = "PlayerFrameInterpolationPresenter:225",
+            lparams = params(widthMatchParent = true) { topMargin = 8.dp },
             init = {
                 orientation = NativeLinearLayout.VERTICAL
                 background = selfRippleBackground(10f)
@@ -259,12 +228,12 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 }
             }
         ) {
-            TextView(lparams = LayoutParams(widthMatchParent = true)) {
+            textView(key = "PlayerFrameInterpolationPresenter:262", lparams = params(widthMatchParent = true)) {
                 text = stringResource(R.string.player_frame_model)
                 textColor = colorResource(R.color.colorTextGray)
                 textSize = 15f
             }
-            TextView(lparams = LayoutParams(widthMatchParent = true) { topMargin = 5.dp }) {
+            textView(key = "PlayerFrameInterpolationPresenter:267", lparams = params(widthMatchParent = true) { topMargin = 5.dp }) {
                 alpha = 0.6f
                 textColor = colorResource(R.color.colorTextDark)
                 textSize = 12f
@@ -282,7 +251,7 @@ internal fun MainActivity.playerFrameInterpolationSettingsRows(
                 })
             }
         }
-        TextView(lparams = LayoutParams(widthMatchParent = true)) {
+        textView(key = "PlayerFrameInterpolationPresenter:285", lparams = params(widthMatchParent = true)) {
             alpha = 0.6f
             setLineSpacing(6f, 1f)
             text = stringResource(R.string.player_frame_interpolation_tip)

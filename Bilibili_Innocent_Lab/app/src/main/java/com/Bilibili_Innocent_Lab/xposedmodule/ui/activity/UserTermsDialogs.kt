@@ -28,9 +28,6 @@ import com.Bilibili_Innocent_Lab.xposedmodule.telemetry.TelemetryStore
 import com.highcapable.betterandroid.system.extension.utils.AndroidVersion
 import com.highcapable.betterandroid.ui.extension.view.textColor
 import com.highcapable.betterandroid.ui.extension.view.toast
-import com.highcapable.hikage.core.layout.LayoutParams
-import com.highcapable.hikage.extension.setContentView
-import com.highcapable.hikage.widget.com.Bilibili_Innocent_Lab.xposedmodule.ui.view.MaterialSwitch
 import java.lang.ref.WeakReference
 import android.R as Android_R
 import android.widget.FrameLayout as NativeFrameLayout
