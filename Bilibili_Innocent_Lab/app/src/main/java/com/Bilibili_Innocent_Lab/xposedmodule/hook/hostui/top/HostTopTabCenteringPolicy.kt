@@ -32,4 +32,18 @@ internal object HostTopTabCenteringPolicy {
             ?: return null
         return plan.leftPadding + (plan.stripWidth - occupiedWidth) / 2
     }
+
+    /**
+     * Compose placement in tab-viewport pixels. [tabLeft], [safeLeft] and [safeRight] come from the
+     * last positioned frame. khome animates only the viewport's right edge (the actions padding grows
+     * from 54dp to 92dp as the search icon appears while the AppBar collapses), so the capsule center
+     * and the viewport's left edge stay valid; the current [viewportWidth] only bounds the right side.
+     */
+    fun dockCenteredOffset(count: Int, dockWidth: Int, tabLeft: Int, safeLeft: Int, safeRight: Int,
+                           viewportWidth: Int, occupiedWidth: Int): Int? {
+        if (viewportWidth <= 0 || tabLeft < 0 || tabLeft + viewportWidth > dockWidth + 1) return null
+        val right = min(min(safeRight, tabLeft + viewportWidth), dockWidth)
+        val x = centeredOffset(count, dockWidth, safeLeft, right, occupiedWidth) ?: return null
+        return x + safeLeft - tabLeft
+    }
 }

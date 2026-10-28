@@ -59,4 +59,31 @@ class HostTopTabCenteringPolicyTest {
         assertNull(HostTopTabCenteringPolicy.centeredOffset(3, 600, 0, 540, 160))
         assertNull(HostTopTabCenteringPolicy.centeredOffset(2, 600, 0, 540, 481))
     }
+    @Test fun `tabs stay put while the collapsing AppBar grows the actions padding frame by frame`() {
+        // 411dp capsule at 2.75x; the native viewport loses 54dp..92dp of end padding to the actions.
+        val density = 2.75f
+        val dock = (411 * density).toInt()
+        val expanded = dock - (54 * density).toInt()
+        val content = (48 * density).toInt()
+        // Geometry is the last positioned frame (expanded); layouts below run before it catches up.
+        val positions = (0..38).map { step ->
+            val viewport = dock - ((54 + step) * density).toInt()
+            HostTopTabCenteringPolicy.dockCenteredOffset(1, dock, 0, 0, expanded, viewport, content)
+        }
+        assertTrue(positions.all { it != null })
+        assertEquals("One fixed position through the whole collapse", 1, positions.toSet().size)
+        assertEquals(dock / 2f, positions.first()!! + content / 2f, 1f)
+        // Expanding again: the stale actions edge is further left than the growing viewport.
+        val collapsedEdge = dock - (92 * density).toInt()
+        assertEquals(positions.first(),
+            HostTopTabCenteringPolicy.dockCenteredOffset(1, dock, 0, 0, collapsedEdge, expanded, content))
+    }
+    @Test fun `dock centering still declines what the native layout must keep`() {
+        assertNull("Three tabs", HostTopTabCenteringPolicy.dockCenteredOffset(3, 1000, 0, 0, 900, 800, 100))
+        assertNull("Centered tabs would reach the actions", HostTopTabCenteringPolicy.dockCenteredOffset(2, 1000, 0, 0, 900, 560, 200))
+        assertNull("Viewport outside the capsule", HostTopTabCenteringPolicy.dockCenteredOffset(1, 1000, 100, 100, 1000, 950, 100))
+        assertNull("Unmeasured viewport", HostTopTabCenteringPolicy.dockCenteredOffset(1, 1000, 0, 0, 900, 0, 100))
+        assertEquals("Viewport offset inside the capsule is local", 400,
+            HostTopTabCenteringPolicy.dockCenteredOffset(1, 1000, 50, 50, 900, 850, 100))
+    }
 }

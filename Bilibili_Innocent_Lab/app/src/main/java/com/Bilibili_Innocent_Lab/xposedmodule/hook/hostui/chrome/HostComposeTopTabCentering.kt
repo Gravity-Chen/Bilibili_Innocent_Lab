@@ -159,9 +159,10 @@ internal object HostComposeTopTabCentering {
             // Recheck attachment as a menu may disappear without another layout callback.
             if (!access.isAttached(tabs?.get()) || actions?.get()?.let { !access.isAttached(it) } == true) refresh()
             val g = geometry ?: return null
-            if (abs(viewportWidth - g.tabWidth) > 1) return null
-            val x = HostTopTabCenteringPolicy.centeredOffset(count, g.dockWidth, g.safeLeft, g.safeRight, contentWidth) ?: return null
-            return x + g.safeLeft - g.tabLeft
+            // The positioned callback trails the layout by a frame while the actions padding animates;
+            // requiring the old viewport width here dropped the tabs back to the native start each frame.
+            return HostTopTabCenteringPolicy.dockCenteredOffset(count, g.dockWidth, g.tabLeft, g.safeLeft, g.safeRight,
+                viewportWidth, contentWidth)
         }
     }
 
