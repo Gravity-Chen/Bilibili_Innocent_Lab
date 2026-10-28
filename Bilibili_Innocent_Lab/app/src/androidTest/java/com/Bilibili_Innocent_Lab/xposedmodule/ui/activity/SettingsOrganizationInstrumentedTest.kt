@@ -76,6 +76,9 @@ class SettingsOrganizationInstrumentedTest {
                     R.string.settings_home_enhance, R.string.settings_home_beautify,
                     R.string.settings_home_module
                 ).map(activity::getString), tabs)
+                val home = requireNotNull(activity.settingsHome)
+                // 设置页按需构建：首帧只建收藏页和恢复页，先建出美化页再检查控件归属。
+                home.ensurePage(3)
                 val targets = activity.collectSettingsSearchTargets()
                 val controls = appearanceTitles.map { title -> label(activity, title) }
                 val scroll = ancestors(controls.first()).filterIsInstance<NestedScrollView>().single()
@@ -83,7 +86,10 @@ class SettingsOrganizationInstrumentedTest {
                     assertTrue(ancestors(control).any { it === scroll })
                     assertEquals(MainActivity.SettingsSearchSection.BEAUTIFICATION,
                         targets.single { it.view === control }.section)
-                    assertEquals(1, requireNotNull(activity.settingsHome).entries.count { it.source === control })
+                    // 收藏条目只持有设置 ID；沿收藏行点击的同一解析路径，恰有一个条目落到该控件。
+                    assertEquals(1, home.entries.count { entry ->
+                        targets.firstOrNull { entry.id in it.settingIds }?.view === control
+                    })
                 }
                 select(activity, R.string.settings_home_beautify)
             }
