@@ -81,6 +81,8 @@ internal class HostComposeChromePainter(
     private var capsule: HostChromeTopCapsule? = null
     private val underlay = Paint()
     private var headerId = 0
+    private val float = if (bottom == null) HostKhomeTopFloat() else null
+    private var staleFrames = 0
     private val header = HostChromeHeaderBackdrop(object : HostChromeHeaderBackdrop.Ops<View, ViewGroup> {
         override fun alpha(header: View) = header.alpha
         override fun setAlpha(header: View, alpha: Float) { header.alpha = alpha }
@@ -127,16 +129,19 @@ internal class HostComposeChromePainter(
         HostThreadGuard.run("host.chrome.backdrop") { runCatching(::wake).onFailure(::failure) }
     }
     private val layoutChanged = ViewTreeObserver.OnGlobalLayoutListener {
+        float?.markDirty()
         HostThreadGuard.run("host.chrome.layout") { runCatching(::requestBackdropRefresh).onFailure(::failure) }
     }
     private val scrollChanged = ViewTreeObserver.OnScrollChangedListener {
         HostThreadGuard.run("host.chrome.scroll") { runCatching(::requestBackdropRefresh).onFailure(::failure) }
     }
     private val preDraw = ViewTreeObserver.OnPreDrawListener {
+        var proceed = true
         runCatching {
             val currentOwner = this.owner.get() ?: return@runCatching
             trackOwner(currentOwner)
-            syncHeader(currentOwner)
+            // A frame drawn before the relayout would show the feed at its old place; bound the retries.
+            if (syncTop(currentOwner) && staleFrames < 2) { staleFrames++; proceed = false } else staleFrames = 0
             val visible = actuallyVisible(currentOwner)
             target?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
             val shouldPause = !visible
@@ -160,14 +165,14 @@ internal class HostComposeChromePainter(
             val next = viewport?.contentVersion
             if (next != version) { version = next; session?.notifyContentChanged() }
         }.onFailure(::failure)
-        true
+        proceed
     }
     private val attach = object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(v: View) = HostThreadGuard.run("host.chrome.attach") {
             runCatching(::wake).onFailure(::failure)
         }
         override fun onViewDetachedFromWindow(v: View) = HostThreadGuard.run("host.chrome.detach") {
-            backdropRecovery.clear(); release()?.let(::failure); activeTouch = false
+            backdropRecovery.clear(); release(dispose = true)?.let(::failure); activeTouch = false
         }
     }
 
@@ -329,7 +334,7 @@ internal class HostComposeChromePainter(
             }
             val nextColors = theme.read()
             if (colors != nextColors) {
-                colors = nextColors; source?.windowBaseColor = colors.palette().background
+                colors = nextColors; source?.windowBaseColor = sampleBase()
                 session?.updatePalette(colors.palette()); prism?.updatePalette(colors.palette())
                 binding?.update(HostSurfaceStyle.floating(colors.dark, radiusDp(owner), appearance.compatible(Build.VERSION.SDK_INT)))
                 glow?.recolor(colors.accent)
@@ -415,7 +420,8 @@ internal class HostComposeChromePainter(
      * behind it. Restore the scene base unless the module wallpaper shows through.
      */
     private fun paintBase(owner: View, destination: Canvas, w: Float, h: Float) {
-        if (bottom != null || moduleWallpaperBehind(owner)) return
+        // A floating capsule shows the feed through the glass; only an empty row needs the base.
+        if (bottom != null || float?.floating == true || moduleWallpaperBehind(owner)) return
         underlay.color = pageBase()
         destination.drawRect(0f, 0f, w, h, underlay)
     }
@@ -423,28 +429,25 @@ internal class HostComposeChromePainter(
     /** The feed's own base (`Ga1`), so the row and the uncovered header blend into the page. */
     private fun pageBase(): Int = theme.pageBase(colors.dark) ?: (colors.palette().background or 0xFF000000.toInt())
 
-    /**
-     * Hide the native header base only while the capsule actually replaces the row. An equipped
-     * garb keeps its artwork, like the native top bar path; a module wallpaper stays uncovered.
-     */
-    private fun syncHeader(owner: View) {
-        if (bottom != null) return
-        val located = if (glass && !failed && replacementReady && colors.garbAccent == null) nativeHeader(owner) else null
-        if (located == null) { header.restore(); return }
-        header.apply(located.first, located.second, if (moduleWallpaperBehind(owner)) null else pageBase())
-    }
+    /** The top glass samples the same page base the feed shows; the bottom bar keeps its palette. */
+    private fun sampleBase(): Int = if (bottom == null) pageBase() else colors.palette().background
 
-    /** khome: `main_top_layout` is drawn before the AppBar holding this row, in the same CoordinatorLayout. */
-    private fun nativeHeader(owner: View): Pair<View, ViewGroup>? {
-        val appBar = owner.parent as? ViewGroup ?: return null
-        val root = appBar.parent as? ViewGroup ?: return null
+    /**
+     * khome only, while the capsule actually replaces the row: hide the native header base
+     * (`main_top_layout`) and float the feed under the AppBar. An equipped garb keeps its header
+     * artwork, like the native top bar path; a module wallpaper stays uncovered. Returns true when
+     * host layout changed in this pre-draw.
+     */
+    private fun syncTop(owner: View): Boolean {
+        val float = float ?: return false
+        val active = glass && !failed && replacementReady
         if (headerId == 0) headerId = owner.resources.getIdentifier("main_top_layout", "id", owner.context.packageName)
-        if (headerId == 0) return null
-        for (index in 0 until root.indexOfChild(appBar)) {
-            val child = root.getChildAt(index)
-            if (child.id == headerId && child.javaClass.name.endsWith("ComposeView")) return child to root
-        }
-        return null
+        // owner is the row's AndroidComposeView, one level inside its ComposeView.
+        val frame = if (active) HostKhomeTopFloat.locate(owner, headerId) else null
+        val wallpaper = frame != null && moduleWallpaperBehind(owner)
+        val target = frame?.header?.takeIf { frame.appBar.visibility == View.VISIBLE && colors.garbAccent == null }
+        if (target == null) header.restore() else header.apply(target, frame.root, if (wallpaper) null else pageBase())
+        return float.sync(frame, active, if (wallpaper) null else pageBase())
     }
 
     private fun moduleWallpaperBehind(owner: View): Boolean {
@@ -464,7 +467,7 @@ internal class HostComposeChromePainter(
         try {
             root.overlay.add(target)
             syncTarget()
-            source = HostChromeContentSource(content ?: owner, colors.palette().background,
+            source = HostChromeContentSource(content ?: owner, sampleBase(),
                 includeViewContent = content != null, composeWindowBase = bottom == null)
             viewport = HostChromeViewportSource(requireNotNull(source), compositeView = appearance.material == HostGlassMaterial.PRISM) {
                 it(target, 0f, 0f, 72f * owner.resources.displayMetrics.density)
@@ -527,7 +530,7 @@ internal class HostComposeChromePainter(
         if (failed) return
         failed = true
         backdropRecovery.clear()
-        release()?.takeUnless { it === error }?.let { runCatching { error.addSuppressed(it) } }
+        release(dispose = true)?.takeUnless { it === error }?.let { runCatching { error.addSuppressed(it) } }
         val owned = nativeOwners.drain()
         // The surface and every native backdrop keep separate identity leases.
         if (owned.isNotEmpty()) runCatching {
@@ -542,8 +545,12 @@ internal class HostComposeChromePainter(
         runCatching { onError(error) }
     }
 
-    /** Clear ownership first, then release every resource even when one close operation fails. */
-    private fun release(): Throwable? {
+    /**
+     * Clear ownership first, then release every resource even when one close operation fails.
+     * A rebuild (new sample source or row size) keeps the host layout it is about to need again;
+     * only [dispose] (failure, detach) gives the header and the feed layout back.
+     */
+    private fun release(dispose: Boolean = false): Throwable? {
         val currentOwner = owner.get()
         val hadProbe = probeAt != null
         probeAt = null; posted = false
@@ -575,7 +582,10 @@ internal class HostComposeChromePainter(
         close { oldViewport?.close() }
         close { oldTarget?.let { oldOverlay?.overlay?.remove(it) } }
         close { glow?.resetGestureState() }
-        close { header.restore() }
+        if (dispose) {
+            close { header.restore() }
+            close { float?.restore() }
+        }
         return failure
     }
 }
